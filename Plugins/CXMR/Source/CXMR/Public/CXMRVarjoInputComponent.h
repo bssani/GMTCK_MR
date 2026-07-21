@@ -11,6 +11,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "CXMRTypes.h"
 #include "CXMRVarjoInputComponent.generated.h"
 
 class UInputMappingContext;
@@ -47,6 +48,25 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> RecalibrateAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> PlaceVehicleAction;
 
+	// --- Exterior turntable (left controller) ---
+	/** Axis1D. Held stick rotates the vehicle; sign is the direction. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> TurntableAxisAction;
+	/** Toggles continuous rotation; pressing the opposite direction switches rather than stacking. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> SpinLeftToggleAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> SpinRightToggleAction;
+
+	// --- Cycling (right controller). Axis1D, one step per flick — see the latch below. ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> CycleTrimAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> CycleVehicleAction;
+
+	/** Stick must pass this to register a step. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float CycleThreshold = 0.6f;
+
+	/** ...and fall back below this before the next one. Hysteresis, so a wobbling stick cannot double-step. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float CycleReleaseThreshold = 0.3f;
+
 private:
 	UCXMRSubsystem* GetCXMR() const;
 
@@ -59,4 +79,18 @@ private:
 	void OnMarkerToggle(const FInputActionValue& Value);
 	void OnRecalibrate(const FInputActionValue& Value);
 	void OnPlaceVehicle(const FInputActionValue& Value);
+
+	void OnTurntableAxis(const FInputActionValue& Value);
+	void OnSpinLeftToggle(const FInputActionValue& Value);
+	void OnSpinRightToggle(const FInputActionValue& Value);
+	void OnCycleTrim(const FInputActionValue& Value);
+	void OnCycleVehicle(const FInputActionValue& Value);
+	void OnCycleTrimReleased(const FInputActionValue& Value);
+	void OnCycleVehicleReleased(const FInputActionValue& Value);
+
+	/** Turns a continuous axis into discrete steps: fires once, then waits for the stick to return. */
+	void StepOnFlick(float AxisValue, bool& bLatched, ECXMRViewerAction Positive, ECXMRViewerAction Negative);
+
+	bool bTrimLatched    = false;
+	bool bVehicleLatched = false;
 };

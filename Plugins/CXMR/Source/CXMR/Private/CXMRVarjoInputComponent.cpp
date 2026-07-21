@@ -66,6 +66,23 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 	if (MarkerToggleAction)     { EIC->BindAction(MarkerToggleAction,     ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnMarkerToggle); }
 	if (RecalibrateAction)      { EIC->BindAction(RecalibrateAction,      ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnRecalibrate); }
 	if (PlaceVehicleAction)     { EIC->BindAction(PlaceVehicleAction,     ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnPlaceVehicle); }
+
+	// Turntable: Triggered fires every frame the stick is held, which is what the rotation wants.
+	if (TurntableAxisAction)   { EIC->BindAction(TurntableAxisAction,   ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnTurntableAxis); }
+	if (SpinLeftToggleAction)  { EIC->BindAction(SpinLeftToggleAction,  ETriggerEvent::Started,   this, &UCXMRVarjoInputComponent::OnSpinLeftToggle); }
+	if (SpinRightToggleAction) { EIC->BindAction(SpinRightToggleAction, ETriggerEvent::Started,   this, &UCXMRVarjoInputComponent::OnSpinRightToggle); }
+
+	// Cycling: Triggered drives the flick, Completed clears the latch when the stick returns to rest.
+	if (CycleTrimAction)
+	{
+		EIC->BindAction(CycleTrimAction, ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnCycleTrim);
+		EIC->BindAction(CycleTrimAction, ETriggerEvent::Completed, this, &UCXMRVarjoInputComponent::OnCycleTrimReleased);
+	}
+	if (CycleVehicleAction)
+	{
+		EIC->BindAction(CycleVehicleAction, ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnCycleVehicle);
+		EIC->BindAction(CycleVehicleAction, ETriggerEvent::Completed, this, &UCXMRVarjoInputComponent::OnCycleVehicleReleased);
+	}
 }
 
 void UCXMRVarjoInputComponent::OnMRToggle(const FInputActionValue&)         { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleMixedReality(); } }
@@ -77,3 +94,51 @@ void UCXMRVarjoInputComponent::OnMaskToggle(const FInputActionValue&)       { if
 void UCXMRVarjoInputComponent::OnMarkerToggle(const FInputActionValue&)     { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleMarkerTracking(); } }
 void UCXMRVarjoInputComponent::OnRecalibrate(const FInputActionValue&)      { if (UCXMRSubsystem* S = GetCXMR()) { S->RequestRecalibrate(); } }
 void UCXMRVarjoInputComponent::OnPlaceVehicle(const FInputActionValue&)     { if (UCXMRSubsystem* S = GetCXMR()) { S->RequestPlaceInFront(); } }
+
+// ---------- Viewer: turntable + cycling ----------
+
+void UCXMRVarjoInputComponent::OnTurntableAxis(const FInputActionValue& Value)
+{
+	if (UCXMRSubsystem* S = GetCXMR()) { S->RequestTurntableAxis(Value.Get<float>()); }
+}
+
+void UCXMRVarjoInputComponent::OnSpinLeftToggle(const FInputActionValue&)
+{
+	if (UCXMRSubsystem* S = GetCXMR()) { S->RequestViewerAction(ECXMRViewerAction::SpinLeft); }
+}
+
+void UCXMRVarjoInputComponent::OnSpinRightToggle(const FInputActionValue&)
+{
+	if (UCXMRSubsystem* S = GetCXMR()) { S->RequestViewerAction(ECXMRViewerAction::SpinRight); }
+}
+
+void UCXMRVarjoInputComponent::StepOnFlick(float AxisValue, bool& bLatched, ECXMRViewerAction Positive, ECXMRViewerAction Negative)
+{
+	const float Magnitude = FMath::Abs(AxisValue);
+
+	if (!bLatched && Magnitude >= CycleThreshold)
+	{
+		bLatched = true;
+		if (UCXMRSubsystem* S = GetCXMR())
+		{
+			S->RequestViewerAction(AxisValue > 0.0f ? Positive : Negative);
+		}
+	}
+	else if (bLatched && Magnitude <= CycleReleaseThreshold)
+	{
+		bLatched = false;
+	}
+}
+
+void UCXMRVarjoInputComponent::OnCycleTrim(const FInputActionValue& Value)
+{
+	StepOnFlick(Value.Get<float>(), bTrimLatched, ECXMRViewerAction::NextTrim, ECXMRViewerAction::PreviousTrim);
+}
+
+void UCXMRVarjoInputComponent::OnCycleVehicle(const FInputActionValue& Value)
+{
+	StepOnFlick(Value.Get<float>(), bVehicleLatched, ECXMRViewerAction::NextVehicle, ECXMRViewerAction::PreviousVehicle);
+}
+
+void UCXMRVarjoInputComponent::OnCycleTrimReleased(const FInputActionValue&)    { bTrimLatched = false; }
+void UCXMRVarjoInputComponent::OnCycleVehicleReleased(const FInputActionValue&) { bVehicleLatched = false; }

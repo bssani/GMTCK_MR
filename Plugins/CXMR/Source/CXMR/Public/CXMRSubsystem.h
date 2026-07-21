@@ -20,6 +20,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnFloatChanged, float, NewValue
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FCXMROnMarkerPose, int32, MarkerId, FVector, Position, FRotator, Rotation, FVector2D, Size);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnMarkerId, int32, MarkerId);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FCXMROnRequest);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnViewerAction, ECXMRViewerAction, Action);
 
 UCLASS(DisplayName = "CXMR Subsystem")
 class CXMR_API UCXMRSubsystem : public UGameInstanceSubsystem
@@ -103,6 +104,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void RequestPlaceInFront();
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Placement") FCXMROnRequest OnRecalibrateRequested;
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Placement") FCXMROnRequest OnPlaceRequested;
+
+	// ---------- Viewer relay (input/UI -> vehicle actor: turntable, vehicle/trim cycling) ----------
+	// Same rendezvous as placement: the pawn holds the input, the vehicle holds the turntable.
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Viewer") void RequestViewerAction(ECXMRViewerAction Action);
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Viewer") FCXMROnViewerAction OnViewerAction;
+
+	/** Held-stick turntable rotation. Raw axis; the turntable applies deadzone and speed. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Viewer") void RequestTurntableAxis(float AxisValue);
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Viewer") FCXMROnFloatChanged OnTurntableAxis;
 
 private:
 	// ============================================================================

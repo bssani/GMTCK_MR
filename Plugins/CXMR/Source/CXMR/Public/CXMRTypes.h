@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "CXMRTypes.generated.h"
 
+class UMaterialInterface;
+
 /**
  * Role of a Varjo marker in a project's marker profile.
  * Assigned per-entry (NOT derived from the ID number) — each project uses different physical IDs.
@@ -45,12 +47,88 @@ enum class ECXMRSceneRole : uint8
 	MaskMesh UMETA(DisplayName = "Mask Mesh")
 };
 
+/**
+ * Viewer commands relayed from input/UI to the vehicle actor through the subsystem.
+ *
+ * The pawn holds the input and the vehicle holds the turntable/loader, so they never see each other
+ * directly — the GameInstance subsystem is the rendezvous, exactly as it is for placement requests.
+ * One enum instead of one delegate per verb keeps that relay from ballooning as the Viewer grows.
+ */
+UENUM(BlueprintType)
+enum class ECXMRViewerAction : uint8
+{
+	SpinLeft        UMETA(DisplayName = "Spin Left"),      // toggle continuous rotation
+	SpinRight       UMETA(DisplayName = "Spin Right"),
+	StopSpin        UMETA(DisplayName = "Stop Spin"),
+	ResetRotation   UMETA(DisplayName = "Reset Rotation"),
+	NextVehicle     UMETA(DisplayName = "Next Vehicle"),
+	PreviousVehicle UMETA(DisplayName = "Previous Vehicle"),
+	NextTrim        UMETA(DisplayName = "Next Trim"),
+	PreviousTrim    UMETA(DisplayName = "Previous Trim"),
+	NextCMF         UMETA(DisplayName = "Next CMF")
+};
+
 /** How the vehicle is placed. */
 UENUM(BlueprintType)
 enum class ECXMRPlacementMode : uint8
 {
 	MarkerAnchor UMETA(DisplayName = "Marker Anchor"), // align to a Calibration marker (interior freeze / exterior stand)
 	PawnRelative UMETA(DisplayName = "Pawn Relative")  // place in front of the pawn, no marker (exterior turntable)
+};
+
+/**
+ * One material swap inside a CMF option.
+ *
+ * Parts are addressed by COMPONENT TAG, not by name or index — a vehicle BP can be re-authored,
+ * re-split or re-imported without invalidating the profile, as long as the tags survive.
+ */
+USTRUCT(BlueprintType)
+struct FCXMRMaterialOverride
+{
+	GENERATED_BODY()
+
+	/** Component tag to apply to. None = every primitive on the vehicle. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|CMF") FName PartTag;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|CMF", meta = (ClampMin = "0")) int32 MaterialSlot = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|CMF") TSoftObjectPtr<UMaterialInterface> Material;
+};
+
+/**
+ * Colour / material / finish option within a trim (paint, seat material, wheel finish).
+ * PROVISIONAL — the shape will be settled against a real vehicle asset; no CAD vehicle exists yet.
+ */
+USTRUCT(BlueprintType)
+struct FCXMRCMFOption
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|CMF") FName Name;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|CMF") TArray<FCXMRMaterialOverride> Materials;
+};
+
+/**
+ * One trim level. Parts are shown/hidden by component tag: every tag mentioned by ANY trim in the
+ * profile is "managed", and a trim shows the ones it lists and hides the rest. Untagged components
+ * are always visible, so shared body geometry needs no marking — same rule as ECXMRSceneRole.
+ *
+ * PROVISIONAL — see FCXMRCMFOption.
+ */
+USTRUCT(BlueprintType)
+struct FCXMRTrim
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Trim") FName Name;
+
+	/** Component tags visible for this trim. Managed tags not listed here are hidden. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Trim") TArray<FName> VisibleParts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Trim") TArray<FCXMRCMFOption> CMFOptions;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Trim", meta = (ClampMin = "0")) int32 DefaultCMF = 0;
 };
 
 /**

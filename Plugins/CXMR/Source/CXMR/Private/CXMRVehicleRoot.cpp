@@ -2,6 +2,8 @@
 
 #include "CXMRVehicleRoot.h"
 #include "CXMRPlacementComponent.h"
+#include "CXMRVehicleLoaderComponent.h"
+#include "CXMRTurntableComponent.h"
 
 ACXMRVehicleRoot::ACXMRVehicleRoot()
 {
@@ -12,4 +14,14 @@ ACXMRVehicleRoot::ACXMRVehicleRoot()
 
 	// Placement targets this actor by default (its VehicleRoot property falls back to GetOwner()).
 	Placement = CreateDefaultSubobject<UCXMRPlacementComponent>(TEXT("Placement"));
+
+	// Turntable sits BETWEEN the calibrated anchor and the vehicle: one writer per transform.
+	Turntable = CreateDefaultSubobject<USceneComponent>(TEXT("Turntable"));
+	Turntable->SetupAttachment(VehicleAnchor);
+
+	Loader = CreateDefaultSubobject<UCXMRVehicleLoaderComponent>(TEXT("Loader"));
+	Loader->AttachTarget = Turntable;
+
+	TurntableControl = CreateDefaultSubobject<UCXMRTurntableComponent>(TEXT("TurntableControl"));
+	TurntableControl->TurntableTarget = Turntable;
 }

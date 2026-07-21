@@ -220,3 +220,15 @@ void UCXMRSubsystem::RequestPlaceInFront()
 {
 	OnPlaceRequested.Broadcast();
 }
+
+// ---------- Viewer relay ----------
+
+void UCXMRSubsystem::RequestViewerAction(ECXMRViewerAction Action)
+{
+	OnViewerAction.Broadcast(Action);
+}
+
+void UCXMRSubsystem::RequestTurntableAxis(float AxisValue)
+{
+	OnTurntableAxis.Broadcast(AxisValue);
+}
