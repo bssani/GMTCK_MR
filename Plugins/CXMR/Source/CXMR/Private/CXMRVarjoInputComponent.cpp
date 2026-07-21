@@ -57,8 +57,9 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 	}
 
 	// Bind toggles. ETriggerEvent::Started = fire once on press.
-	if (MRToggleAction)         { EIC->BindAction(MRToggleAction,         ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnMRToggle); }
-	if (ViewOffsetToggleAction) { EIC->BindAction(ViewOffsetToggleAction, ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnViewOffsetToggle); }
+	if (MRToggleAction)            { EIC->BindAction(MRToggleAction,            ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnMRToggle); }
+	if (VRBackgroundToggleAction)  { EIC->BindAction(VRBackgroundToggleAction,  ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnVRBackgroundToggle); }
+	if (ViewOffsetToggleAction)    { EIC->BindAction(ViewOffsetToggleAction,    ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnViewOffsetToggle); }
 	if (DepthTestToggleAction)  { EIC->BindAction(DepthTestToggleAction,  ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnDepthTestToggle); }
 	if (EnvDepthToggleAction)   { EIC->BindAction(EnvDepthToggleAction,   ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnEnvDepthToggle); }
 	if (MaskToggleAction)       { EIC->BindAction(MaskToggleAction,       ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnMaskToggle); }
@@ -68,6 +69,7 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 }
 
 void UCXMRVarjoInputComponent::OnMRToggle(const FInputActionValue&)         { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleMixedReality(); } }
+void UCXMRVarjoInputComponent::OnVRBackgroundToggle(const FInputActionValue&) { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleVRBackground(); } }
 void UCXMRVarjoInputComponent::OnViewOffsetToggle(const FInputActionValue&) { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleViewOffset(); } }
 void UCXMRVarjoInputComponent::OnDepthTestToggle(const FInputActionValue&)  { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleDepthTest(); } }
 void UCXMRVarjoInputComponent::OnEnvDepthToggle(const FInputActionValue&)   { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleEnvironmentDepthEstimation(); } }

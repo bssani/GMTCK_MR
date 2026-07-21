@@ -23,6 +23,7 @@ public:
 
 	// --- Button handlers (bind Button OnClicked to these in the WBP) ---
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleMR();
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleVRBackground();
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleViewOffset();
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleDepthTest();
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleEnvDepth();
@@ -35,6 +36,7 @@ public:
 
 	// --- State getters (bind text / color to these) ---
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsMROn() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsVRBackgroundVisible() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsDepthTestOn() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsEnvDepthOn() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsMaskingOn() const;

@@ -36,6 +36,7 @@ public:
 
 	// Assign the migrated IA_Varjo_* assets here.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> MRToggleAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> VRBackgroundToggleAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> ViewOffsetToggleAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> DepthTestToggleAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> EnvDepthToggleAction;
@@ -50,6 +51,7 @@ private:
 	UCXMRSubsystem* GetCXMR() const;
 
 	void OnMRToggle(const FInputActionValue& Value);
+	void OnVRBackgroundToggle(const FInputActionValue& Value);
 	void OnViewOffsetToggle(const FInputActionValue& Value);
 	void OnDepthTestToggle(const FInputActionValue& Value);
 	void OnEnvDepthToggle(const FInputActionValue& Value);

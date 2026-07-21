@@ -72,6 +72,24 @@ void UCXMRSubsystem::ToggleMixedReality()
 	SetMixedReality(!bMixedRealityOn);
 }
 
+// ---------- VR background ----------
+
+void UCXMRSubsystem::SetVRBackgroundVisible(bool bVisible)
+{
+	if (bVRBackgroundVisible == bVisible)
+	{
+		return;
+	}
+	bVRBackgroundVisible = bVisible;
+	// UCXMRSceneObjectComponent (Role = VROnly) instances hide/show their own owner in response.
+	OnVRBackgroundChanged.Broadcast(bVRBackgroundVisible);
+}
+
+void UCXMRSubsystem::ToggleVRBackground()
+{
+	SetVRBackgroundVisible(!bVRBackgroundVisible);
+}
+
 void UCXMRSubsystem::SetViewOffset(float Offset)
 {
 	Offset = FMath::Clamp(Offset, 0.0f, 1.0f);

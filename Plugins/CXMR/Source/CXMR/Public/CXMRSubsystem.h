@@ -45,6 +45,16 @@ public:
 	UFUNCTION(BlueprintPure,     Category = "CXMR|MR") bool IsMixedRealityOn() const { return bMixedRealityOn; }
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|MR") FCXMROnBoolChanged OnMixedRealityChanged;
 
+	// ---------- VR background (the virtual room: sky, walls, floor) ----------
+	// Bound to IA_Varjo_MRBackgroundToggle. Defaults to VISIBLE so the editor / PIE looks like plain VR;
+	// turning MR on is what calls for hiding it, and that stays an explicit act.
+	// Objects hide THEMSELVES via UCXMRSceneObjectComponent (Role = VROnly) listening to the delegate —
+	// there is deliberately no central list of actors here.
+	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void SetVRBackgroundVisible(bool bVisible);
+	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void ToggleVRBackground();
+	UFUNCTION(BlueprintPure,     Category = "CXMR|MR") bool IsVRBackgroundVisible() const { return bVRBackgroundVisible; }
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|MR") FCXMROnBoolChanged OnVRBackgroundChanged;
+
 	// ---------- Camera render position / View offset (0 = eye, 1 = passthrough camera) ----------
 	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void  SetViewOffset(float Offset);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void  ToggleViewOffset(); // flips between 0 (eye) and 1 (camera)
@@ -106,6 +116,7 @@ private:
 	UPROPERTY(Transient) bool bEnvDepthOn       = false;
 	UPROPERTY(Transient) bool bMaskingOn        = false;
 	UPROPERTY(Transient) bool bMarkerTrackingOn = false;
+	UPROPERTY(Transient) bool bVRBackgroundVisible = true;
 
 	// --- LOCAL / CLIENT (never replicate — per-headset preference) ---
 	UPROPERTY(Transient) float ViewOffset = 1.0f;

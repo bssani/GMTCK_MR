@@ -28,6 +28,23 @@ enum class ECXMRMarkerTrackingMode : uint8
 	Dynamic    UMETA(DisplayName = "Dynamic")     // prediction on — moving elements (lower accuracy)
 };
 
+/**
+ * What a scene object is FOR in mixed reality.
+ *
+ * Declared on the object itself (UCXMRSceneObjectComponent) rather than enumerated in a central
+ * array. Objects with no component are simply always visible, so the vehicle needs no marking at
+ * all — only the exceptions are tagged, and a new level cannot silently miss one.
+ */
+UENUM(BlueprintType)
+enum class ECXMRSceneRole : uint8
+{
+	/** Virtual stand-in for the room (sky, walls, floor). Hidden while passthrough provides the real room. */
+	VROnly   UMETA(DisplayName = "VR Only"),
+
+	/** Custom-Depth mask geometry — punches a hole so a real object shows through (steering wheel, seat). */
+	MaskMesh UMETA(DisplayName = "Mask Mesh")
+};
+
 /** How the vehicle is placed. */
 UENUM(BlueprintType)
 enum class ECXMRPlacementMode : uint8
