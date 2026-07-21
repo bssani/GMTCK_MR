@@ -3,6 +3,7 @@
 #include "CXMRPawn.h"
 #include "CXMRVarjoInputComponent.h"
 #include "CXMRMaskingComponent.h"
+#include "CXMRMarkerDebugComponent.h"
 
 #include "Camera/CameraComponent.h"
 #include "MotionControllerComponent.h"
@@ -29,6 +30,10 @@ ACXMRPawn::ACXMRPawn()
 
 	VarjoInput = CreateDefaultSubobject<UCXMRVarjoInputComponent>(TEXT("VarjoInput"));
 	Masking    = CreateDefaultSubobject<UCXMRMaskingComponent>(TEXT("Masking"));
+
+	// Always present, drawn only when CXMR.DebugMarkers is set — a headset session is a bad time to
+	// discover the instrument was not in the build.
+	MarkerDebug = CreateDefaultSubobject<UCXMRMarkerDebugComponent>(TEXT("MarkerDebug"));
 }
 
 void ACXMRPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)

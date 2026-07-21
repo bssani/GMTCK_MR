@@ -15,6 +15,7 @@ class UCameraComponent;
 class UMotionControllerComponent;
 class UCXMRVarjoInputComponent;
 class UCXMRMaskingComponent;
+class UCXMRMarkerDebugComponent;
 
 UCLASS()
 class CXMR_API ACXMRPawn : public APawn
@@ -36,4 +37,7 @@ public:
 
 	/** Applies masking state to PP_MR — assign the PP_MRParameters collection in the BP subclass. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Pawn") TObjectPtr<UCXMRMaskingComponent> Masking;
+
+	/** Headset verification instrument. Draws raw marker poses; see CXMR.DebugMarkers. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRMarkerDebugComponent> MarkerDebug;
 };
