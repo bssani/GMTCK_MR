@@ -4,6 +4,12 @@
 #include "CXMRSubsystem.h"
 #include "Engine/GameInstance.h"
 
+#include "Components/Button.h"
+#include "Components/TextBlock.h"
+
+// Binds a button's OnClicked to a handler, if the WBP provided that button.
+#define CXMR_BIND_BUTTON(Btn, Handler) if (Btn) { (Btn)->OnClicked.AddDynamic(this, &UCXMRControlPanelWidget::Handler); }
+
 UCXMRSubsystem* UCXMRControlPanelWidget::GetCXMR() const
 {
 	if (const UWorld* World = GetWorld())
@@ -33,6 +39,22 @@ void UCXMRControlPanelWidget::NativeConstruct()
 		Subsystem->OnVehicleStatusChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
 	}
 
+	// Wire whatever buttons the WBP layout provided. Missing ones are simply skipped.
+	CXMR_BIND_BUTTON(Btn_MR,          ToggleMR);
+	CXMR_BIND_BUTTON(Btn_VRBackground, ToggleVRBackground);
+	CXMR_BIND_BUTTON(Btn_ViewOffset,  ToggleViewOffset);
+	CXMR_BIND_BUTTON(Btn_DepthTest,   ToggleDepthTest);
+	CXMR_BIND_BUTTON(Btn_EnvDepth,    ToggleEnvDepth);
+	CXMR_BIND_BUTTON(Btn_Masking,     ToggleMasking);
+	CXMR_BIND_BUTTON(Btn_Markers,     ToggleMarkers);
+	CXMR_BIND_BUTTON(Btn_Recalibrate, RequestRecalibrate);
+	CXMR_BIND_BUTTON(Btn_PlaceVehicle, RequestPlaceVehicle);
+	CXMR_BIND_BUTTON(Btn_NextVehicle, NextVehicle);
+	CXMR_BIND_BUTTON(Btn_PrevVehicle, PreviousVehicle);
+	CXMR_BIND_BUTTON(Btn_NextTrim,    NextTrim);
+	CXMR_BIND_BUTTON(Btn_PrevTrim,    PreviousTrim);
+	CXMR_BIND_BUTTON(Btn_NextCMF,     NextCMF);
+
 	RefreshVisuals();
 }
 
@@ -56,6 +78,41 @@ void UCXMRControlPanelWidget::NativeDestruct()
 void UCXMRControlPanelWidget::HandleBoolChanged(bool)   { RefreshVisuals(); }
 void UCXMRControlPanelWidget::HandleFloatChanged(float) { RefreshVisuals(); }
 void UCXMRControlPanelWidget::HandleStatusChanged()     { RefreshVisuals(); }
+
+// --- Visuals ---
+
+void UCXMRControlPanelWidget::ApplyToggle(UTextBlock* Text, bool bOn)
+{
+	if (!Text)
+	{
+		return;
+	}
+	Text->SetText(bOn ? NSLOCTEXT("CXMR", "On", "ON") : NSLOCTEXT("CXMR", "Off", "OFF"));
+	Text->SetColorAndOpacity(FSlateColor(bOn ? OnColor : OffColor));
+}
+
+void UCXMRControlPanelWidget::RefreshVisuals_Implementation()
+{
+	// Toggle states
+	ApplyToggle(Txt_MR_State,           IsMROn());
+	ApplyToggle(Txt_VRBackground_State, IsVRBackgroundVisible());
+	ApplyToggle(Txt_ViewOffset_State,   GetViewOffset() > 0.5f);
+	ApplyToggle(Txt_DepthTest_State,    IsDepthTestOn());
+	ApplyToggle(Txt_EnvDepth_State,     IsEnvDepthOn());
+	ApplyToggle(Txt_Masking_State,      IsMaskingOn());
+	ApplyToggle(Txt_Markers_State,      IsMarkersOn());
+
+	// Session readouts
+	if (Txt_VehicleName) { Txt_VehicleName->SetText(GetVehicleName()); }
+	if (Txt_VehiclePos)  { Txt_VehiclePos->SetText(GetVehiclePositionLabel()); }
+	if (Txt_TrimName)    { Txt_TrimName->SetText(GetTrimName()); }
+	if (Txt_TrimPos)     { Txt_TrimPos->SetText(GetTrimPositionLabel()); }
+	if (Txt_CMF)         { Txt_CMF->SetText(FText::AsNumber(GetCMFIndex())); }
+
+	// Grey out rows the headset does not support.
+	if (Btn_MR)      { Btn_MR->SetIsEnabled(IsMRSupported()); }
+	if (Btn_Markers) { Btn_Markers->SetIsEnabled(IsMarkersSupported()); }
+}
 
 // --- Buttons ---
 void UCXMRControlPanelWidget::ToggleMR()         { if (Subsystem) { Subsystem->ToggleMixedReality(); } }
