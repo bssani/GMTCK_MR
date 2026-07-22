@@ -21,6 +21,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FCXMROnMarkerPose, int32, MarkerId
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnMarkerId, int32, MarkerId);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FCXMROnRequest);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnViewerAction, ECXMRViewerAction, Action);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnIntChanged, int32, Value);
 
 UCLASS(DisplayName = "CXMR Subsystem")
 class CXMR_API UCXMRSubsystem : public UGameInstanceSubsystem
@@ -133,6 +134,20 @@ public:
 	/** Fires on every vehicle status change — the panel refreshes off this like any other. */
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Viewer") FCXMROnRequest OnVehicleStatusChanged;
 
+	// ---------- Ergonomics relay (input/UI -> ergonomics component: percentile eye/hip snap) ----------
+	// Same rendezvous again: input on the pawn, the ergonomics component on the vehicle actor.
+	// Step +1 / -1 cycles the manikin; the component decides VR viewpoint vs MR vehicle move.
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Ergonomics") void RequestErgonomicsStep(int32 Step);
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Ergonomics") FCXMROnIntChanged OnErgonomicsStepRequested;
+
+	// Status mirror (ergonomics component -> UI), same shape as the vehicle mirror.
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Ergonomics")
+	void ReportManikin(FText Name, int32 Index, int32 Count);
+	UFUNCTION(BlueprintPure, Category = "CXMR|Ergonomics") FText GetManikinName() const  { return ManikinName; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Ergonomics") int32 GetManikinIndex() const { return ManikinIndex; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Ergonomics") int32 GetManikinCount() const { return ManikinCount; }
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Ergonomics") FCXMROnRequest OnManikinChanged;
+
 private:
 	// ============================================================================
 	//  STATE — split into two buckets for future networking (single-player-first,
@@ -154,6 +169,10 @@ private:
 	UPROPERTY(Transient) int32 TrimIndex = 0;
 	UPROPERTY(Transient) int32 TrimCount = 0;
 	UPROPERTY(Transient) int32 CMFIndex  = 0;
+
+	UPROPERTY(Transient) FText ManikinName;
+	UPROPERTY(Transient) int32 ManikinIndex = 0;
+	UPROPERTY(Transient) int32 ManikinCount = 0;
 
 	// --- LOCAL / CLIENT (never replicate — per-headset preference) ---
 	UPROPERTY(Transient) float ViewOffset = 1.0f;

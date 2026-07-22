@@ -132,6 +132,32 @@ struct FCXMRTrim
 };
 
 /**
+ * One seating reference — a percentile manikin's eye (and optionally hip) point.
+ *
+ * Points are authored in the VEHICLE's own coordinate space, because they are package data: the
+ * design eye point and H-point (SgRP) are defined relative to the vehicle origin, not the room.
+ * Human Factors works in percentiles (5th female / 50th / 95th male), so a study holds a set of
+ * these and snaps between them.
+ */
+USTRUCT(BlueprintType)
+struct FCXMRManikinPosition
+{
+	GENERATED_BODY()
+
+	/** e.g. "50th %ile", "95th male", "Driver eye". */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Ergonomics") FName Name;
+
+	/** Design eye point, vehicle-local. In VR the viewpoint moves here; in MR the vehicle moves so
+	 *  this lands at the user's real eyes. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Ergonomics") FTransform EyePoint = FTransform::Identity;
+
+	/** H-point (SgRP), vehicle-local. Stored for manikin display / measurement; not moved to yet. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Ergonomics") bool bHasHipPoint = false;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Ergonomics", meta = (EditCondition = "bHasHipPoint"))
+	FTransform HipPoint = FTransform::Identity;
+};
+
+/**
  * One physical marker's configuration in a project's marker profile.
  * Marker IDs differ per program, so this is authored per-project in a UCXMRMarkerProfile Data Asset.
  */

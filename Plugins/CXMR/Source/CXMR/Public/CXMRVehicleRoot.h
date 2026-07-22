@@ -20,6 +20,7 @@
 class UCXMRPlacementComponent;
 class UCXMRVehicleLoaderComponent;
 class UCXMRTurntableComponent;
+class UCXMRErgonomicsComponent;
 
 UCLASS()
 class CXMR_API ACXMRVehicleRoot : public AActor
@@ -43,4 +44,7 @@ public:
 
 	/** Exterior rotation (held stick + A/B continuous spin). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle") TObjectPtr<UCXMRTurntableComponent> TurntableControl;
+
+	/** Percentile eye/hip snapping (Human Factors). Reads the loaded vehicle's ergonomics profile. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle") TObjectPtr<UCXMRErgonomicsComponent> Ergonomics;
 };

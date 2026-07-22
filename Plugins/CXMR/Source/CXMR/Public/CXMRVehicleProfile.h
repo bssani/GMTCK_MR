@@ -18,6 +18,7 @@
 
 class AActor;
 class UCXMRMarkerProfile;
+class UCXMRErgonomicsProfile;
 
 UCLASS(BlueprintType, DisplayName = "CXMR Vehicle Profile")
 class CXMR_API UCXMRVehicleProfile : public UPrimaryDataAsset
@@ -38,6 +39,9 @@ public:
 
 	/** Trim levels. Empty = single-configuration vehicle, which is a valid and common case. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle") TArray<FCXMRTrim> Trims;
+
+	/** Percentile seating references (HF). Swaps with the vehicle so eye/hip points follow the car. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle") TSoftObjectPtr<UCXMRErgonomicsProfile> Ergonomics;
 
 	/** Every part tag mentioned by any trim — these are the components trim switching manages. */
 	UFUNCTION(BlueprintPure, Category = "CXMR|Vehicle") TSet<FName> GetManagedPartTags() const;

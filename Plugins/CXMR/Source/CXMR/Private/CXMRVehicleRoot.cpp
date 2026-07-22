@@ -4,6 +4,7 @@
 #include "CXMRPlacementComponent.h"
 #include "CXMRVehicleLoaderComponent.h"
 #include "CXMRTurntableComponent.h"
+#include "CXMRErgonomicsComponent.h"
 
 ACXMRVehicleRoot::ACXMRVehicleRoot()
 {
@@ -24,4 +25,7 @@ ACXMRVehicleRoot::ACXMRVehicleRoot()
 
 	TurntableControl = CreateDefaultSubobject<UCXMRTurntableComponent>(TEXT("TurntableControl"));
 	TurntableControl->TurntableTarget = Turntable;
+
+	// HF eye/hip snapping. Reads the loaded vehicle's ergonomics profile via the sibling loader.
+	Ergonomics = CreateDefaultSubobject<UCXMRErgonomicsComponent>(TEXT("Ergonomics"));
 }

@@ -245,3 +245,18 @@ void UCXMRSubsystem::ReportVehicleStatus(FText InVehicleName, int32 InVehicleInd
 	CMFIndex     = InCMFIndex;
 	OnVehicleStatusChanged.Broadcast();
 }
+
+// ---------- Ergonomics relay ----------
+
+void UCXMRSubsystem::RequestErgonomicsStep(int32 Step)
+{
+	OnErgonomicsStepRequested.Broadcast(Step);
+}
+
+void UCXMRSubsystem::ReportManikin(FText Name, int32 Index, int32 Count)
+{
+	ManikinName  = Name;
+	ManikinIndex = Index;
+	ManikinCount = Count;
+	OnManikinChanged.Broadcast();
+}
