@@ -73,3 +73,8 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# Dev tooling — NOT part of the CXMR template (the template is cloned per-program).
+# UnrealAgent: in-editor MCP server (Claude bridge). .mcp.json: machine-local MCP config.
+Plugins/UnrealAgent/
+.mcp.json
