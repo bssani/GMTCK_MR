@@ -34,6 +34,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void RequestRecalibrate();
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void RequestPlaceVehicle();
 
+	// Viewer cycling (relayed through the subsystem to the vehicle loader).
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void NextVehicle();
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void PreviousVehicle();
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void NextTrim();
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void PreviousTrim();
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void NextCMF();
+
 	// --- State getters (bind text / color to these) ---
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsMROn() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsVRBackgroundVisible() const;
@@ -42,6 +49,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsMaskingOn() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsMarkersOn() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") float GetViewOffset() const;
+
+	// --- Vehicle state (bind Viewer readouts to these) ---
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") FText GetVehicleName() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") FText GetTrimName() const;
+	/** "2 / 3" style position label. Empty when count is 0. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") FText GetVehiclePositionLabel() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") FText GetTrimPositionLabel() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") int32 GetCMFIndex() const;
 
 	// Support flags — gray out unsupported rows.
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool IsMRSupported() const;
@@ -55,6 +70,7 @@ protected:
 
 	UFUNCTION() void HandleBoolChanged(bool bNewState);
 	UFUNCTION() void HandleFloatChanged(float NewValue);
+	UFUNCTION() void HandleStatusChanged();
 
 	UPROPERTY(Transient) TObjectPtr<UCXMRSubsystem> Subsystem;
 };

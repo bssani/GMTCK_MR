@@ -118,6 +118,7 @@ void UCXMRVehicleLoaderComponent::LoadVehicle(UCXMRVehicleProfile* NewProfile)
 	ApplyTrim();
 	ApplyCMF();
 
+	ReportStatus();
 	OnVehicleLoaded.Broadcast(Profile);
 }
 
@@ -156,6 +157,7 @@ void UCXMRVehicleLoaderComponent::SetTrim(int32 InTrimIndex)
 	CMFIndex  = Profile->Trims[TrimIndex].DefaultCMF;
 	ApplyTrim();
 	ApplyCMF();
+	ReportStatus();
 }
 
 void UCXMRVehicleLoaderComponent::SetCMF(int32 InCMFIndex)
@@ -170,6 +172,29 @@ void UCXMRVehicleLoaderComponent::SetCMF(int32 InCMFIndex)
 	}
 	CMFIndex = InCMFIndex;
 	ApplyCMF();
+	ReportStatus();
+}
+
+void UCXMRVehicleLoaderComponent::ReportStatus()
+{
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	const int32 VehicleCount = Catalog ? Catalog->Vehicles.Num() : 0;
+	const int32 TrimCount    = Profile ? Profile->Trims.Num() : 0;
+
+	FText TrimName = FText::GetEmpty();
+	if (Profile && Profile->IsValidTrim(TrimIndex))
+	{
+		TrimName = FText::FromName(Profile->Trims[TrimIndex].Name);
+	}
+
+	const FText VehicleName = Profile ? Profile->DisplayName : FText::GetEmpty();
+
+	Subsystem->ReportVehicleStatus(VehicleName, VehicleIndex, VehicleCount,
+		TrimName, TrimIndex, TrimCount, CMFIndex);
 }
 
 // ---------- Cycling ----------

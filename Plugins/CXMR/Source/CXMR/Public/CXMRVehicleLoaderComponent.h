@@ -77,6 +77,9 @@ private:
 	void ApplyTrim();
 	void ApplyCMF();
 
+	/** Pushes the current selection to the subsystem so the control panel can display it. */
+	void ReportStatus();
+
 	UPROPERTY(Transient) TObjectPtr<AActor> SpawnedVehicle;
 	UPROPERTY(Transient) TObjectPtr<UCXMRSubsystem> Subsystem;
 

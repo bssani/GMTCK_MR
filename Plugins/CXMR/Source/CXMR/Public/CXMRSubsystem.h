@@ -114,6 +114,25 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Viewer") void RequestTurntableAxis(float AxisValue);
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Viewer") FCXMROnFloatChanged OnTurntableAxis;
 
+	// ---------- Viewer status mirror (vehicle actor -> UI, decoupled) ----------
+	// The loader lives on the vehicle actor; the panel only ever knows the subsystem. The loader
+	// reports its current selection here on every load / trim / CMF change, and the panel reads it
+	// back — so the display stays live without the widget ever holding a loader reference.
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Viewer")
+	void ReportVehicleStatus(FText VehicleName, int32 VehicleIndex, int32 VehicleCount,
+	                         FText TrimName, int32 TrimIndex, int32 TrimCount, int32 CMFIndex);
+
+	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") FText GetVehicleName() const  { return VehicleName; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") int32 GetVehicleIndex() const { return VehicleIndex; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") int32 GetVehicleCount() const { return VehicleCount; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") FText GetTrimName() const     { return TrimName; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") int32 GetTrimIndex() const    { return TrimIndex; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") int32 GetTrimCount() const    { return TrimCount; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") int32 GetCMFIndex() const     { return CMFIndex; }
+
+	/** Fires on every vehicle status change — the panel refreshes off this like any other. */
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Viewer") FCXMROnRequest OnVehicleStatusChanged;
+
 private:
 	// ============================================================================
 	//  STATE — split into two buckets for future networking (single-player-first,
@@ -127,6 +146,14 @@ private:
 	UPROPERTY(Transient) bool bMaskingOn        = false;
 	UPROPERTY(Transient) bool bMarkerTrackingOn = false;
 	UPROPERTY(Transient) bool bVRBackgroundVisible = true;
+
+	UPROPERTY(Transient) FText VehicleName;
+	UPROPERTY(Transient) int32 VehicleIndex = 0;
+	UPROPERTY(Transient) int32 VehicleCount = 0;
+	UPROPERTY(Transient) FText TrimName;
+	UPROPERTY(Transient) int32 TrimIndex = 0;
+	UPROPERTY(Transient) int32 TrimCount = 0;
+	UPROPERTY(Transient) int32 CMFIndex  = 0;
 
 	// --- LOCAL / CLIENT (never replicate — per-headset preference) ---
 	UPROPERTY(Transient) float ViewOffset = 1.0f;

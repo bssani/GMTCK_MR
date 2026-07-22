@@ -232,3 +232,16 @@ void UCXMRSubsystem::RequestTurntableAxis(float AxisValue)
 {
 	OnTurntableAxis.Broadcast(AxisValue);
 }
+
+void UCXMRSubsystem::ReportVehicleStatus(FText InVehicleName, int32 InVehicleIndex, int32 InVehicleCount,
+                                         FText InTrimName, int32 InTrimIndex, int32 InTrimCount, int32 InCMFIndex)
+{
+	VehicleName  = InVehicleName;
+	VehicleIndex = InVehicleIndex;
+	VehicleCount = InVehicleCount;
+	TrimName     = InTrimName;
+	TrimIndex    = InTrimIndex;
+	TrimCount    = InTrimCount;
+	CMFIndex     = InCMFIndex;
+	OnVehicleStatusChanged.Broadcast();
+}

@@ -30,6 +30,7 @@ void UCXMRControlPanelWidget::NativeConstruct()
 		Subsystem->OnMaskingChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
 		Subsystem->OnMarkerTrackingChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
 		Subsystem->OnViewOffsetChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleFloatChanged);
+		Subsystem->OnVehicleStatusChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
 	}
 
 	RefreshVisuals();
@@ -46,6 +47,7 @@ void UCXMRControlPanelWidget::NativeDestruct()
 		Subsystem->OnMaskingChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
 		Subsystem->OnMarkerTrackingChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
 		Subsystem->OnViewOffsetChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleFloatChanged);
+		Subsystem->OnVehicleStatusChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
 	}
 
 	Super::NativeDestruct();
@@ -53,6 +55,7 @@ void UCXMRControlPanelWidget::NativeDestruct()
 
 void UCXMRControlPanelWidget::HandleBoolChanged(bool)   { RefreshVisuals(); }
 void UCXMRControlPanelWidget::HandleFloatChanged(float) { RefreshVisuals(); }
+void UCXMRControlPanelWidget::HandleStatusChanged()     { RefreshVisuals(); }
 
 // --- Buttons ---
 void UCXMRControlPanelWidget::ToggleMR()         { if (Subsystem) { Subsystem->ToggleMixedReality(); } }
@@ -66,6 +69,13 @@ void UCXMRControlPanelWidget::ToggleMarkers()    { if (Subsystem) { Subsystem->T
 void UCXMRControlPanelWidget::RequestRecalibrate()   { if (Subsystem) { Subsystem->RequestRecalibrate(); } }
 void UCXMRControlPanelWidget::RequestPlaceVehicle()  { if (Subsystem) { Subsystem->RequestPlaceInFront(); } }
 
+// Viewer cycling — relayed to the loader via the subsystem, so the panel needs no loader reference.
+void UCXMRControlPanelWidget::NextVehicle()     { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::NextVehicle); } }
+void UCXMRControlPanelWidget::PreviousVehicle() { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::PreviousVehicle); } }
+void UCXMRControlPanelWidget::NextTrim()        { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::NextTrim); } }
+void UCXMRControlPanelWidget::PreviousTrim()    { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::PreviousTrim); } }
+void UCXMRControlPanelWidget::NextCMF()         { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::NextCMF); } }
+
 // --- Getters ---
 bool  UCXMRControlPanelWidget::IsMROn() const          { return Subsystem && Subsystem->IsMixedRealityOn(); }
 bool  UCXMRControlPanelWidget::IsVRBackgroundVisible() const { return Subsystem && Subsystem->IsVRBackgroundVisible(); }
@@ -77,3 +87,29 @@ float UCXMRControlPanelWidget::GetViewOffset() const   { return Subsystem ? Subs
 
 bool UCXMRControlPanelWidget::IsMRSupported() const      { return Subsystem && Subsystem->IsMixedRealitySupported(); }
 bool UCXMRControlPanelWidget::IsMarkersSupported() const { return Subsystem && Subsystem->IsMarkerTrackingSupported(); }
+
+// --- Vehicle state ---
+FText UCXMRControlPanelWidget::GetVehicleName() const { return Subsystem ? Subsystem->GetVehicleName() : FText::GetEmpty(); }
+FText UCXMRControlPanelWidget::GetTrimName() const    { return Subsystem ? Subsystem->GetTrimName() : FText::GetEmpty(); }
+int32 UCXMRControlPanelWidget::GetCMFIndex() const    { return Subsystem ? Subsystem->GetCMFIndex() : 0; }
+
+// A "2 / 3" readout only makes sense with something to count — an empty label reads as "not applicable".
+FText UCXMRControlPanelWidget::GetVehiclePositionLabel() const
+{
+	if (!Subsystem || Subsystem->GetVehicleCount() <= 0)
+	{
+		return FText::GetEmpty();
+	}
+	return FText::FromString(FString::Printf(TEXT("%d / %d"),
+		Subsystem->GetVehicleIndex() + 1, Subsystem->GetVehicleCount()));
+}
+
+FText UCXMRControlPanelWidget::GetTrimPositionLabel() const
+{
+	if (!Subsystem || Subsystem->GetTrimCount() <= 0)
+	{
+		return FText::GetEmpty();
+	}
+	return FText::FromString(FString::Printf(TEXT("%d / %d"),
+		Subsystem->GetTrimIndex() + 1, Subsystem->GetTrimCount()));
+}
