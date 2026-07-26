@@ -12,6 +12,9 @@
 #include "InputAction.h"
 #include "Components/WidgetComponent.h"
 #include "Components/WidgetInteractionComponent.h"
+#include "UObject/ConstructorHelpers.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogCXMRPawn, Log, All);
 
 ACXMRPawn::ACXMRPawn()
 {
@@ -63,6 +66,25 @@ ACXMRPawn::ACXMRPawn()
 	PanelPointer->TraceChannel        = ECC_Visibility;
 	PanelPointer->InteractionDistance = 150.f;   // arm's length; the panel is on the other hand
 	PanelPointer->bShowDebug          = false;
+
+	// Defaults resolved here, in C++, on purpose. Setting these as Blueprint class defaults does NOT
+	// survive: PIE reinstances the Blueprint and rebuilds its CDO, and the value silently reverts to
+	// null (measured — the same PIE session had the class one run and None the next). Both assets ship
+	// inside /CXMR/, so this is plugin content referencing itself, not a dependency on project content.
+	// A project can still override either property on its own BP subclass.
+	static ConstructorHelpers::FClassFinder<UCXMRControlPanelWidget>
+		PanelClassFinder(TEXT("/CXMR/Core/UI/WBP_CXMRControlPanel"));
+	if (PanelClassFinder.Succeeded())
+	{
+		ControlPanelClass = PanelClassFinder.Class;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction>
+		ClickActionFinder(TEXT("/CXMR/Core/Input/Actions/IA_CXMR_PanelClick"));
+	if (ClickActionFinder.Succeeded())
+	{
+		PanelClickAction = ClickActionFinder.Object;
+	}
 }
 
 void ACXMRPawn::BeginPlay()
@@ -76,6 +98,16 @@ void ACXMRPawn::BeginPlay()
 	{
 		ControlPanel->SetWidgetClass(ControlPanelClass);
 		ControlPanel->InitWidget();   // SetWidgetClass alone does not rebuild once the component is registered
+
+		UE_LOG(LogCXMRPawn, Log, TEXT("Control panel: class=%s widget=%s"),
+			*GetNameSafe(ControlPanelClass),
+			*GetNameSafe(ControlPanel->GetUserWidgetObject()));
+	}
+	else
+	{
+		// Silent absence is what cost us a debugging session — say it out loud.
+		UE_LOG(LogCXMRPawn, Warning,
+			TEXT("Control panel will NOT appear: ControlPanelClass is unset on %s."), *GetName());
 	}
 }
 
