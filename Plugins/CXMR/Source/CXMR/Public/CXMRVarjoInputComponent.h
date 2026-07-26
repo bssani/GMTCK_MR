@@ -17,6 +17,7 @@
 class UInputMappingContext;
 class UInputAction;
 class UEnhancedInputComponent;
+class UEnhancedInputLocalPlayerSubsystem;
 class UCXMRSubsystem;
 struct FInputActionValue;
 
@@ -67,8 +68,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float CycleReleaseThreshold = 0.3f;
 
+protected:
+	/** Removes the mapping context this component added. Without it a pawn swap leaves IMC_Varjo
+	 *  applied to the player and the old bindings keep firing. */
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
+
 private:
 	UCXMRSubsystem* GetCXMR() const;
+
+	/** The input subsystem we added the context to. Cached at add time on purpose: by EndPlay the pawn
+	 *  may already be unpossessed, and the owner->controller->local-player chain no longer resolves. */
+	UPROPERTY(Transient) TObjectPtr<UEnhancedInputLocalPlayerSubsystem> AddedToInputSystem;
 
 	void OnMRToggle(const FInputActionValue& Value);
 	void OnVRBackgroundToggle(const FInputActionValue& Value);

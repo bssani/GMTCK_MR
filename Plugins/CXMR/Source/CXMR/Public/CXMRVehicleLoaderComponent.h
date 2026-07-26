@@ -74,6 +74,15 @@ private:
 	/** Pushes the marker profile from the vehicle profile onto the placement component, if present. */
 	void SyncMarkerProfile();
 
+	/** Points VehicleIndex at wherever the loaded profile sits in the catalog. Without this, loading a
+	 *  profile directly (BeginPlay, or LoadVehicle from BP) leaves the index at 0 — the panel then shows
+	 *  the wrong "n / m" and the first NextVehicle jumps to entry 1 instead of the next one. */
+	void SyncVehicleIndex();
+
+	/** The trim's DefaultCMF, or 0 when the data points outside CMFOptions. Authored data can be stale;
+	 *  ApplyCMF would silently skip an out-of-range index while the panel kept displaying it. */
+	int32 ResolveDefaultCMF(int32 InTrimIndex) const;
+
 	void ApplyTrim();
 	void ApplyCMF();
 

@@ -7,6 +7,8 @@
 #include "VarjoMarkersEvent.h"  // UVarjoMarkerDelegates (static C++ multicast delegates)
 #include "HAL/IConsoleManager.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogCXMR, Log, All);
+
 void UCXMRSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -58,10 +60,18 @@ void UCXMRSubsystem::SetMixedReality(bool bEnable)
 	}
 
 	// 3 = Alpha Blend (MR / passthrough), 1 = Opaque (VR). The plugin reads this same CVar.
-	if (IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("xr.OpenXREnvironmentBlendMode")))
+	IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("xr.OpenXREnvironmentBlendMode"));
+	if (!CVar)
 	{
-		CVar->Set(bEnable ? 3 : 1);
+		// Report honestly, like every other toggle here: if the switch could not be thrown, the state
+		// does not change and the panel keeps saying OFF. Claiming MR is on while the headset still
+		// renders VR is the most expensive lie this class could tell.
+		UE_LOG(LogCXMR, Warning,
+			TEXT("Mixed reality toggle ignored: console variable xr.OpenXREnvironmentBlendMode not found."));
+		return;
 	}
+
+	CVar->Set(bEnable ? 3 : 1);
 
 	bMixedRealityOn = bEnable;
 	OnMixedRealityChanged.Broadcast(bMixedRealityOn);

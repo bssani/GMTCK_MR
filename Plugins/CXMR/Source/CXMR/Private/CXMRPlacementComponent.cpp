@@ -120,11 +120,13 @@ void UCXMRPlacementComponent::RecomputeCalibration()
 
 	Root->SetActorTransform(VehicleWorld);
 
-	// Freeze once enough markers have contributed.
+	// Freeze once enough markers have contributed. The freeze itself is LOCAL — bCalibrated makes
+	// HandleMarkerDetected stop re-placing. Killing the headset's marker tracking is global and would
+	// take DynamicObject markers (doors, props) down with it, so it is opt-in and off by default.
 	if (DetectedCalib.Num() >= MinMarkersToCalibrate)
 	{
 		bCalibrated = true;
-		if (bFreezeAfterCalibration && Subsystem)
+		if (bStopMarkerTrackingWhenCalibrated && Subsystem)
 		{
 			Subsystem->SetMarkerTracking(false);
 		}

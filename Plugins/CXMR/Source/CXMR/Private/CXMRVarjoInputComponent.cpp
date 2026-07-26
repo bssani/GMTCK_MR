@@ -50,6 +50,7 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 					if (UEnhancedInputLocalPlayerSubsystem* InputSys = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
 					{
 						InputSys->AddMappingContext(MappingContext, MappingPriority);
+						AddedToInputSystem = InputSys;   // remembered so EndPlay can undo it
 					}
 				}
 			}
@@ -83,6 +84,17 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 		EIC->BindAction(CycleVehicleAction, ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnCycleVehicle);
 		EIC->BindAction(CycleVehicleAction, ETriggerEvent::Completed, this, &UCXMRVarjoInputComponent::OnCycleVehicleReleased);
 	}
+}
+
+void UCXMRVarjoInputComponent::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (AddedToInputSystem && MappingContext)
+	{
+		AddedToInputSystem->RemoveMappingContext(MappingContext);
+	}
+	AddedToInputSystem = nullptr;
+
+	Super::EndPlay(Reason);
 }
 
 void UCXMRVarjoInputComponent::OnMRToggle(const FInputActionValue&)         { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleMixedReality(); } }

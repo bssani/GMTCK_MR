@@ -35,8 +35,15 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") ECXMRPlacementMode Mode = ECXMRPlacementMode::MarkerAnchor;
 
-	/** Marker Anchor: stop marker tracking after calibration completes (one-shot freeze — interior). */
+	/** Marker Anchor: once calibrated, THIS component stops re-placing the vehicle (one-shot freeze —
+	 *  interior). Local to placement; the headset keeps tracking markers. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") bool bFreezeAfterCalibration = true;
+
+	/** ALSO stop the headset's marker tracking once calibrated. Off by default, and deliberately
+	 *  separate from the freeze above: marker tracking is GLOBAL, so turning it off here kills
+	 *  DynamicObject markers (doors, props, cups) along with the calibration ones. Only enable it for
+	 *  programs that track nothing but calibration markers. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") bool bStopMarkerTrackingWhenCalibrated = false;
 
 	/** Markers needed before freezing. 1 = single-marker (uses marker orientation). 2+ = baseline yaw
 	 *  from marker POSITIONS + floor assumption (roll/pitch=0), robust against single-marker angle noise.

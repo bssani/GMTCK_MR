@@ -112,9 +112,10 @@ void UCXMRVehicleLoaderComponent::LoadVehicle(UCXMRVehicleProfile* NewProfile)
 	SpawnedVehicle->SetActorRelativeTransform(Profile->VehicleRootOffset);
 
 	SyncMarkerProfile();
+	SyncVehicleIndex();
 
 	TrimIndex = 0;
-	CMFIndex  = Profile->IsValidTrim(0) ? Profile->Trims[0].DefaultCMF : 0;
+	CMFIndex  = ResolveDefaultCMF(0);
 	ApplyTrim();
 	ApplyCMF();
 
@@ -147,6 +148,34 @@ void UCXMRVehicleLoaderComponent::SyncMarkerProfile()
 	}
 }
 
+void UCXMRVehicleLoaderComponent::SyncVehicleIndex()
+{
+	if (!Catalog || !Profile)
+	{
+		return;
+	}
+
+	// Compare by path so an unloaded catalog entry still matches the loaded profile.
+	const FSoftObjectPath Wanted(Profile);
+	const int32 Found = Catalog->Vehicles.IndexOfByPredicate(
+		[&Wanted](const TSoftObjectPtr<UCXMRVehicleProfile>& Entry) { return Entry.ToSoftObjectPath() == Wanted; });
+
+	if (Found != INDEX_NONE)
+	{
+		VehicleIndex = Found;
+	}
+}
+
+int32 UCXMRVehicleLoaderComponent::ResolveDefaultCMF(int32 InTrimIndex) const
+{
+	if (!Profile || !Profile->IsValidTrim(InTrimIndex))
+	{
+		return 0;
+	}
+	const FCXMRTrim& Trim = Profile->Trims[InTrimIndex];
+	return Trim.CMFOptions.IsValidIndex(Trim.DefaultCMF) ? Trim.DefaultCMF : 0;
+}
+
 void UCXMRVehicleLoaderComponent::SetTrim(int32 InTrimIndex)
 {
 	if (!Profile || !Profile->IsValidTrim(InTrimIndex))
@@ -154,7 +183,7 @@ void UCXMRVehicleLoaderComponent::SetTrim(int32 InTrimIndex)
 		return;
 	}
 	TrimIndex = InTrimIndex;
-	CMFIndex  = Profile->Trims[TrimIndex].DefaultCMF;
+	CMFIndex  = ResolveDefaultCMF(TrimIndex);
 	ApplyTrim();
 	ApplyCMF();
 	ReportStatus();
