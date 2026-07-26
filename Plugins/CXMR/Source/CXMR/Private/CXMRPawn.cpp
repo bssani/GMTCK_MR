@@ -4,6 +4,7 @@
 #include "CXMRVarjoInputComponent.h"
 #include "CXMRMaskingComponent.h"
 #include "CXMRMarkerDebugComponent.h"
+#include "CXMRHandDebugComponent.h"
 #include "CXMRControlPanelWidget.h"
 
 #include "Camera/CameraComponent.h"
@@ -41,6 +42,9 @@ ACXMRPawn::ACXMRPawn()
 	// Always present, drawn only when CXMR.DebugMarkers is set — a headset session is a bad time to
 	// discover the instrument was not in the build.
 	MarkerDebug = CreateDefaultSubobject<UCXMRMarkerDebugComponent>(TEXT("MarkerDebug"));
+
+	// Same reasoning: the instrument ships in the build, drawn only while its toggle is on.
+	HandDebug = CreateDefaultSubobject<UCXMRHandDebugComponent>(TEXT("HandDebug"));
 
 	// --- Control panel: world-space quad on the left hand ---
 	ControlPanel = CreateDefaultSubobject<UWidgetComponent>(TEXT("ControlPanel"));

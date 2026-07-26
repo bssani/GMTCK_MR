@@ -21,6 +21,10 @@
 		{
 			"Name": "CXMR",
 			"Enabled": true
+		},
+		{
+			"Name": "OpenXRHandTracking",
+			"Enabled": true
 		}
 	]
 }

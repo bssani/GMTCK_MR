@@ -174,6 +174,23 @@ void UCXMRSubsystem::ToggleMasking()
 	SetMasking(!bMaskingOn);
 }
 
+// ---------- Hand visualization ----------
+
+void UCXMRSubsystem::SetHandVisualization(bool bEnable)
+{
+	if (bHandVisualizationOn == bEnable)
+	{
+		return;
+	}
+	bHandVisualizationOn = bEnable;
+	OnHandVisualizationChanged.Broadcast(bHandVisualizationOn);
+}
+
+void UCXMRSubsystem::ToggleHandVisualization()
+{
+	SetHandVisualization(!bHandVisualizationOn);
+}
+
 // ---------- Markers ----------
 
 bool UCXMRSubsystem::SetMarkerTracking(bool bEnable)

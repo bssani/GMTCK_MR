@@ -16,6 +16,7 @@ class UMotionControllerComponent;
 class UCXMRVarjoInputComponent;
 class UCXMRMaskingComponent;
 class UCXMRMarkerDebugComponent;
+class UCXMRHandDebugComponent;
 class UCXMRControlPanelWidget;
 class UWidgetComponent;
 class UWidgetInteractionComponent;
@@ -45,6 +46,9 @@ public:
 
 	/** Headset verification instrument. Draws raw marker poses; see CXMR.DebugMarkers. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRMarkerDebugComponent> MarkerDebug;
+
+	/** Headset verification instrument. Draws the tracked hand skeleton; toggled with H. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRHandDebugComponent> HandDebug;
 
 	// ============================================================================
 	//  Control panel — world space, on the left hand.

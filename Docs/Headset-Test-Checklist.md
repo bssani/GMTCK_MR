@@ -99,22 +99,38 @@ CustomDepth에만 그려진다).
 
 ---
 
+## 8. 손 추적 — `H` 키
+
+`H`를 누르면 추적된 손 관절이 그려진다(왼손 파랑 / 오른손 주황, 손가락 뼈대 연결).
+
+- ✅ 기대: 손을 시야에 넣으면 관절 26개가 손을 따라 움직인다
+- 로그가 답을 말해준다:
+  - `LogCXMRHands: Hand tracker present: yes/NO` — 플러그인 자체가 있는지
+  - `LogCXMRHands: Warning: LEFT/RIGHT hand acquired/lost` — 실제 추적 획득·상실 시점
+- ⚠️ **손이 얼어붙은 채 남아 보이면 그건 버그가 아니라 방지된 상황이다** — 트래커는 추적이 끊겨도
+  마지막 포즈를 계속 반환한다(원점으로 튀는 걸 막으려고). CXMR은 `bIsTracked`를 확인해 그리지
+  않으므로, 손이 사라지면 실제로 추적이 끊긴 것이다.
+- 확인할 것: **추적 범위**(어느 각도·거리에서 끊기는지), **지터**, 컨트롤러를 든 손도 잡히는지.
+
+측정 결과에 따라 다음 단계(손 poke로 패널 누르기)의 실현 가능성이 정해진다.
+
 ## 아무 반응이 없는 키들 (배선 안 됨)
 
 IMC에는 매핑돼 있지만 **C++ 바인딩이 없어 눌러도 아무 일도 없다.** Varjo 예제에서 애셋만
 넘어온 것들이다. 내일 이걸로 오진하지 말 것:
 
-`H`(손 시각화) · `G`(gaze) · `C`(dynamic tracking) · `Y`·방향키(depth range) · `I`(foveation 시각화)
+`G`(gaze) · `C`(dynamic tracking) · `Y`·방향키(depth range) · `I`(foveation 시각화)
 
-## 손 추적
+## 손 인터랙션 — 아직 없는 것
 
-**CXMR에는 손 관련 코드가 없다.** 플러그인이 제공하는 것:
+시각화만 붙였다. **손으로 무언가를 누르거나 잡는 기능은 없다.** 플러그인이 제공하는 것:
 
 | 층 | 출처 | 제공 |
 |---|---|---|
-| 관절 스켈레톤 | 엔진 `OpenXRHandTracking` | `Get Hand Tracking State` → Key Locations/Rotations/Radii |
+| 관절 스켈레톤 | 엔진 `OpenXRHandTracking` | `IHandTracker::GetAllKeypointStates` (CXMR이 쓰는 것) |
 | 상호작용 포즈 | `VarjoHandInteraction` | `GetHandInteractionAimPose` / `GetHandInteractionGripPose` |
 
-pinch/poke/palm은 C++ motion source로만 있고 BP 함수는 aim/grip뿐.
+pinch/poke/palm은 C++ motion source로만 있고 BP 함수는 aim/grip뿐이다.
 ⚠️ Varjo 문서가 시키는 `Get Motion Controller Data`는 UE 5.7에서 deprecated — 예제도 실제로는
 `Get Hand Tracking State`를 쓴다.
+⚠️ `OpenXRHandTracking`은 엔진 기본 비활성 플러그인이라 `.uproject`에서 명시적으로 켰다.

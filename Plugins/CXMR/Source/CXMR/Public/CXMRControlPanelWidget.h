@@ -35,6 +35,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleEnvDepth();
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleMasking();
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleMarkers();
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleHands();
 
 	// Placement actions (relayed through the subsystem to the placement component).
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void RequestRecalibrate();
@@ -54,6 +55,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsEnvDepthOn() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsMaskingOn() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsMarkersOn() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsHandsOn() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") float GetViewOffset() const;
 
 	// --- Vehicle state ---
@@ -103,6 +105,7 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_EnvDepth;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_Masking;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_Markers;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_Hands;
 
 	// Placement + viewer buttons
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_Recalibrate;
@@ -121,6 +124,7 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_EnvDepth_State;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_Masking_State;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_Markers_State;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_Hands_State;
 
 	// Session readouts
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_VehicleName;

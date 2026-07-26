@@ -84,6 +84,15 @@ public:
 	UFUNCTION(BlueprintPure,     Category = "CXMR|Masking") bool IsMaskingOn() const { return bMaskingOn; }
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Masking") FCXMROnBoolChanged OnMaskingChanged;
 
+	// ---------- Hand visualization (verification instrument) ----------
+	// Purely ours — no plugin call. UCXMRHandDebugComponent draws the engine's hand-tracking joints
+	// while this is on. Bound to IA_Varjo_HandVisualizationToggle, which shipped in the Varjo example
+	// but had never been wired to anything.
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Hands") void SetHandVisualization(bool bEnable);
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Hands") void ToggleHandVisualization();
+	UFUNCTION(BlueprintPure,     Category = "CXMR|Hands") bool IsHandVisualizationOn() const { return bHandVisualizationOn; }
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Hands") FCXMROnBoolChanged OnHandVisualizationChanged;
+
 	// ---------- Varjo Markers ----------
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Markers") bool SetMarkerTracking(bool bEnable);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Markers") void ToggleMarkerTracking();
@@ -161,6 +170,7 @@ private:
 	UPROPERTY(Transient) bool bMaskingOn        = false;
 	UPROPERTY(Transient) bool bMarkerTrackingOn = false;
 	UPROPERTY(Transient) bool bVRBackgroundVisible = true;
+	UPROPERTY(Transient) bool bHandVisualizationOn = false;
 
 	UPROPERTY(Transient) FText VehicleName;
 	UPROPERTY(Transient) int32 VehicleIndex = 0;

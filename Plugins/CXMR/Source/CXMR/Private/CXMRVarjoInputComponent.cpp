@@ -12,10 +12,21 @@
 #include "GameFramework/PlayerController.h"
 #include "Engine/GameInstance.h"
 #include "Engine/LocalPlayer.h"
+#include "UObject/ConstructorHelpers.h"
 
 UCXMRVarjoInputComponent::UCXMRVarjoInputComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
+
+	// Only this one is defaulted in C++. The rest are assigned in the BP, per the convention above —
+	// but IA_Varjo_HandVisualizationToggle is plugin content that nothing has ever pointed at, so
+	// defaulting it here is what makes the H key work on a fresh clone with no BP wiring.
+	static ConstructorHelpers::FObjectFinder<UInputAction>
+		HandVisFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_HandVisualizationToggle"));
+	if (HandVisFinder.Succeeded())
+	{
+		HandVisualizationToggleAction = HandVisFinder.Object;
+	}
 }
 
 UCXMRSubsystem* UCXMRVarjoInputComponent::GetCXMR() const
@@ -65,6 +76,7 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 	if (EnvDepthToggleAction)   { EIC->BindAction(EnvDepthToggleAction,   ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnEnvDepthToggle); }
 	if (MaskToggleAction)       { EIC->BindAction(MaskToggleAction,       ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnMaskToggle); }
 	if (MarkerToggleAction)     { EIC->BindAction(MarkerToggleAction,     ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnMarkerToggle); }
+	if (HandVisualizationToggleAction) { EIC->BindAction(HandVisualizationToggleAction, ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnHandVisualizationToggle); }
 	if (RecalibrateAction)      { EIC->BindAction(RecalibrateAction,      ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnRecalibrate); }
 	if (PlaceVehicleAction)     { EIC->BindAction(PlaceVehicleAction,     ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnPlaceVehicle); }
 
@@ -104,6 +116,7 @@ void UCXMRVarjoInputComponent::OnDepthTestToggle(const FInputActionValue&)  { if
 void UCXMRVarjoInputComponent::OnEnvDepthToggle(const FInputActionValue&)   { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleEnvironmentDepthEstimation(); } }
 void UCXMRVarjoInputComponent::OnMaskToggle(const FInputActionValue&)       { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleMasking(); } }
 void UCXMRVarjoInputComponent::OnMarkerToggle(const FInputActionValue&)     { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleMarkerTracking(); } }
+void UCXMRVarjoInputComponent::OnHandVisualizationToggle(const FInputActionValue&) { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleHandVisualization(); } }
 void UCXMRVarjoInputComponent::OnRecalibrate(const FInputActionValue&)      { if (UCXMRSubsystem* S = GetCXMR()) { S->RequestRecalibrate(); } }
 void UCXMRVarjoInputComponent::OnPlaceVehicle(const FInputActionValue&)     { if (UCXMRSubsystem* S = GetCXMR()) { S->RequestPlaceInFront(); } }
 

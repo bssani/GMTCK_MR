@@ -45,6 +45,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> MaskToggleAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> MarkerToggleAction;
 
+	/** Hand-tracking skeleton overlay. Defaulted in C++ to the plugin's own IA_Varjo_HandVisualizationToggle
+	 *  (key H) — that asset shipped with the Varjo example but had never been bound to anything. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> HandVisualizationToggleAction;
+
 	// Placement actions (routed via the subsystem to the placement component).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> RecalibrateAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> PlaceVehicleAction;
@@ -87,6 +91,7 @@ private:
 	void OnEnvDepthToggle(const FInputActionValue& Value);
 	void OnMaskToggle(const FInputActionValue& Value);
 	void OnMarkerToggle(const FInputActionValue& Value);
+	void OnHandVisualizationToggle(const FInputActionValue& Value);
 	void OnRecalibrate(const FInputActionValue& Value);
 	void OnPlaceVehicle(const FInputActionValue& Value);
 

@@ -47,6 +47,7 @@ void UCXMRControlPanelWidget::NativeConstruct()
 	CXMR_BIND_BUTTON(Btn_EnvDepth,    ToggleEnvDepth);
 	CXMR_BIND_BUTTON(Btn_Masking,     ToggleMasking);
 	CXMR_BIND_BUTTON(Btn_Markers,     ToggleMarkers);
+	CXMR_BIND_BUTTON(Btn_Hands,       ToggleHands);
 	CXMR_BIND_BUTTON(Btn_Recalibrate, RequestRecalibrate);
 	CXMR_BIND_BUTTON(Btn_PlaceVehicle, RequestPlaceVehicle);
 	CXMR_BIND_BUTTON(Btn_NextVehicle, NextVehicle);
@@ -100,6 +101,7 @@ void UCXMRControlPanelWidget::RefreshVisuals_Implementation()
 	ApplyToggle(Txt_EnvDepth_State,     IsEnvDepthOn());
 	ApplyToggle(Txt_Masking_State,      IsMaskingOn());
 	ApplyToggle(Txt_Markers_State,      IsMarkersOn());
+	ApplyToggle(Txt_Hands_State,        IsHandsOn());
 
 	// View offset is NOT on/off — it picks which viewpoint the frame renders from (0 = eye, 1 = camera).
 	// Showing ON/OFF here reads as "feature enabled", which is wrong: OFF is a valid, deliberate mode.
@@ -134,6 +136,7 @@ void UCXMRControlPanelWidget::ToggleDepthTest()  { if (Subsystem) { Subsystem->T
 void UCXMRControlPanelWidget::ToggleEnvDepth()   { if (Subsystem) { Subsystem->ToggleEnvironmentDepthEstimation(); } }
 void UCXMRControlPanelWidget::ToggleMasking()    { if (Subsystem) { Subsystem->ToggleMasking(); } }
 void UCXMRControlPanelWidget::ToggleMarkers()    { if (Subsystem) { Subsystem->ToggleMarkerTracking(); } }
+void UCXMRControlPanelWidget::ToggleHands()      { if (Subsystem) { Subsystem->ToggleHandVisualization(); } }
 
 void UCXMRControlPanelWidget::RequestRecalibrate()   { if (Subsystem) { Subsystem->RequestRecalibrate(); } }
 void UCXMRControlPanelWidget::RequestPlaceVehicle()  { if (Subsystem) { Subsystem->RequestPlaceInFront(); } }
@@ -152,6 +155,7 @@ bool  UCXMRControlPanelWidget::IsDepthTestOn() const   { return Subsystem && Sub
 bool  UCXMRControlPanelWidget::IsEnvDepthOn() const    { return Subsystem && Subsystem->IsEnvironmentDepthEstimationOn(); }
 bool  UCXMRControlPanelWidget::IsMaskingOn() const     { return Subsystem && Subsystem->IsMaskingOn(); }
 bool  UCXMRControlPanelWidget::IsMarkersOn() const     { return Subsystem && Subsystem->IsMarkerTrackingOn(); }
+bool  UCXMRControlPanelWidget::IsHandsOn() const       { return Subsystem && Subsystem->IsHandVisualizationOn(); }
 float UCXMRControlPanelWidget::GetViewOffset() const   { return Subsystem ? Subsystem->GetViewOffset() : 0.0f; }
 
 bool UCXMRControlPanelWidget::IsMRSupported() const      { return Subsystem && Subsystem->IsMixedRealitySupported(); }
