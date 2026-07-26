@@ -78,3 +78,9 @@ DerivedDataCache/*
 # UnrealAgent: in-editor MCP server (Claude bridge). .mcp.json: machine-local MCP config.
 Plugins/UnrealAgent/
 .mcp.json
+
+# Agent skills installed via the `skills` CLI. Kept global (user-level), not per-repo,
+# so if a project-scope install ever lands here, don't commit it.
+.agents/
+.claude/skills/
+skills-lock.json
