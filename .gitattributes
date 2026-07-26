@@ -1,0 +1,4 @@
+# core.autocrlf=true 환경에서 클론하면 셸 스크립트가 CRLF로 체크아웃되고,
+# bash는 CRLF 스크립트에서 `$'\r': command not found`로 죽는다.
+# .claude/hooks/*.sh 는 SessionStart 훅으로 실행되므로 항상 LF를 강제한다.
+*.sh text eol=lf
