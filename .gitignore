@@ -84,3 +84,7 @@ Plugins/UnrealAgent/
 .agents/
 .claude/skills/
 skills-lock.json
+
+# Machine-local agent settings (skill 노출 조절 등). 템플릿에 커밋되는 건
+# .claude/settings.json 뿐 — skill/MCP 설정은 여기 두고 리포에서 뺀다.
+.claude/settings.local.json
