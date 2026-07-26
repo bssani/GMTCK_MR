@@ -96,17 +96,29 @@ void UCXMRControlPanelWidget::RefreshVisuals_Implementation()
 	// Toggle states
 	ApplyToggle(Txt_MR_State,           IsMROn());
 	ApplyToggle(Txt_VRBackground_State, IsVRBackgroundVisible());
-	ApplyToggle(Txt_ViewOffset_State,   GetViewOffset() > 0.5f);
 	ApplyToggle(Txt_DepthTest_State,    IsDepthTestOn());
 	ApplyToggle(Txt_EnvDepth_State,     IsEnvDepthOn());
 	ApplyToggle(Txt_Masking_State,      IsMaskingOn());
 	ApplyToggle(Txt_Markers_State,      IsMarkersOn());
 
-	// Session readouts
-	if (Txt_VehicleName) { Txt_VehicleName->SetText(GetVehicleName()); }
-	if (Txt_VehiclePos)  { Txt_VehiclePos->SetText(GetVehiclePositionLabel()); }
-	if (Txt_TrimName)    { Txt_TrimName->SetText(GetTrimName()); }
-	if (Txt_TrimPos)     { Txt_TrimPos->SetText(GetTrimPositionLabel()); }
+	// View offset is NOT on/off — it picks which viewpoint the frame renders from (0 = eye, 1 = camera).
+	// Showing ON/OFF here reads as "feature enabled", which is wrong: OFF is a valid, deliberate mode.
+	if (Txt_ViewOffset_State)
+	{
+		const bool bCamera = GetViewOffset() > 0.5f;
+		Txt_ViewOffset_State->SetText(FText::FromString(bCamera ? TEXT("CAMERA") : TEXT("EYE")));
+		Txt_ViewOffset_State->SetColorAndOpacity(FSlateColor(NeutralColor));
+	}
+
+	// Session readouts. Empty means "nothing loaded" — show a dash, otherwise the cycling row renders as
+	// bare < > arrows with a void between them and looks broken rather than empty.
+	// ASCII only: the default font has no glyph for em-dash/arrows and draws an empty box instead.
+	auto OrDash = [](const FText& In) { return In.IsEmpty() ? FText::FromString(TEXT("-")) : In; };
+
+	if (Txt_VehicleName) { Txt_VehicleName->SetText(OrDash(GetVehicleName())); }
+	if (Txt_VehiclePos)  { Txt_VehiclePos->SetText(OrDash(GetVehiclePositionLabel())); }
+	if (Txt_TrimName)    { Txt_TrimName->SetText(OrDash(GetTrimName())); }
+	if (Txt_TrimPos)     { Txt_TrimPos->SetText(OrDash(GetTrimPositionLabel())); }
 	if (Txt_CMF)         { Txt_CMF->SetText(FText::AsNumber(GetCMFIndex())); }
 
 	// Grey out rows the headset does not support.

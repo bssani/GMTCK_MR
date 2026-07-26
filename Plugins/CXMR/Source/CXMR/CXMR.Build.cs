@@ -16,13 +16,15 @@ public class CXMR : ModuleRules
 			"InputCore",
 			"EnhancedInput",
 			"HeadMountedDisplay",
+			// Public: CXMRControlPanelWidget.h derives from UUserWidget and CXMRPawn.h exposes
+			// WidgetComponent / WidgetInteractionComponent, so any module including those headers needs UMG.
+			"UMG",
 			// Varjo plugin — CXMR is the single façade over its API (markers, depth, MR, view offset).
 			"VarjoOpenXR",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			"UMG",
 			"Slate",
 			"SlateCore",
 		});

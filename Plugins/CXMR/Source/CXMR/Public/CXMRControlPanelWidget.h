@@ -75,6 +75,8 @@ public:
 	// --- Status colours (tweakable per WBP) ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI|Style") FLinearColor OnColor  = FLinearColor(0.25f, 0.80f, 0.35f, 1.0f);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI|Style") FLinearColor OffColor = FLinearColor(0.45f, 0.45f, 0.45f, 1.0f);
+	/** For readouts that are a mode rather than a state (view offset EYE/CAMERA) — neither value is "off". */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI|Style") FLinearColor NeutralColor = FLinearColor(0.85f, 0.85f, 0.90f, 1.0f);
 
 protected:
 	UCXMRSubsystem* GetCXMR() const;

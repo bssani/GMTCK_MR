@@ -4,10 +4,14 @@
 #include "CXMRVarjoInputComponent.h"
 #include "CXMRMaskingComponent.h"
 #include "CXMRMarkerDebugComponent.h"
+#include "CXMRControlPanelWidget.h"
 
 #include "Camera/CameraComponent.h"
 #include "MotionControllerComponent.h"
 #include "EnhancedInputComponent.h"
+#include "InputAction.h"
+#include "Components/WidgetComponent.h"
+#include "Components/WidgetInteractionComponent.h"
 
 ACXMRPawn::ACXMRPawn()
 {
@@ -34,6 +38,83 @@ ACXMRPawn::ACXMRPawn()
 	// Always present, drawn only when CXMR.DebugMarkers is set — a headset session is a bad time to
 	// discover the instrument was not in the build.
 	MarkerDebug = CreateDefaultSubobject<UCXMRMarkerDebugComponent>(TEXT("MarkerDebug"));
+
+	// --- Control panel: world-space quad on the left hand ---
+	ControlPanel = CreateDefaultSubobject<UWidgetComponent>(TEXT("ControlPanel"));
+	ControlPanel->SetupAttachment(LeftController);
+	ControlPanel->SetWidgetSpace(EWidgetSpace::World);
+	ControlPanel->SetDrawAtDesiredSize(false);   // the WBP is taller than its designer preview; let DrawSize rule
+	ControlPanel->SetPivot(FVector2D(0.5f, 0.5f));
+	ControlPanel->SetTwoSided(true);             // the hand turns; a one-sided quad vanishes at the wrong angle
+	ControlPanel->SetTickWhenOffscreen(false);
+
+	// The pointer traces on Visibility. WidgetComponent's default UI collision profile does not block it,
+	// so the ray would sail straight through the panel and nothing would ever hover.
+	ControlPanel->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	ControlPanel->SetCollisionResponseToAllChannels(ECR_Ignore);
+	ControlPanel->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+
+	ApplyPanelTransform();
+
+	// --- Right-hand pointer ---
+	PanelPointer = CreateDefaultSubobject<UWidgetInteractionComponent>(TEXT("PanelPointer"));
+	PanelPointer->SetupAttachment(RightController);
+	PanelPointer->InteractionSource   = EWidgetInteractionSource::World;
+	PanelPointer->TraceChannel        = ECC_Visibility;
+	PanelPointer->InteractionDistance = 150.f;   // arm's length; the panel is on the other hand
+	PanelPointer->bShowDebug          = false;
+}
+
+void ACXMRPawn::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Re-apply here as well: the BP subclass may have overridden the tunables after the ctor ran.
+	ApplyPanelTransform();
+
+	if (ControlPanel && ControlPanelClass)
+	{
+		ControlPanel->SetWidgetClass(ControlPanelClass);
+		ControlPanel->InitWidget();   // SetWidgetClass alone does not rebuild once the component is registered
+	}
+}
+
+void ACXMRPawn::ApplyPanelTransform()
+{
+	if (!ControlPanel) { return; }
+
+	ControlPanel->SetDrawSize(PanelDrawSize);
+	ControlPanel->SetRelativeLocation(PanelOffset);
+	ControlPanel->SetRelativeRotation(PanelRotation);
+	ControlPanel->SetRelativeScale3D(FVector(PanelScale));
+}
+
+void ACXMRPawn::SetControlPanelVisible(bool bVisible)
+{
+	if (ControlPanel)
+	{
+		ControlPanel->SetVisibility(bVisible, true);
+		// Stop the ray from clicking a panel nobody can see.
+		ControlPanel->SetCollisionEnabled(bVisible ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
+	}
+}
+
+void ACXMRPawn::ToggleControlPanel()
+{
+	if (ControlPanel)
+	{
+		SetControlPanelVisible(!ControlPanel->IsVisible());
+	}
+}
+
+void ACXMRPawn::OnPanelClickPressed()
+{
+	if (PanelPointer) { PanelPointer->PressPointerKey(EKeys::LeftMouseButton); }
+}
+
+void ACXMRPawn::OnPanelClickReleased()
+{
+	if (PanelPointer) { PanelPointer->ReleasePointerKey(EKeys::LeftMouseButton); }
 }
 
 void ACXMRPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -44,5 +125,14 @@ void ACXMRPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 	if (UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
 		VarjoInput->SetupInput(EIC);
+
+		// Bound on the pawn, not in the input component: the target (PanelPointer) is a pawn-owned
+		// component, and press/release must pair on the same object.
+		if (PanelClickAction)
+		{
+			EIC->BindAction(PanelClickAction, ETriggerEvent::Started,   this, &ACXMRPawn::OnPanelClickPressed);
+			EIC->BindAction(PanelClickAction, ETriggerEvent::Completed, this, &ACXMRPawn::OnPanelClickReleased);
+			EIC->BindAction(PanelClickAction, ETriggerEvent::Canceled,  this, &ACXMRPawn::OnPanelClickReleased);
+		}
 	}
 }
