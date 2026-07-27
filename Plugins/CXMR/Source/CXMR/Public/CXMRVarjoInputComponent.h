@@ -45,6 +45,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> MaskToggleAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> MarkerToggleAction;
 
+	// --- Depth test range (Y + arrow keys) ---
+	// These three IA assets shipped with the Varjo example and were mapped in IMC_Varjo from the start,
+	// but nothing ever bound them, so the range stayed at the plugin's unbounded default and the depth
+	// test flickered across the whole room. Defaulted in C++ for the same reason the hand-visualization
+	// action is: they are plugin content that no Blueprint has ever pointed at.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> DepthRangeToggleAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> DepthRangeNearZAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> DepthRangeFarZAction;
+
+	/** Metres per second while a range key is held. Varjo's example uses 0.01 per tick; this is the
+	 *  frame-rate-independent equivalent, so the feel does not change with headroom. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions", meta = (ClampMin = "0.0"))
+	float DepthRangeAdjustSpeed = 0.5f;
+
 	/** Hand-tracking skeleton overlay. Defaulted in C++ to the plugin's own IA_Varjo_HandVisualizationToggle
 	 *  (key H) — that asset shipped with the Varjo example but had never been bound to anything. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> HandVisualizationToggleAction;
@@ -63,6 +77,11 @@ public:
 	// --- Cycling (right controller). Axis1D, one step per flick — see the latch below. ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> CycleTrimAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> CycleVehicleAction;
+
+	/** Percentile manikin (Human Factors) cycling. Same Axis1D flick shape as the two above.
+	 *  Until this existed, UCXMRErgonomicsComponent was fully implemented and subscribed but nothing
+	 *  in the project could ever ask it to move — RequestErgonomicsStep had no callers at all. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> CycleManikinAction;
 
 	/** Stick must pass this to register a step. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer", meta = (ClampMin = "0.0", ClampMax = "1.0"))
@@ -95,17 +114,31 @@ private:
 	void OnRecalibrate(const FInputActionValue& Value);
 	void OnPlaceVehicle(const FInputActionValue& Value);
 
+	void OnDepthRangeToggle(const FInputActionValue& Value);
+	void OnDepthRangeNearZ(const FInputActionValue& Value);
+	void OnDepthRangeFarZ(const FInputActionValue& Value);
+
 	void OnTurntableAxis(const FInputActionValue& Value);
 	void OnSpinLeftToggle(const FInputActionValue& Value);
 	void OnSpinRightToggle(const FInputActionValue& Value);
 	void OnCycleTrim(const FInputActionValue& Value);
 	void OnCycleVehicle(const FInputActionValue& Value);
+	void OnCycleManikin(const FInputActionValue& Value);
 	void OnCycleTrimReleased(const FInputActionValue& Value);
 	void OnCycleVehicleReleased(const FInputActionValue& Value);
+	void OnCycleManikinReleased(const FInputActionValue& Value);
 
-	/** Turns a continuous axis into discrete steps: fires once, then waits for the stick to return. */
+	/** Shared latch: true exactly once per flick, then rearms when the stick falls back to rest.
+	 *  Returns the step (+1 / -1) on the frame it fires, 0 otherwise. */
+	int32 StepOnFlick(float AxisValue, bool& bLatched);
+
+	/** Viewer flavour of the above — relays a Next/Previous action instead of a bare step. */
 	void StepOnFlick(float AxisValue, bool& bLatched, ECXMRViewerAction Positive, ECXMRViewerAction Negative);
+
+	/** Seconds elapsed this frame, for the held-key range adjustment. */
+	float DeltaSeconds() const;
 
 	bool bTrimLatched    = false;
 	bool bVehicleLatched = false;
+	bool bManikinLatched = false;
 };

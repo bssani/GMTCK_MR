@@ -9,6 +9,8 @@
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Pawn.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogCXMRPlacement, Log, All);
+
 UCXMRPlacementComponent::UCXMRPlacementComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -40,6 +42,7 @@ void UCXMRPlacementComponent::BeginPlay()
 	{
 		// Subscribe to the subsystem (marker events + placement requests), never the plugin directly.
 		Subsystem->OnMarkerDetected.AddDynamic(this, &UCXMRPlacementComponent::HandleMarkerDetected);
+		Subsystem->OnMarkerMoved.AddDynamic(this, &UCXMRPlacementComponent::HandleMarkerMoved);
 		Subsystem->OnRecalibrateRequested.AddDynamic(this, &UCXMRPlacementComponent::HandleRecalibrateRequest);
 		Subsystem->OnPlaceRequested.AddDynamic(this, &UCXMRPlacementComponent::HandlePlaceRequest);
 	}
@@ -50,6 +53,7 @@ void UCXMRPlacementComponent::EndPlay(const EEndPlayReason::Type Reason)
 	if (Subsystem)
 	{
 		Subsystem->OnMarkerDetected.RemoveDynamic(this, &UCXMRPlacementComponent::HandleMarkerDetected);
+		Subsystem->OnMarkerMoved.RemoveDynamic(this, &UCXMRPlacementComponent::HandleMarkerMoved);
 		Subsystem->OnRecalibrateRequested.RemoveDynamic(this, &UCXMRPlacementComponent::HandleRecalibrateRequest);
 		Subsystem->OnPlaceRequested.RemoveDynamic(this, &UCXMRPlacementComponent::HandlePlaceRequest);
 	}
@@ -57,6 +61,16 @@ void UCXMRPlacementComponent::EndPlay(const EEndPlayReason::Type Reason)
 }
 
 void UCXMRPlacementComponent::HandleMarkerDetected(int32 MarkerId, FVector Position, FRotator Rotation, FVector2D Size)
+{
+	HandleMarkerPose(MarkerId, Position, Rotation, /*bIsFirstSighting*/ true);
+}
+
+void UCXMRPlacementComponent::HandleMarkerMoved(int32 MarkerId, FVector Position, FRotator Rotation, FVector2D Size)
+{
+	HandleMarkerPose(MarkerId, Position, Rotation, /*bIsFirstSighting*/ false);
+}
+
+void UCXMRPlacementComponent::HandleMarkerPose(int32 MarkerId, const FVector& Position, const FRotator& Rotation, bool bIsFirstSighting)
 {
 	if (Mode != ECXMRPlacementMode::MarkerAnchor || !MarkerProfile)
 	{
@@ -69,11 +83,27 @@ void UCXMRPlacementComponent::HandleMarkerDetected(int32 MarkerId, FVector Posit
 		return; // not a calibration marker (DynamicObject handled by a future component)
 	}
 
-	// Per-marker config — only valid AFTER detection (plugin caveat).
-	if (Subsystem)
+	// Per-marker config — only valid AFTER detection (plugin caveat), and only worth doing once.
+	if (bIsFirstSighting && Subsystem)
 	{
-		Subsystem->SetMarkerTimeout(MarkerId, Entry.Timeout);
-		Subsystem->SetMarkerTrackingMode(MarkerId, Entry.TrackingMode);
+		// The plugin reserves id 0 as its "invalid marker" sentinel and rejects both of these calls
+		// outright (VarjoMarkersPlugin.cpp:150, :162), logging a warning that names no profile and so
+		// tells the tester nothing. A profile authored with id 0 — the struct default — therefore looks
+		// like a working setup right up until no physical marker ever matches it.
+		if (MarkerId == 0)
+		{
+			UE_LOG(LogCXMRPlacement, Warning,
+				TEXT("Marker profile '%s' contains id 0, which the Varjo plugin treats as its invalid-id "
+				     "sentinel: timeout and tracking mode cannot be set for it. Physical markers carry "
+				     "their own printed number — read it from the LogCXMRDebug 'DETECTED id=' line and "
+				     "put that in the profile."),
+				*MarkerProfile->GetName());
+		}
+		else
+		{
+			Subsystem->SetMarkerTimeout(MarkerId, Entry.Timeout);
+			Subsystem->SetMarkerTrackingMode(MarkerId, Entry.TrackingMode);
+		}
 	}
 
 	if (bFreezeAfterCalibration && bCalibrated)
@@ -81,8 +111,21 @@ void UCXMRPlacementComponent::HandleMarkerDetected(int32 MarkerId, FVector Posit
 		return; // frozen
 	}
 
+	// Marker poses jitter every frame. Re-placing the vehicle on sub-millimetre noise would read as an
+	// unstable car, so an update has to actually move before it earns a recompute. A first sighting
+	// always counts — that is the sample that puts the marker on the board at all.
+	const FTransform NewPose(Rotation, Position, FVector::OneVector);
+	if (!bIsFirstSighting)
+	{
+		const FTransform* Existing = DetectedCalib.Find(MarkerId);
+		if (Existing && FVector::Dist(Existing->GetLocation(), Position) < MarkerUpdateThreshold)
+		{
+			return;
+		}
+	}
+
 	// Accumulate this calibration marker's world pose, then (re)compute the alignment.
-	DetectedCalib.Add(MarkerId, FTransform(Rotation, Position, FVector::OneVector));
+	DetectedCalib.Add(MarkerId, NewPose);
 	RecomputeCalibration();
 }
 

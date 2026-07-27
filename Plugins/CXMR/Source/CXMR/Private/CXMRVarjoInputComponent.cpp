@@ -12,21 +12,50 @@
 #include "GameFramework/PlayerController.h"
 #include "Engine/GameInstance.h"
 #include "Engine/LocalPlayer.h"
+#include "Engine/World.h"
 #include "UObject/ConstructorHelpers.h"
 
 UCXMRVarjoInputComponent::UCXMRVarjoInputComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 
-	// Only this one is defaulted in C++. The rest are assigned in the BP, per the convention above —
-	// but IA_Varjo_HandVisualizationToggle is plugin content that nothing has ever pointed at, so
-	// defaulting it here is what makes the H key work on a fresh clone with no BP wiring.
+	// These are defaulted in C++, the rest are assigned in the BP per the convention above. What they
+	// have in common: every one is plugin content that shipped inside /CXMR/, is already mapped in
+	// IMC_Varjo, and that no Blueprint has ever pointed at — so defaulting here is what makes the key
+	// work on a fresh clone with no BP wiring. A project can still override any of them on its own BP.
 	static ConstructorHelpers::FObjectFinder<UInputAction>
 		HandVisFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_HandVisualizationToggle"));
 	if (HandVisFinder.Succeeded())
 	{
 		HandVisualizationToggleAction = HandVisFinder.Object;
 	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction>
+		RangeToggleFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_DepthTestRangeToggle"));
+	if (RangeToggleFinder.Succeeded())
+	{
+		DepthRangeToggleAction = RangeToggleFinder.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction>
+		RangeNearFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_DepthTestRangeNearZ"));
+	if (RangeNearFinder.Succeeded())
+	{
+		DepthRangeNearZAction = RangeNearFinder.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction>
+		RangeFarFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_DepthTestRangeFarZ"));
+	if (RangeFarFinder.Succeeded())
+	{
+		DepthRangeFarZAction = RangeFarFinder.Object;
+	}
+}
+
+float UCXMRVarjoInputComponent::DeltaSeconds() const
+{
+	const UWorld* World = GetWorld();
+	return World ? World->GetDeltaSeconds() : 0.0f;
 }
 
 UCXMRSubsystem* UCXMRVarjoInputComponent::GetCXMR() const
@@ -80,6 +109,11 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 	if (RecalibrateAction)      { EIC->BindAction(RecalibrateAction,      ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnRecalibrate); }
 	if (PlaceVehicleAction)     { EIC->BindAction(PlaceVehicleAction,     ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnPlaceVehicle); }
 
+	// Depth range: Triggered on the bounds so holding the key sweeps them, like the turntable stick.
+	if (DepthRangeToggleAction) { EIC->BindAction(DepthRangeToggleAction, ETriggerEvent::Started,   this, &UCXMRVarjoInputComponent::OnDepthRangeToggle); }
+	if (DepthRangeNearZAction)  { EIC->BindAction(DepthRangeNearZAction,  ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnDepthRangeNearZ); }
+	if (DepthRangeFarZAction)   { EIC->BindAction(DepthRangeFarZAction,   ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnDepthRangeFarZ); }
+
 	// Turntable: Triggered fires every frame the stick is held, which is what the rotation wants.
 	if (TurntableAxisAction)   { EIC->BindAction(TurntableAxisAction,   ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnTurntableAxis); }
 	if (SpinLeftToggleAction)  { EIC->BindAction(SpinLeftToggleAction,  ETriggerEvent::Started,   this, &UCXMRVarjoInputComponent::OnSpinLeftToggle); }
@@ -95,6 +129,11 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 	{
 		EIC->BindAction(CycleVehicleAction, ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnCycleVehicle);
 		EIC->BindAction(CycleVehicleAction, ETriggerEvent::Completed, this, &UCXMRVarjoInputComponent::OnCycleVehicleReleased);
+	}
+	if (CycleManikinAction)
+	{
+		EIC->BindAction(CycleManikinAction, ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnCycleManikin);
+		EIC->BindAction(CycleManikinAction, ETriggerEvent::Completed, this, &UCXMRVarjoInputComponent::OnCycleManikinReleased);
 	}
 }
 
@@ -120,6 +159,29 @@ void UCXMRVarjoInputComponent::OnHandVisualizationToggle(const FInputActionValue
 void UCXMRVarjoInputComponent::OnRecalibrate(const FInputActionValue&)      { if (UCXMRSubsystem* S = GetCXMR()) { S->RequestRecalibrate(); } }
 void UCXMRVarjoInputComponent::OnPlaceVehicle(const FInputActionValue&)     { if (UCXMRSubsystem* S = GetCXMR()) { S->RequestPlaceInFront(); } }
 
+// ---------- Depth test range ----------
+
+void UCXMRVarjoInputComponent::OnDepthRangeToggle(const FInputActionValue&)
+{
+	if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleDepthTestRange(); }
+}
+
+void UCXMRVarjoInputComponent::OnDepthRangeNearZ(const FInputActionValue& Value)
+{
+	if (UCXMRSubsystem* S = GetCXMR())
+	{
+		S->AdjustDepthTestRange(Value.Get<float>() * DepthRangeAdjustSpeed * DeltaSeconds(), 0.0f);
+	}
+}
+
+void UCXMRVarjoInputComponent::OnDepthRangeFarZ(const FInputActionValue& Value)
+{
+	if (UCXMRSubsystem* S = GetCXMR())
+	{
+		S->AdjustDepthTestRange(0.0f, Value.Get<float>() * DepthRangeAdjustSpeed * DeltaSeconds());
+	}
+}
+
 // ---------- Viewer: turntable + cycling ----------
 
 void UCXMRVarjoInputComponent::OnTurntableAxis(const FInputActionValue& Value)
@@ -137,21 +199,31 @@ void UCXMRVarjoInputComponent::OnSpinRightToggle(const FInputActionValue&)
 	if (UCXMRSubsystem* S = GetCXMR()) { S->RequestViewerAction(ECXMRViewerAction::SpinRight); }
 }
 
-void UCXMRVarjoInputComponent::StepOnFlick(float AxisValue, bool& bLatched, ECXMRViewerAction Positive, ECXMRViewerAction Negative)
+int32 UCXMRVarjoInputComponent::StepOnFlick(float AxisValue, bool& bLatched)
 {
 	const float Magnitude = FMath::Abs(AxisValue);
 
 	if (!bLatched && Magnitude >= CycleThreshold)
 	{
 		bLatched = true;
-		if (UCXMRSubsystem* S = GetCXMR())
-		{
-			S->RequestViewerAction(AxisValue > 0.0f ? Positive : Negative);
-		}
+		return AxisValue > 0.0f ? 1 : -1;
 	}
-	else if (bLatched && Magnitude <= CycleReleaseThreshold)
+	if (bLatched && Magnitude <= CycleReleaseThreshold)
 	{
 		bLatched = false;
+	}
+	return 0;
+}
+
+void UCXMRVarjoInputComponent::StepOnFlick(float AxisValue, bool& bLatched, ECXMRViewerAction Positive, ECXMRViewerAction Negative)
+{
+	const int32 Step = StepOnFlick(AxisValue, bLatched);
+	if (Step != 0)
+	{
+		if (UCXMRSubsystem* S = GetCXMR())
+		{
+			S->RequestViewerAction(Step > 0 ? Positive : Negative);
+		}
 	}
 }
 
@@ -165,5 +237,16 @@ void UCXMRVarjoInputComponent::OnCycleVehicle(const FInputActionValue& Value)
 	StepOnFlick(Value.Get<float>(), bVehicleLatched, ECXMRViewerAction::NextVehicle, ECXMRViewerAction::PreviousVehicle);
 }
 
+// Ergonomics is a step relay rather than a ECXMRViewerAction, so it uses the bare latch.
+void UCXMRVarjoInputComponent::OnCycleManikin(const FInputActionValue& Value)
+{
+	const int32 Step = StepOnFlick(Value.Get<float>(), bManikinLatched);
+	if (Step != 0)
+	{
+		if (UCXMRSubsystem* S = GetCXMR()) { S->RequestErgonomicsStep(Step); }
+	}
+}
+
 void UCXMRVarjoInputComponent::OnCycleTrimReleased(const FInputActionValue&)    { bTrimLatched = false; }
 void UCXMRVarjoInputComponent::OnCycleVehicleReleased(const FInputActionValue&) { bVehicleLatched = false; }
+void UCXMRVarjoInputComponent::OnCycleManikinReleased(const FInputActionValue&) { bManikinLatched = false; }

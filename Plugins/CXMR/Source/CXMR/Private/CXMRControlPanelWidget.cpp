@@ -35,8 +35,13 @@ void UCXMRControlPanelWidget::NativeConstruct()
 		Subsystem->OnEnvironmentDepthEstimationChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
 		Subsystem->OnMaskingChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
 		Subsystem->OnMarkerTrackingChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
+		// Hand visualization shipped without this line, so the panel's Hands row could never change —
+		// pressing H drew the skeleton but the readout stayed at whatever it was built with.
+		Subsystem->OnHandVisualizationChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
+		Subsystem->OnDepthTestRangeChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
 		Subsystem->OnViewOffsetChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleFloatChanged);
 		Subsystem->OnVehicleStatusChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
+		Subsystem->OnManikinChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
 	}
 
 	// Wire whatever buttons the WBP layout provided. Missing ones are simply skipped.
@@ -55,6 +60,9 @@ void UCXMRControlPanelWidget::NativeConstruct()
 	CXMR_BIND_BUTTON(Btn_NextTrim,    NextTrim);
 	CXMR_BIND_BUTTON(Btn_PrevTrim,    PreviousTrim);
 	CXMR_BIND_BUTTON(Btn_NextCMF,     NextCMF);
+	CXMR_BIND_BUTTON(Btn_DepthRange,  ToggleDepthRange);
+	CXMR_BIND_BUTTON(Btn_NextManikin, NextManikin);
+	CXMR_BIND_BUTTON(Btn_PrevManikin, PreviousManikin);
 
 	RefreshVisuals();
 }
@@ -69,8 +77,11 @@ void UCXMRControlPanelWidget::NativeDestruct()
 		Subsystem->OnEnvironmentDepthEstimationChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
 		Subsystem->OnMaskingChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
 		Subsystem->OnMarkerTrackingChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
+		Subsystem->OnHandVisualizationChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
+		Subsystem->OnDepthTestRangeChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
 		Subsystem->OnViewOffsetChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleFloatChanged);
 		Subsystem->OnVehicleStatusChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
+		Subsystem->OnManikinChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
 	}
 
 	Super::NativeDestruct();
@@ -102,6 +113,7 @@ void UCXMRControlPanelWidget::RefreshVisuals_Implementation()
 	ApplyToggle(Txt_Masking_State,      IsMaskingOn());
 	ApplyToggle(Txt_Markers_State,      IsMarkersOn());
 	ApplyToggle(Txt_Hands_State,        IsHandsOn());
+	ApplyToggle(Txt_DepthRange_State,   IsDepthRangeOn());
 
 	// View offset is NOT on/off — it picks which viewpoint the frame renders from (0 = eye, 1 = camera).
 	// Showing ON/OFF here reads as "feature enabled", which is wrong: OFF is a valid, deliberate mode.
@@ -122,6 +134,9 @@ void UCXMRControlPanelWidget::RefreshVisuals_Implementation()
 	if (Txt_TrimName)    { Txt_TrimName->SetText(OrDash(GetTrimName())); }
 	if (Txt_TrimPos)     { Txt_TrimPos->SetText(OrDash(GetTrimPositionLabel())); }
 	if (Txt_CMF)         { Txt_CMF->SetText(FText::AsNumber(GetCMFIndex())); }
+	if (Txt_DepthRange)  { Txt_DepthRange->SetText(GetDepthRangeLabel()); }
+	if (Txt_ManikinName) { Txt_ManikinName->SetText(OrDash(GetManikinName())); }
+	if (Txt_ManikinPos)  { Txt_ManikinPos->SetText(OrDash(GetManikinPositionLabel())); }
 
 	// Grey out rows the headset does not support.
 	if (Btn_MR)      { Btn_MR->SetIsEnabled(IsMRSupported()); }
@@ -147,6 +162,12 @@ void UCXMRControlPanelWidget::PreviousVehicle() { if (Subsystem) { Subsystem->Re
 void UCXMRControlPanelWidget::NextTrim()        { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::NextTrim); } }
 void UCXMRControlPanelWidget::PreviousTrim()    { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::PreviousTrim); } }
 void UCXMRControlPanelWidget::NextCMF()         { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::NextCMF); } }
+
+void UCXMRControlPanelWidget::ToggleDepthRange() { if (Subsystem) { Subsystem->ToggleDepthTestRange(); } }
+
+// Ergonomics uses its own step relay rather than ECXMRViewerAction — same rendezvous, different verb.
+void UCXMRControlPanelWidget::NextManikin()     { if (Subsystem) { Subsystem->RequestErgonomicsStep(1); } }
+void UCXMRControlPanelWidget::PreviousManikin() { if (Subsystem) { Subsystem->RequestErgonomicsStep(-1); } }
 
 // --- Getters ---
 bool  UCXMRControlPanelWidget::IsMROn() const          { return Subsystem && Subsystem->IsMixedRealityOn(); }
@@ -185,4 +206,39 @@ FText UCXMRControlPanelWidget::GetTrimPositionLabel() const
 	}
 	return FText::FromString(FString::Printf(TEXT("%d / %d"),
 		Subsystem->GetTrimIndex() + 1, Subsystem->GetTrimCount()));
+}
+
+// --- Depth range ---
+
+bool UCXMRControlPanelWidget::IsDepthRangeOn() const { return Subsystem && Subsystem->IsDepthTestRangeOn(); }
+
+FText UCXMRControlPanelWidget::GetDepthRangeLabel() const
+{
+	if (!Subsystem)
+	{
+		return FText::GetEmpty();
+	}
+	// "unbounded" is the honest word for what the compositor actually gets when the range is off
+	// (farZ = HUGE_VALF) — and it is the state that makes the room flicker, so it is worth naming.
+	// ASCII only: the default font draws a box for anything else.
+	if (!Subsystem->IsDepthTestRangeOn())
+	{
+		return NSLOCTEXT("CXMR", "DepthRangeUnbounded", "unbounded");
+	}
+	return FText::FromString(FString::Printf(TEXT("%.2f - %.2f m"),
+		Subsystem->GetDepthTestRangeNearZ(), Subsystem->GetDepthTestRangeFarZ()));
+}
+
+// --- Ergonomics ---
+
+FText UCXMRControlPanelWidget::GetManikinName() const { return Subsystem ? Subsystem->GetManikinName() : FText::GetEmpty(); }
+
+FText UCXMRControlPanelWidget::GetManikinPositionLabel() const
+{
+	if (!Subsystem || Subsystem->GetManikinCount() <= 0)
+	{
+		return FText::GetEmpty();
+	}
+	return FText::FromString(FString::Printf(TEXT("%d / %d"),
+		Subsystem->GetManikinIndex() + 1, Subsystem->GetManikinCount()));
 }

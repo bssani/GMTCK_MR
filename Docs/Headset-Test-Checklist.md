@@ -28,30 +28,92 @@
 - ❌ **패널의 Mixed Reality가 OFF에서 안 움직이면** = CVar를 못 찾은 것. 로그에
   `LogCXMR: Warning: Mixed reality toggle ignored` 가 찍힌다. (상태를 거짓으로 바꾸지 않도록 만든 동작)
 
+### 🔴 `B`를 껐는데 검정 화면이면 — 알파 문제 (미해결)
+
+**2026-07-27 실측**: MR을 켜고 `B`로 VR 배경을 끄면 패스스루가 아니라 **검정 화면**이 됐다.
+`T`(Depth Test)를 켰을 때만 패스스루가 나타났다.
+
+패스스루 조건은 *"Pixels with RGBA(0,0,0,0) display only the VST image"* — **알파가 0인 픽셀에만**
+실세계가 보인다. 배경 액터를 숨겨도 알파가 1이면 그냥 검정이다. `T`에서만 보이는 이유는 depth
+test가 **컴포지터 레이어**에서 처리되어 알파 합성 경로를 우회하기 때문이다.
+
+**유력 용의자는 `PP_MR`이다.** Capabilities §4-1 step 7에 기록된 로직이
+*"`CustomDepth < SceneDepth` → Opacity 0, **아니면 1.0**"* 이므로, 마스크 구멍 바깥 전 영역에
+**불투명 알파를 칠하게 된다.** 이것이 사실이면 `B` 검정 · `N` 안 보임 · `U` 패스스루 없음이
+한 번에 설명된다.
+
+**→ 전용 문서로 분리했다: `Docs/Passthrough-Black-Screen.md`**
+
+리빌드도 에디터도 없이 콘솔만으로 원인을 가리는 절차가 들어 있다. 용의자는 넷이고
+(`PP_MR` / TSR 알파 / scene color format / 알파 전파), 각각 콘솔 한 줄로 갈린다.
+
+리빌드했다면 먼저 `CXMR.DumpMRState` 한 줄로 전부 찍어본다 — 콘솔로는 못 보는
+"플러그인이 판단하는 MR 상태 vs CXMR 캐시" 대조가 들어 있고, 둘이 어긋나면 알파 이전에 그게 원인이다.
+
 ## 2. 뷰 오프셋 / Depth
 
 | 키 | 기능 | 확인 |
 |---|---|---|
 | `K` | View Offset | 패널 표시가 `CAMERA` ↔ `EYE`로 바뀐다. 근거리 물체를 볼 때 정렬감 차이 |
 | `T` | Depth Test | 손을 눈앞에 대면 가상 물체보다 앞에 보이는지 |
-| `U` | Env Depth | depth estimation 활성 |
+| `U` | Env Depth | depth estimation 활성. **`T`가 먼저 켜져 있어야 한다** |
+| `Y` | Depth Test **Range** on/off | 패널에 `0.00 - 0.75 m` ↔ `unbounded` |
+| `←`/`→` | NearZ 감소/증가 | 누르고 있으면 연속 변화 |
+| `↓`/`↑` | FarZ 감소/증가 | 〃 |
 
-⚠️ **depth test range 밖은 실세계가 통째로 사라진다**(컴포지터 설계). 기본 0~0.75m = 손 범위.
-방 전체를 보려던 게 아니라면 정상.
+### ⚠️ flickering이 보이면 range를 먼저 의심한다
+
+**이전 판의 "기본 0~0.75m = 손 범위"는 틀린 서술이었다.** 0.75는 플러그인 구조체에 저장만 돼
+있고, range가 **비활성이면 컴포지터에는 `farZ = HUGE_VALF`가 전달된다**(`DepthPlugin.cpp:58-59`).
+그래서 실제로는 **방 전체가 무한 거리까지** depth test 대상이었고, 원거리·반사면의 불안정한 추정
+depth 때문에 가상 물체가 심하게 깜빡였다.
+
+지금은 CXMR이 range를 **기본으로 켜고 0.0–0.75m로 시작**한다. 확인할 것:
+1. `T`를 켠 상태에서 깜빡임이 줄었는가
+2. `Y`로 range를 **끄면** 깜빡임이 다시 나타나는가 (원인 확정)
+3. `↑`로 FarZ를 넓혀가며 **어느 거리부터** 불안정해지는지 — 이 값이 실차 세팅의 기준이 된다
+
+⚠️ **range 밖은 실세계가 통째로 사라진다**(컴포지터 설계). 좁히는 게 안전한 방향이 아니다 —
+좁힐수록 실세계가 보이는 영역이 줄어든다. 방 전체를 보려던 게 아니라면 정상.
 
 ## 3. 마커 — 캘리브레이션의 토대
 
-**`CXMR.DebugMarkers 1`을 켜고 실물 마커를 시야에 넣는다.**
+### 🔴 0단계 — `V`를 먼저 누른다
 
-1. **감지 자체**: 마커 pose가 그려지는가? 로그에 `LogCXMRDebug`가 찍힌다.
-2. **정렬**: 프로파일(`DA_MarkerProfile_TestCar`)에 **ID 0 하나만, 오프셋 0**으로 등록돼 있다.
-   → **ID 0 마커를 쓰면 더미 차량이 마커 위치에 정확히 얹혀야 한다.**
-3. **드리프트**: 몇 분 두고 차량이 밀리는지 관찰. 반사면이 주 악화 요인.
-4. **재정렬**: `R` 키. 마커 추적을 껐다 켜서 Detected를 다시 유도한다.
+**마커 추적은 세션 시작 시 꺼져 있다.** `V`를 누르기 전에는 마커 이벤트가 단 한 건도 오지 않는다.
+이 단계가 이 문서에 빠져 있어서 "감지 자체가 안 된다"로 오진하기 쉬웠다. 패널의 Markers가 ON이
+되는지 본다. 안 켜지면 로그에 `LogCXMR: Warning: Marker tracking could not be enabled`이 찍힌다.
+
+**그 다음 `CXMR.DebugMarkers 1`을 켜고 실물 마커를 시야에 넣는다.**
+
+1. **감지 자체**: 마커 pose가 그려지는가? 로그에 `LogCXMRDebug: DETECTED id=N`이 찍힌다.
+2. 🔴 **그 `N`을 읽는다.** 프로파일(`DA_MarkerProfile_TestCar`)은 **ID 0**으로 authoring돼 있는데,
+   **0은 Varjo 플러그인이 "무효 ID" 센티넬로 쓰는 값**이다(`VarjoMarkersPlugin.cpp:150, :162` —
+   timeout·tracking mode 설정을 거부한다). 실물 마커는 0을 보고하지 않으므로 **프로파일이 그대로면
+   차량은 영원히 안 움직인다.** 로그에 `LogCXMRPlacement: Warning: ... contains id 0`이 찍힌다.
+   → 에디터에서 `DA_MarkerProfile_TestCar`의 `Marker Id`를 **실측한 `N`으로 바꾼다.**
+3. **정렬**: 오프셋이 0이므로 **차량 원점이 마커 위에 정확히 얹혀야 한다.**
+4. **드리프트**: 몇 분 두고 차량이 밀리는지 관찰. 반사면이 주 악화 요인.
+5. **재정렬**: `R` 키. 마커 추적을 껐다 켜서 Detected를 다시 유도한다.
+
+### 마커 추종을 보려면 freeze를 꺼야 한다
+
+기본 설정(`Freeze After Calibration = ON`, `MinMarkersToCalibrate = 1`)에서는 **첫 감지 한 번으로
+캘리브가 끝나고 얼어붙는다.** 마커를 움직여도 차는 따라오지 않는다 — 이게 실내 설계 의도다.
+
+추종·재수렴을 확인하려면 `VehicleRoot_TestCar → Placement → Freeze After Calibration`을 **끈다.**
+그러면 차량이 마커를 따라 움직인다(`Marker Update Threshold` cm 이상 움직였을 때만 갱신 —
+지터로 차가 떨지 않게 하는 값, 기본 0.5cm).
+
+⚠️ 이전에는 freeze를 꺼도 추종이 안 됐다. `Detected`(ID당 세션당 1회)만 구독하고 있어서
+**최초 1프레임의 pose에 영구 고정**됐고, 마커를 놓쳤다 다시 잡아도(그때는 `Moved`로 온다)
+재정렬되지 않았다. 지금은 `Moved`도 반영한다.
 
 ⚠️ **다른 ID의 마커는 프로파일에 없어서 무시된다**(설계상 정상). 멀티마커를 쓰려면
 프로파일에 엔트리를 추가하고 **각 마커의 차량 기준 오프셋을 실측해 넣어야** 한다.
 지금은 `MinMarkersToCalibrate = 1`로 두어 단일 마커로 완료되게 해뒀다.
+(`Moved`를 듣기 전에는 2번째 마커가 `DetectedCalib`에 들어갈 수 없어 **멀티마커가 구조적으로
+완성될 수 없었다.** 이제 2 이상으로 올려도 동작한다.)
 
 ## 4. Masking — 실물을 화면에 통과시키기
 
@@ -61,6 +123,10 @@ CustomDepth에만 그려진다).
 - ✅ 기대: 그 큐브 모양대로 패스스루가 뚫려 실제 세계가 보인다
 - ❌ 안 뚫리면 확인 순서: PPV의 Infinite Extent → PP_MR 머티리얼 → `PP_MRParameters`의
   `MRMask` 스칼라가 1로 가는지
+- ⚠️ **§1의 알파 문제가 먼저 해결돼야 판정할 수 있다.** 패스스루 자체가 안 뜨는 상태에서는
+  마스킹이 되는지 안 되는지 구분이 불가능하다 — 2026-07-27 세션의 "아예 안 보임"이 그 상황이었다.
+- `MaskParameters`가 비어 있으면 이제 로그에 `LogCXMRMask: Warning: Masking cannot be applied`가
+  찍힌다(이전에는 무성으로 죽었다). 기본값은 C++에서 `PP_MRParameters`로 붙는다.
 
 실물 스티어링 휠 테스트는 이 큐브를 휠 위치·크기로 옮기면 된다.
 
@@ -90,6 +156,14 @@ CustomDepth에만 그려진다).
 
 ## 7. Human Factors — eye 스냅
 
+**조작: 패널의 `< 착좌 >` 버튼.** (스틱으로 하려면 `VarjoInput → Cycle Manikin Action`에
+Axis1D IA를 지정한다 — 애셋이 아직 없다.)
+
+⚠️ **이 절은 지금까지 검증이 불가능했다.** 컴포넌트는 완전히 구현돼 구독까지 하고 있었지만
+`RequestErgonomicsStep`을 부르는 곳이 **하나도 없어서** 발동 자체가 안 됐다. 이 문서가
+"MR + MarkerAnchor면 아무것도 안 움직이는 게 정상"이라고 적어둔 탓에, 안 움직이는 것이
+정상인지 미배선인지 구분할 수도 없었다. 이제 패널 버튼이 기본 경로다.
+
 `DA_Ergonomics_TestCar`에 5th / 50th / 95th 세 위치가 눈높이만 다르게 들어 있다(105 / 120 / 135cm).
 
 - **VR 모드**: 내 시점이 이동한다
@@ -117,9 +191,11 @@ CustomDepth에만 그려진다).
 ## 아무 반응이 없는 키들 (배선 안 됨)
 
 IMC에는 매핑돼 있지만 **C++ 바인딩이 없어 눌러도 아무 일도 없다.** Varjo 예제에서 애셋만
-넘어온 것들이다. 내일 이걸로 오진하지 말 것:
+넘어온 것들이다. 이걸로 오진하지 말 것:
 
-`G`(gaze) · `C`(dynamic tracking) · `Y`·방향키(depth range) · `I`(foveation 시각화)
+`G`(gaze) · `C`(dynamic tracking) · `I`(foveation 시각화)
+
+~~`Y`·방향키(depth range)~~ → **이제 배선됐다.** §2 참조 — flickering의 원인이었다.
 
 ## 손 인터랙션 — 아직 없는 것
 

@@ -7,6 +7,8 @@
 | **이 문서** | 사용법 — 뭘 어디서 바꾸고 어떻게 돌리는가 |
 | `Headset-Test-Checklist.md` | 헤드셋 실측 순서와 "정상인데 안 되는 것처럼 보이는" 경우 |
 | `Varjo-Capabilities.md` | Varjo가 실제로 뭘 지원하는가 (사실관계 원전) |
+| `Passthrough-Black-Screen.md` | **MR을 켰는데 검은 화면일 때** — 콘솔만으로 원인 가리기 |
+| `Editor-Followup.md` | 에디터가 열려 있어야 하는 미완 작업 (PP_MR 알파, WBP 행, 마커 ID) |
 
 **애셋 경로 규칙**: `/CXMR/...` = 플러그인(템플릿 공통, 건드리면 모든 프로그램에 영향).
 `/Game/...` = 이 프로젝트(프로그램별 데이터). **프로그램마다 다른 값은 전부 `/Game/`에 둔다.**
@@ -35,14 +37,35 @@ GameMode(`BP_CXMRGameMode`)가 `BP_CXMRPawn`을 자동 스폰한다. 레벨에 p
 | `K` | View Offset — `EYE`(눈 위치) ↔ `CAMERA`(패스스루 카메라 위치) |
 | `T` | Depth Test |
 | `U` | Environment Depth Estimation |
+| `Y` | **Depth Test Range on/off** (§2-1) |
+| `←` `→` | **Depth Range NearZ 감소/증가** |
+| `↓` `↑` | **Depth Range FarZ 감소/증가** |
 | `V` | 마커 추적 on/off |
 | `H` | 손 추적 시각화 |
 | `R` | 재캘리브레이션 |
 | `E` | 차량을 내 앞에 배치 |
 | `F` | 컨트롤 패널 클릭 (레이저가 가리키는 곳) |
 
-⚠️ **아무 일도 안 하는 키**: `G` `C` `Y` `I` `방향키`. Varjo 예제에서 애셋만 넘어오고
-C++ 배선이 없다. 필요해지면 `UCXMRVarjoInputComponent`에 액션을 추가하고 `IMC_Varjo`에 매핑한다.
+⚠️ **아무 일도 안 하는 키**: `G`(gaze) `C`(dynamic tracking) `I`(foveation 시각화).
+Varjo 예제에서 애셋만 넘어오고 C++ 배선이 없다. 필요해지면 `UCXMRVarjoInputComponent`에
+액션을 추가하고 `IMC_Varjo`에 매핑한다.
+
+### 2-1. Depth Test Range ★ flickering의 원인
+
+**Depth Test를 켰는데 가상 물체가 심하게 깜빡인다면 거의 항상 range 문제다.**
+
+Varjo 플러그인은 range가 **비활성이면 컴포지터에 `farZ = HUGE_VALF`를 넘긴다**
+(`DepthPlugin.cpp:58-59`). 즉 **방 전체를 무한 거리까지** depth test 대상으로 삼는다.
+추정 depth는 반사면·검은 표면·원거리에서 불안정하므로(§Varjo-Capabilities §3), 경계가 매 프레임
+요동치며 이것이 flickering으로 보인다.
+
+CXMR은 이제 range를 **기본으로 켜고 0.0–0.75m로 시작**한다. `Y`로 끄고 켤 수 있으며,
+방향키로 경계를 실시간 조절한다. 패널에 현재 값이 표시된다(range가 꺼져 있으면 `unbounded`).
+
+⚠️ **range 밖은 실세계가 통째로 사라진다.** 좁힐수록 안전한 게 아니라 **구멍이 커진다.**
+손만 보이면 되면 0.75m, 대시보드까지면 1.2m 정도부터 시험한다.
+
+조절 속도는 `BP_CXMRPawn → VarjoInput → Depth Range Adjust Speed`(m/s, 기본 0.5).
 
 ### 컨트롤러 (Varjo XR-4)
 
@@ -53,6 +76,7 @@ C++ 배선이 없다. 필요해지면 `UCXMRVarjoInputComponent`에 액션을 �
 | 오른쪽 스틱 좌/우 | 트림 순환 |
 | 오른쪽 스틱 상/하 | 차량 순환 |
 | 오른쪽 트리거 | 컨트롤 패널 클릭 |
+| (미배정) | 착좌 위치 순환 — `CycleManikinAction`에 IA를 지정하면 동작 (§6) |
 
 패널은 **왼손에 붙어** 있고 **오른손 레이저**로 누른다.
 
@@ -190,6 +214,13 @@ Sky·RayTracing·Decal off). 수동 설정 불필요.
 `UCXMRErgonomicsProfile`의 `Positions[]`: `{Name, Eye Point, bHasHipPoint, Hip Point}`
 Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 
+**조작**: 패널의 `< 착좌 >` 버튼, 또는 `VarjoInput → Cycle Manikin Action`에 Axis1D IA를 지정하면
+스틱 flick으로도 순환한다(트림/차량 순환과 같은 히스테리시스).
+
+⚠️ **이 기능은 오랫동안 발동 경로 자체가 없었다.** `UCXMRErgonomicsComponent`는 완전히 구현돼
+구독까지 하고 있었지만 `RequestErgonomicsStep`을 부르는 곳이 하나도 없어서, 이 문서가 설명하는
+동작을 아무도 볼 수 없었다. 지금은 패널 버튼이 기본 경로다.
+
 동작이 모드에 따라 **정반대**다:
 - **VR**: 세계가 가상이므로 **내 시점을 옮긴다**
 - **MR**: 실제 몸은 못 옮기므로 **차를 옮긴다**
@@ -239,7 +270,11 @@ Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 | 차량이 아예 안 나온다 | `Loader → Profile`이 비었거나, 프로파일의 `Vehicle Actor`가 비었다. 로그에 경고가 찍힌다 |
 | 차량 순환이 안 된다 | `Loader → Catalog` 미지정 (트림 순환은 되는 게 정상) |
 | 트림을 바꿔도 아무 변화가 없다 | 파츠에 **컴포넌트 태그**가 없다. 태그 없는 것은 항상 보인다 |
+| **Depth Test를 켜면 가상 물체가 심하게 깜빡인다** | **Depth Range가 꺼져 있다 → `Y`로 켜고 방향키로 좁힌다 (§2-1)** |
+| **MR을 켜도 패스스루가 안 뜨고 검정 화면이다** | 알파가 0이어야 실세계가 보인다. PPV의 `PP_MR`이 마스크 바깥까지 불투명하게 칠하고 있는지 의심 — PPV blendables에서 `PP_MR`을 빼고 재현되는지 본다 |
 | 마커를 인식해도 차가 안 움직인다 | 마커 ID가 프로파일에 없다 / Role이 `Calibration`이 아니다 / 이미 freeze됐다(`R`로 재캘리브) |
+| **로그에 `contains id 0` 경고** | 프로파일이 ID 0으로 authoring돼 있다. 0은 Varjo가 무효값으로 거부한다 — 실물에 인쇄된 번호를 넣는다 (§3) |
+| 착좌 순환이 반응 없다 | 패널 `< 착좌 >` 버튼을 쓰거나 `Cycle Manikin Action`에 IA를 지정한다 (§6) |
 | 차가 마커에서 어긋난 곳에 놓인다 | `Local Offset`이 틀렸다 (§3) |
 | MR을 켜도 실제 세계가 안 보인다 | 배경 오브젝트에 VROnly가 없다 → `B`로 확인 |
 | 패널의 Mixed Reality가 안 켜진다 | CVar를 못 찾은 것. 로그에 `LogCXMR: Warning: Mixed reality toggle ignored` |
