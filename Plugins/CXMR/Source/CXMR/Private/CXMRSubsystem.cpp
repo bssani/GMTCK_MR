@@ -9,6 +9,9 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogCXMR, Log, All);
 
+/** Metres. The extension requires NearZ < FarZ; a collapsed range would be rejected silently. */
+static constexpr float MinDepthRangeSpan = 0.05f;
+
 void UCXMRSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -126,6 +129,14 @@ void UCXMRSubsystem::SetDepthTest(bool bEnable)
 	}
 	UVarjoOpenXRFunctionLibrary::SetDepthTestEnabled(bEnable);
 	bDepthTestOn = bEnable;
+
+	// Re-assert the range every time the test comes on. The plugin wipes its state struct on session
+	// creation, and a depth test running with the unbounded default is the flicker we are fixing.
+	if (bDepthTestOn)
+	{
+		ApplyDepthTestRange();
+	}
+
 	OnDepthTestChanged.Broadcast(bDepthTestOn);
 }
 
@@ -134,9 +145,52 @@ void UCXMRSubsystem::ToggleDepthTest()
 	SetDepthTest(!bDepthTestOn);
 }
 
+// ---------- Depth test range ----------
+
+void UCXMRSubsystem::ApplyDepthTestRange()
+{
+	UVarjoOpenXRFunctionLibrary::SetDepthTestRange(bDepthRangeOn, DepthRangeNearZ, DepthRangeFarZ);
+}
+
 void UCXMRSubsystem::SetDepthTestRange(bool bEnable, float NearZ, float FarZ)
 {
-	UVarjoOpenXRFunctionLibrary::SetDepthTestRange(bEnable, NearZ, FarZ);
+	// Metres, non-negative, and Near strictly below Far — the extension rejects the alternative and
+	// the plugin passes our numbers straight through without checking them.
+	NearZ = FMath::Max(NearZ, 0.0f);
+	FarZ  = FMath::Max(FarZ, NearZ + MinDepthRangeSpan);
+
+	const bool bWasOn = bDepthRangeOn;
+
+	bDepthRangeOn   = bEnable;
+	DepthRangeNearZ = NearZ;
+	DepthRangeFarZ  = FarZ;
+
+	ApplyDepthTestRange();
+
+	// Only the on/off transition is worth a line. The bounds move every frame while a key is held, so
+	// logging those at Log level would bury the session log at frame rate.
+	if (bWasOn != bDepthRangeOn)
+	{
+		UE_LOG(LogCXMR, Log, TEXT("Depth test range %s (near=%.2fm far=%.2fm)"),
+			bDepthRangeOn ? TEXT("ON") : TEXT("OFF - compositor falls back to 0..infinity, which depth-tests the whole room"),
+			DepthRangeNearZ, DepthRangeFarZ);
+	}
+	else
+	{
+		UE_LOG(LogCXMR, Verbose, TEXT("Depth test range: near=%.2fm far=%.2fm"), DepthRangeNearZ, DepthRangeFarZ);
+	}
+
+	OnDepthTestRangeChanged.Broadcast(bDepthRangeOn);
+}
+
+void UCXMRSubsystem::ToggleDepthTestRange()
+{
+	SetDepthTestRange(!bDepthRangeOn, DepthRangeNearZ, DepthRangeFarZ);
+}
+
+void UCXMRSubsystem::AdjustDepthTestRange(float NearDelta, float FarDelta)
+{
+	SetDepthTestRange(bDepthRangeOn, DepthRangeNearZ + NearDelta, DepthRangeFarZ + FarDelta);
 }
 
 void UCXMRSubsystem::SetEnvironmentDepthEstimation(bool bEnable)
@@ -195,7 +249,20 @@ void UCXMRSubsystem::ToggleHandVisualization()
 
 bool UCXMRSubsystem::SetMarkerTracking(bool bEnable)
 {
+	// The plugin returns "is tracking now on", not "did the call succeed" — it computes
+	// XR_ENSURE(...) && Enabled (VarjoMarkersPlugin.cpp:123-136). So a false here after asking for
+	// true means the headset refused, and the only honest thing to do is say so rather than let the
+	// panel sit at OFF with no explanation. Same posture as SetMixedReality below.
 	const bool bResult = UVarjoOpenXRFunctionLibrary::SetVarjoMarkersEnabled(bEnable);
+
+	if (bEnable && !bResult)
+	{
+		UE_LOG(LogCXMR, Warning,
+			TEXT("Marker tracking could not be enabled. IsMarkerTrackingSupported()=%s — on a headset "
+			     "that supports markers this usually means the XR session is not up yet."),
+			IsMarkerTrackingSupported() ? TEXT("true") : TEXT("false"));
+	}
+
 	if (bMarkerTrackingOn != bResult)
 	{
 		bMarkerTrackingOn = bResult;

@@ -48,6 +48,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void PreviousTrim();
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void NextCMF();
 
+	// Depth test range. Not cosmetic: with the range off the compositor depth-tests the whole room
+	// against estimated video depth and virtual geometry flickers (see UCXMRSubsystem).
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleDepthRange();
+
+	// Percentile manikin (Human Factors).
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void NextManikin();
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void PreviousManikin();
+
 	// --- State getters (still callable from BP; C++ RefreshVisuals uses them directly) ---
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsMROn() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsVRBackgroundVisible() const;
@@ -65,6 +73,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") FText GetVehiclePositionLabel() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") FText GetTrimPositionLabel() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") int32 GetCMFIndex() const;
+
+	// --- Depth range readout ---
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool  IsDepthRangeOn() const;
+	/** "0.00 - 0.75 m", or "unbounded" while the range is off — the state that causes flicker. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") FText GetDepthRangeLabel() const;
+
+	// --- Ergonomics state ---
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") FText GetManikinName() const;
+	/** "2 / 3" style position label. Empty when count is 0. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|UI") FText GetManikinPositionLabel() const;
 
 	// Support flags — disable unsupported rows.
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool IsMRSupported() const;
@@ -116,6 +134,11 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_PrevTrim;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_NextCMF;
 
+	// Depth range + ergonomics buttons
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_DepthRange;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_NextManikin;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_PrevManikin;
+
 	// Toggle status texts (ON / OFF)
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_MR_State;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_VRBackground_State;
@@ -132,4 +155,9 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_TrimName;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_TrimPos;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_CMF;
+
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_DepthRange_State;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_DepthRange;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_ManikinName;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_ManikinPos;
 };

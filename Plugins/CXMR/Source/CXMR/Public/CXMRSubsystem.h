@@ -69,8 +69,33 @@ public:
 	UFUNCTION(BlueprintPure,     Category = "CXMR|Depth") bool IsDepthTestOn() const { return bDepthTestOn; }
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Depth") FCXMROnBoolChanged OnDepthTestChanged;
 
-	// NOTE: range BEYOND [NearZ, FarZ] shows VR only (real world disappears). Default 0..0.75m = hand range.
+	// ---------- Depth test RANGE ----------
+	//
+	// This is not a refinement of the depth test — it is the difference between a usable depth test and
+	// an unusable one. With the range DISABLED the plugin submits farZ = HUGE_VALF
+	// (DepthPlugin.cpp:58-59), so the compositor depth-tests the ENTIRE room at unlimited distance
+	// against an estimated video depth that Varjo's own guidance calls unreliable on reflective, dark
+	// and distant surfaces. That is what makes virtual geometry flicker. A bounded range is the fix.
+	//
+	// The plugin's struct carries FarZ = 0.75f, but it never reaches the compositor while the range is
+	// disabled — so "the default is 0..0.75m" was never true in practice. CXMR now enables the range
+	// itself and keeps it applied, which is what finally makes that statement correct.
+	//
+	// NOTE: BEYOND [NearZ, FarZ] the compositor ignores depth completely and VR content overwrites the
+	// video stream — the real world disappears out there. Narrowing the range is not the safe direction.
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Depth") void SetDepthTestRange(bool bEnable, float NearZ = 0.0f, float FarZ = 0.75f);
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Depth") void ToggleDepthTestRange();
+
+	/** Nudges the bounds (metres) and re-applies. Near is kept below Far; both stay >= 0. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Depth") void AdjustDepthTestRange(float NearDelta, float FarDelta);
+
+	UFUNCTION(BlueprintPure, Category = "CXMR|Depth") bool  IsDepthTestRangeOn() const   { return bDepthRangeOn; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Depth") float GetDepthTestRangeNearZ() const { return DepthRangeNearZ; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Depth") float GetDepthTestRangeFarZ() const  { return DepthRangeFarZ; }
+
+	/** Fires on enable/disable AND on every bound change — the panel readout needs both. */
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Depth") FCXMROnBoolChanged OnDepthTestRangeChanged;
+
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Depth") void SetEnvironmentDepthEstimation(bool bEnable);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Depth") void ToggleEnvironmentDepthEstimation();
 	UFUNCTION(BlueprintPure,     Category = "CXMR|Depth") bool IsEnvironmentDepthEstimationOn() const { return bEnvDepthOn; }
@@ -172,6 +197,12 @@ private:
 	UPROPERTY(Transient) bool bVRBackgroundVisible = true;
 	UPROPERTY(Transient) bool bHandVisualizationOn = false;
 
+	// Depth test range. ON by default, and that default is the point: leaving it off hands the
+	// compositor farZ = HUGE_VALF (see the header comment above) and the room flickers.
+	UPROPERTY(Transient) bool  bDepthRangeOn    = true;
+	UPROPERTY(Transient) float DepthRangeNearZ  = 0.0f;
+	UPROPERTY(Transient) float DepthRangeFarZ   = 0.75f;   // metres — Varjo's "good for hand occlusion"
+
 	UPROPERTY(Transient) FText VehicleName;
 	UPROPERTY(Transient) int32 VehicleIndex = 0;
 	UPROPERTY(Transient) int32 VehicleCount = 0;
@@ -186,6 +217,11 @@ private:
 
 	// --- LOCAL / CLIENT (never replicate — per-headset preference) ---
 	UPROPERTY(Transient) float ViewOffset = 1.0f;
+
+	/** Pushes the cached range to the plugin. Called on change AND whenever the depth test is enabled,
+	 *  because the plugin resets its whole state struct on session creation (DepthPlugin.cpp
+	 *  PostCreateSession: State = {}) and would otherwise fall back to the unbounded default. */
+	void ApplyDepthTestRange();
 
 	// Bridge handlers bound to the plugin's static marker delegates (see .cpp).
 	void HandleMarkerDetected(int32 MarkerId, const FVector& Position, const FRotator& Rotation, const FVector2D& Size);

@@ -53,6 +53,11 @@ public:
 	/** Pawn Relative: distance in front of the pawn (cm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ClampMin = "0.0")) float PawnRelativeDistance = 350.0f;
 
+	/** Minimum movement (cm) before a Moved update re-runs calibration. Marker poses jitter every
+	 *  frame; without this the vehicle would be re-placed continuously and read as unstable. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ClampMin = "0.0"))
+	float MarkerUpdateThreshold = 0.5f;
+
 	UPROPERTY(BlueprintReadOnly, Category = "CXMR|Placement") bool bCalibrated = false;
 
 	/** Re-run calibration: clears the flag and cycles marker tracking so Detected fires again. */
@@ -69,9 +74,17 @@ private:
 	UCXMRSubsystem* GetCXMR() const;
 	AActor* ResolveVehicleRoot();
 
+	// Detected fires once per ID per session and carries the FIRST, noisiest pose; every refinement
+	// after that — and every re-acquisition following a loss — arrives as Moved. Listening only to
+	// Detected locked calibration to one bad sample and made multi-marker impossible, because a second
+	// marker seen after the first would never reach DetectedCalib.
 	UFUNCTION() void HandleMarkerDetected(int32 MarkerId, FVector Position, FRotator Rotation, FVector2D Size);
+	UFUNCTION() void HandleMarkerMoved(int32 MarkerId, FVector Position, FRotator Rotation, FVector2D Size);
 	UFUNCTION() void HandleRecalibrateRequest();
 	UFUNCTION() void HandlePlaceRequest();
+
+	/** Shared body of the two handlers above. bIsFirstSighting drives the one-shot per-marker config. */
+	void HandleMarkerPose(int32 MarkerId, const FVector& Position, const FRotator& Rotation, bool bIsFirstSighting);
 
 	/** Recompute + apply the vehicle transform from the accumulated calibration markers. */
 	void RecomputeCalibration();
