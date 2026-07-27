@@ -34,6 +34,17 @@ public:
 	virtual void Deinitialize() override;
 	//~ End USubsystem
 
+	// ---------- Diagnostics ----------
+	//
+	// Console: CXMR.DumpMRState
+	//
+	// Exists because "the screen is black" is not a diagnosis. Passthrough needs alpha 0, and the
+	// things that can force alpha to 1 live in four different places — the blend mode, the alpha
+	// propagation setting, the scene colour format, and the post-process chain. Reading them one CVar
+	// at a time in a headset is slow and misses the one comparison the console cannot show at all:
+	// what the Varjo plugin thinks MR is doing versus what CXMR has cached.
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Diagnostics") void DumpMRState() const;
+
 	// ---------- Support queries (pass-through; valid once the XR session is up) ----------
 	UFUNCTION(BlueprintPure, Category = "CXMR|MR")        bool IsMixedRealitySupported() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|Markers")   bool IsMarkerTrackingSupported() const;

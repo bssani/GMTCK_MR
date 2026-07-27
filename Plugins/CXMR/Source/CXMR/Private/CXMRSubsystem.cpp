@@ -7,10 +7,47 @@
 #include "VarjoMarkersEvent.h"  // UVarjoMarkerDelegates (static C++ multicast delegates)
 #include "HAL/IConsoleManager.h"
 
+#include "Engine/GameInstance.h"
+#include "Engine/World.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogCXMR, Log, All);
 
 /** Metres. The extension requires NearZ < FarZ; a collapsed range would be rejected silently. */
 static constexpr float MinDepthRangeSpan = 0.05f;
+
+namespace
+{
+	/** Reads an int CVar, reporting absence rather than pretending it is zero — "not registered" and
+	 *  "set to 0" mean completely different things when you are hunting a black screen. */
+	FString DescribeIntCVar(const TCHAR* Name)
+	{
+		if (const IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(Name))
+		{
+			return FString::Printf(TEXT("%d"), CVar->GetInt());
+		}
+		return TEXT("<not registered>");
+	}
+}
+
+// Console entry point. WithWorld so it can reach the game instance subsystem that owns the state.
+static FAutoConsoleCommandWithWorld GCXMRDumpMRState(
+	TEXT("CXMR.DumpMRState"),
+	TEXT("Dump the mixed-reality state that decides whether passthrough can appear at all."),
+	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+	{
+		if (World)
+		{
+			if (const UGameInstance* GI = World->GetGameInstance())
+			{
+				if (const UCXMRSubsystem* CXMR = GI->GetSubsystem<UCXMRSubsystem>())
+				{
+					CXMR->DumpMRState();
+					return;
+				}
+			}
+		}
+		UE_LOG(LogCXMR, Warning, TEXT("CXMR.DumpMRState: no CXMR subsystem on this world."));
+	}));
 
 void UCXMRSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -29,6 +66,76 @@ void UCXMRSubsystem::Deinitialize()
 	UVarjoMarkerDelegates::VarjoMarkerLost.Remove(LostHandle);
 
 	Super::Deinitialize();
+}
+
+// ---------- Diagnostics ----------
+
+void UCXMRSubsystem::DumpMRState() const
+{
+	const bool bSupported = IsMixedRealitySupported();
+
+	// The plugin derives this independently of us — from the blend-mode CVar and the XR system's IsAR
+	// flag (MixedRealityPlugin.cpp:80-96). If it disagrees with our cached bMixedRealityOn, the toggle
+	// is lying and nothing downstream is worth reading.
+	// Guarded: the plugin dereferences the CVar without a null check once past the support test.
+	const FString PluginEnabled = bSupported
+		? (UVarjoOpenXRFunctionLibrary::IsMixedRealityEnabled() ? TEXT("true") : TEXT("false"))
+		: TEXT("n/a (MR unsupported)");
+
+	UE_LOG(LogCXMR, Warning, TEXT("===== CXMR MR state ====="));
+
+	UE_LOG(LogCXMR, Warning, TEXT("  MR supported=%s | plugin says enabled=%s | CXMR cached=%s"),
+		bSupported ? TEXT("true") : TEXT("false"),
+		*PluginEnabled,
+		bMixedRealityOn ? TEXT("true") : TEXT("false"));
+
+	// Passthrough is composited by the OpenXR runtime, not by us: 3 = alpha blend, 1 = opaque.
+	const FString BlendMode = DescribeIntCVar(TEXT("xr.OpenXREnvironmentBlendMode"));
+	UE_LOG(LogCXMR, Warning, TEXT("  xr.OpenXREnvironmentBlendMode=%s   (3=alpha blend/MR, 1=opaque/VR)"), *BlendMode);
+
+	// Everything below decides whether a pixel can carry alpha 0 at all. Varjo shows the video stream
+	// only where RGBA is (0,0,0,0), so any one of these silently forcing alpha to 1 produces a black
+	// screen that looks exactly like "MR is not working".
+	UE_LOG(LogCXMR, Warning, TEXT("  --- alpha path (passthrough needs alpha 0) ---"));
+	UE_LOG(LogCXMR, Warning, TEXT("  r.PostProcessing.PropagateAlpha=%s   (0 here means no pixel can ever be transparent)"),
+		*DescribeIntCVar(TEXT("r.PostProcessing.PropagateAlpha")));
+	UE_LOG(LogCXMR, Warning, TEXT("  r.SceneColorFormat=%s"), *DescribeIntCVar(TEXT("r.SceneColorFormat")));
+	UE_LOG(LogCXMR, Warning, TEXT("  r.AntiAliasingMethod=%s   (3=TSR; TSR must preserve alpha or the background resolves opaque)"),
+		*DescribeIntCVar(TEXT("r.AntiAliasingMethod")));
+	UE_LOG(LogCXMR, Warning, TEXT("  r.TSR.AlphaChannel=%s"), *DescribeIntCVar(TEXT("r.TSR.AlphaChannel")));
+	UE_LOG(LogCXMR, Warning, TEXT("  r.DefaultBackBufferPixelFormat=%s"), *DescribeIntCVar(TEXT("r.DefaultBackBufferPixelFormat")));
+	UE_LOG(LogCXMR, Warning, TEXT("  r.ForwardShading=%s  r.CustomDepth=%s"),
+		*DescribeIntCVar(TEXT("r.ForwardShading")), *DescribeIntCVar(TEXT("r.CustomDepth")));
+
+	UE_LOG(LogCXMR, Warning, TEXT("  --- CXMR feature state ---"));
+	UE_LOG(LogCXMR, Warning, TEXT("  VR background visible=%s   (hiding it is what should reveal passthrough)"),
+		bVRBackgroundVisible ? TEXT("true") : TEXT("false"));
+	UE_LOG(LogCXMR, Warning, TEXT("  masking=%s  markers=%s  hands=%s  viewOffset=%.2f"),
+		bMaskingOn ? TEXT("on") : TEXT("off"),
+		bMarkerTrackingOn ? TEXT("on") : TEXT("off"),
+		bHandVisualizationOn ? TEXT("on") : TEXT("off"),
+		ViewOffset);
+	UE_LOG(LogCXMR, Warning, TEXT("  depthTest=%s  range=%s near=%.2fm far=%.2fm  envDepth=%s"),
+		bDepthTestOn ? TEXT("on") : TEXT("off"),
+		bDepthRangeOn ? TEXT("on") : TEXT("OFF -> compositor uses 0..infinity"),
+		DepthRangeNearZ, DepthRangeFarZ,
+		bEnvDepthOn ? TEXT("on") : TEXT("off"));
+
+	// Call out the contradictions rather than leaving them to be spotted in a wall of numbers.
+	if (bMixedRealityOn && BlendMode != TEXT("3"))
+	{
+		UE_LOG(LogCXMR, Error,
+			TEXT("  !! CXMR believes MR is ON but the blend mode is not 3. The compositor is still in VR; "
+			     "this is not an alpha problem."));
+	}
+	if (bMixedRealityOn && !bVRBackgroundVisible && DescribeIntCVar(TEXT("r.PostProcessing.PropagateAlpha")) == TEXT("0"))
+	{
+		UE_LOG(LogCXMR, Error,
+			TEXT("  !! Alpha propagation is off. The background cannot be transparent, so hiding the VR "
+			     "background can only ever produce black."));
+	}
+
+	UE_LOG(LogCXMR, Warning, TEXT("========================="));
 }
 
 // ---------- Support ----------
