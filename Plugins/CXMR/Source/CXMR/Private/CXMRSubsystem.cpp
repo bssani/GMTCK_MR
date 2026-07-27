@@ -185,6 +185,21 @@ void UCXMRSubsystem::SetMixedReality(bool bEnable)
 
 	bMixedRealityOn = bEnable;
 	OnMixedRealityChanged.Broadcast(bMixedRealityOn);
+
+	// The virtual room follows the blend mode.
+	//
+	// These were independent toggles until the first XR-4 session, on the reasoning that hiding the
+	// room should stay a deliberate act. The session showed why that was wrong: alpha is only used for
+	// compositing in ALPHA_BLEND (MR). In OPAQUE (VR) the runtime ignores it, so "VR + background
+	// hidden" renders black and means nothing — yet it is one keypress away and looks like a failure.
+	// The tester hit exactly that state and logged it as a black screen.
+	//
+	// So MR now brings the room with it. B still overrides afterwards, which is the case that actually
+	// wanted an explicit act: putting the virtual room back while passthrough is available.
+	if (bCoupleVRBackgroundToMR)
+	{
+		SetVRBackgroundVisible(!bEnable);
+	}
 }
 
 void UCXMRSubsystem::ToggleMixedReality()

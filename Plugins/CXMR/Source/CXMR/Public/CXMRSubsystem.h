@@ -68,6 +68,11 @@ public:
 	UFUNCTION(BlueprintPure,     Category = "CXMR|MR") bool IsVRBackgroundVisible() const { return bVRBackgroundVisible; }
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|MR") FCXMROnBoolChanged OnVRBackgroundChanged;
 
+	/** MR on hides the virtual room, MR off restores it; B still overrides afterwards. Off = the two
+	 *  toggles are fully independent, which lets a tester reach "VR with the room hidden" — a state
+	 *  that renders black and means nothing, because VR ignores alpha entirely. */
+	UPROPERTY(BlueprintReadWrite, Category = "CXMR|MR") bool bCoupleVRBackgroundToMR = true;
+
 	// ---------- Camera render position / View offset (0 = eye, 1 = passthrough camera) ----------
 	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void  SetViewOffset(float Offset);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void  ToggleViewOffset(); // flips between 0 (eye) and 1 (camera)
