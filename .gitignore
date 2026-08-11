@@ -88,3 +88,13 @@ skills-lock.json
 # Machine-local agent settings (skill 노출 조절 등). 템플릿에 커밋되는 건
 # .claude/settings.json 뿐 — skill/MCP 설정은 여기 두고 리포에서 뺀다.
 .claude/settings.local.json
+
+# Varjo / UE 템플릿에서 넘어온 샘플 콘텐츠 — CXMR 템플릿의 일부가 아니다.
+# 프로그램별 프로젝트에서 필요하면 각자 임포트한다.
+Content/VRTemplate/
+Content/VarjoContent/
+Content/VRSpectator/
+Content/Characters/
+Content/FPWeapon/
+Content/LevelPrototyping/
+Content/VRMultiPawnGameMode.uasset

@@ -56,40 +56,41 @@ C++ 쪽은 전부 반영됐다. 여기 있는 것은 **`.uasset` 편집이라 �
 
 ---
 
-## 2. WBP_CXMRControlPanel — 행 추가
+## 2. WBP_CXMRControlPanel — 행 추가 (대부분 완료)
 
-C++ 쪽 `BindWidgetOptional` 계약이 늘었다. WBP에 없는 이름은 조용히 스킵되므로,
-**아래 위젯을 추가하기 전까지 해당 기능은 패널에 나타나지 않는다.**
+**✅ 2026-08-08 처리됨**: `Btn_Hands` / `Txt_Hands_State` / `Btn_DepthRange` /
+`Txt_DepthRange_State` / `Txt_DepthRange`를 추가하고, 패널을 탭 3개(DISPLAY / CALIB / VIEWER)로
+분할했다. `Panel Draw Size`도 `432 × 520`으로 맞췄다(한 열로는 33cm가 되어 읽기 어려웠다).
+MARKER OFFSET 행(X/Y/Z/Yaw + Save·Reset)도 CALIB 탭에 들어갔다.
 
-현재 WBP에는 `Btn_` 14 + `Txt_` 12 = **26개**가 있다(커밋 `32028c4`의 "계약 26/26").
-그 뒤로 손 추적·depth range·착좌가 C++에 추가되면서 계약이 커졌다.
+같은 작업에서 드러난 것: `Btn_ViewOffset` / `Cap_ViewOffset` / `Row_ViewOffset`이 이전 편집 중
+소실돼 있었다(`BindWidgetOptional`이라 조용히 null). 복구했다. `Btn_Hands`·`Btn_DepthRange`는
+CanvasPanel 직속 고아로 좌상단에 겹쳐 있던 것을 행으로 묶어 편입했다.
 
-### 추가할 위젯 (기존 토글 행 레이아웃을 그대로 복제하면 된다)
+### ❌ 아직 없는 것 — 착좌(매니킨) 행
 
 | 이름 | 종류 | 용도 |
 |---|---|---|
-| `Btn_Hands` | Button | 손 시각화 토글 (`H`와 같은 기능) |
-| `Txt_Hands_State` | TextBlock | ON / OFF |
-| `Btn_DepthRange` | Button | Depth Range 토글 (`Y`와 같은 기능) |
-| `Txt_DepthRange_State` | TextBlock | ON / OFF |
-| `Txt_DepthRange` | TextBlock | `0.00 - 0.75 m` 또는 `unbounded` |
 | `Btn_PrevManikin` | Button | 착좌 이전 |
 | `Btn_NextManikin` | Button | 착좌 다음 |
 | `Txt_ManikinName` | TextBlock | 마니킨 이름 |
 | `Txt_ManikinPos` | TextBlock | `2 / 3` |
+
+**이 넷이 없어서 착좌 기능은 지금 컨트롤러로만 쓸 수 있다.** C++은 전부 준비돼 있다.
+차량 프로파일에 ergonomics 애셋이 안 걸려 있으면 어차피 동작하지 않으므로, 그것부터 확인한다.
 
 C++이 클릭 바인딩과 텍스트·색을 전부 처리한다. **WBP는 이름만 맞으면 되고 이벤트 그래프는 비운다**
 (유령 이벤트 그래프가 컴파일을 막은 전례 — 커밋 `0414e61`).
 
 ### ⚠️ 행이 늘면 `PanelDrawSize`도 늘려야 한다
 
-`BP_CXMRPawn → Panel Draw Size`가 현재 `432 × 721`이고, **WBP 콘텐츠 높이와 일치해야** 잘리지
-않는다. 행을 추가한 뒤 WBP의 실제 콘텐츠 높이를 재서 두 값을 맞춘다.
-물리 크기가 커지는 게 싫으면 `Panel Scale`(현재 0.03)을 함께 낮춘다.
+`BP_CXMRPawn → Panel Draw Size`가 **WBP 콘텐츠 높이와 일치해야** 잘리지 않는다
+(`SetDrawAtDesiredSize(false)`라 DrawSize가 절대 기준이다). `EditAnywhere`이므로 재빌드는 불필요.
+디자이너에서 `get_desired_size()`는 항상 0을 주므로 실측이 안 된다 — 행당 약 40px로 계산한다.
 
 ---
 
-## 3. 마커 프로파일 ID — 실물 번호로
+## 3. 🔴 마커 프로파일 ID — 실물 번호로 (헤드셋 테스트의 전제조건)
 
 `/Game/Vehicle/Example/DA_MarkerProfile_TestCar` → `Markers[0] → Marker Id`
 
@@ -104,6 +105,24 @@ C++이 클릭 바인딩과 텍스트·색을 전부 처리한다. **WBP는 이�
 
 C++ 쪽에는 이미 가드를 넣어서, ID 0이면 프로파일 이름을 담은 경고가 찍힌다:
 `LogCXMRPlacement: Warning: Marker profile '...' contains id 0 ...`
+
+**Local Offset은 이제 안 넣어도 된다** — 번호만 맞으면 현장에서 `CXMR.LearnMarkers`로 학습한다
+(Operating-Guide §3-1). 하지만 **번호 등록은 여전히 에디터에서 해야 한다.** 미등록 마커를
+자동으로 프로파일에 넣는 기능은 아직 없다.
+
+---
+
+## 3-1. 마커 캘리브레이션 영속화 (2026-08-08 추가, 미검증)
+
+`Saved/CXMR/MarkerCalib_<프로파일명>.json`에 저장/복원하는 경로를 넣었다. **빌드만 확인했고
+실제로 파일이 써지는지는 안 돌려봤다.** 첫 테스트에서 볼 것:
+
+1. PIE에서 `CXMR.SaveCalibration` → 로그에 경로가 찍히고 그 자리에 파일이 생기는지
+2. 값을 바꾸고 저장 → PIE 재시작 → 값이 살아 있는지
+3. `CXMR.ResetCalibration` → 파일이 사라지고 원래 값으로 돌아가는지
+
+⚠️ `.gitignore`가 `Saved/*`를 제외하므로 이 파일은 리포에 올라가지 않는다. **의도한 것이다** —
+캘리브레이션은 물리적 설치 하나에만 유효한 값이다. 현장 값을 보관하려면 파일을 따로 받아둔다.
 
 ---
 
