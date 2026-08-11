@@ -15,6 +15,18 @@ bool UCXMRMarkerProfile::FindEntry(int32 MarkerId, FCXMRMarkerEntry& OutEntry) c
 	return false;
 }
 
+FCXMRMarkerEntry* UCXMRMarkerProfile::GetEntryMutable(int32 MarkerId)
+{
+	for (FCXMRMarkerEntry& Entry : Markers)
+	{
+		if (Entry.MarkerId == MarkerId)
+		{
+			return &Entry;
+		}
+	}
+	return nullptr;
+}
+
 ECXMRMarkerRole UCXMRMarkerProfile::GetRole(int32 MarkerId) const
 {
 	FCXMRMarkerEntry Entry;

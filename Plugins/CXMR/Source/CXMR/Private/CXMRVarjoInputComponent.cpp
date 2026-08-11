@@ -15,6 +15,8 @@
 #include "Engine/World.h"
 #include "UObject/ConstructorHelpers.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogCXMRInput, Log, All);
+
 UCXMRVarjoInputComponent::UCXMRVarjoInputComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -74,7 +76,7 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 {
 	if (!EIC)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("CXMRVarjoInputComponent::SetupInput called with null EnhancedInputComponent."));
+		UE_LOG(LogCXMRInput, Warning, TEXT("SetupInput called with null EnhancedInputComponent."));
 		return;
 	}
 
@@ -135,6 +137,14 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 		EIC->BindAction(CycleManikinAction, ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnCycleManikin);
 		EIC->BindAction(CycleManikinAction, ETriggerEvent::Completed, this, &UCXMRVarjoInputComponent::OnCycleManikinReleased);
 	}
+
+	// Marker offset adjustment (fine-tuning calibration).
+	if (OffsetAdjustXAction)   { EIC->BindAction(OffsetAdjustXAction,   ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnOffsetAdjustX); }
+	if (OffsetAdjustYAction)   { EIC->BindAction(OffsetAdjustYAction,   ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnOffsetAdjustY); }
+	if (OffsetAdjustZAction)   { EIC->BindAction(OffsetAdjustZAction,   ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnOffsetAdjustZ); }
+	if (OffsetAdjustYawAction) { EIC->BindAction(OffsetAdjustYawAction, ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnOffsetAdjustYaw); }
+	if (OffsetSaveAction)      { EIC->BindAction(OffsetSaveAction,      ETriggerEvent::Started,   this, &UCXMRVarjoInputComponent::OnOffsetSave); }
+	if (OffsetResetAction)     { EIC->BindAction(OffsetResetAction,     ETriggerEvent::Started,   this, &UCXMRVarjoInputComponent::OnOffsetReset); }
 }
 
 void UCXMRVarjoInputComponent::EndPlay(const EEndPlayReason::Type Reason)
@@ -250,3 +260,55 @@ void UCXMRVarjoInputComponent::OnCycleManikin(const FInputActionValue& Value)
 void UCXMRVarjoInputComponent::OnCycleTrimReleased(const FInputActionValue&)    { bTrimLatched = false; }
 void UCXMRVarjoInputComponent::OnCycleVehicleReleased(const FInputActionValue&) { bVehicleLatched = false; }
 void UCXMRVarjoInputComponent::OnCycleManikinReleased(const FInputActionValue&) { bManikinLatched = false; }
+
+// ---------- Marker offset adjustment ----------
+
+// The placement component lives on the vehicle rig, NOT on the pawn, so these used to find nothing:
+// FindComponentByClass on the pawn always returned null and the keys silently did nothing. Every
+// other placement action already goes through the subsystem — these now do too.
+
+void UCXMRVarjoInputComponent::OnOffsetAdjustX(const FInputActionValue& Value)
+{
+	if (UCXMRSubsystem* S = GetCXMR())
+	{
+		const float Delta = Value.Get<float>() * OffsetAdjustSpeed * DeltaSeconds();
+		S->RequestAdjustMarkerOffset(FVector(Delta, 0.0f, 0.0f), FRotator::ZeroRotator);
+	}
+}
+
+void UCXMRVarjoInputComponent::OnOffsetAdjustY(const FInputActionValue& Value)
+{
+	if (UCXMRSubsystem* S = GetCXMR())
+	{
+		const float Delta = Value.Get<float>() * OffsetAdjustSpeed * DeltaSeconds();
+		S->RequestAdjustMarkerOffset(FVector(0.0f, Delta, 0.0f), FRotator::ZeroRotator);
+	}
+}
+
+void UCXMRVarjoInputComponent::OnOffsetAdjustZ(const FInputActionValue& Value)
+{
+	if (UCXMRSubsystem* S = GetCXMR())
+	{
+		const float Delta = Value.Get<float>() * OffsetAdjustSpeed * DeltaSeconds();
+		S->RequestAdjustMarkerOffset(FVector(0.0f, 0.0f, Delta), FRotator::ZeroRotator);
+	}
+}
+
+void UCXMRVarjoInputComponent::OnOffsetAdjustYaw(const FInputActionValue& Value)
+{
+	if (UCXMRSubsystem* S = GetCXMR())
+	{
+		const float Delta = Value.Get<float>() * OffsetAdjustSpeed * DeltaSeconds();
+		S->RequestAdjustMarkerOffset(FVector::ZeroVector, FRotator(0.0f, Delta, 0.0f));
+	}
+}
+
+void UCXMRVarjoInputComponent::OnOffsetSave(const FInputActionValue&)
+{
+	if (UCXMRSubsystem* S = GetCXMR()) { S->RequestSaveMarkerOffset(); }
+}
+
+void UCXMRVarjoInputComponent::OnOffsetReset(const FInputActionValue&)
+{
+	if (UCXMRSubsystem* S = GetCXMR()) { S->RequestResetMarkerOffset(); }
+}

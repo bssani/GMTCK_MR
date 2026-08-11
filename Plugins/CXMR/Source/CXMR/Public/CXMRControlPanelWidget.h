@@ -17,6 +17,7 @@
 class UCXMRSubsystem;
 class UButton;
 class UTextBlock;
+class UWidgetSwitcher;
 
 UCLASS(Abstract)
 class CXMR_API UCXMRControlPanelWidget : public UUserWidget
@@ -26,6 +27,14 @@ class CXMR_API UCXMRControlPanelWidget : public UUserWidget
 public:
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual void NativeTick(const FGeometry& Geometry, float DeltaSeconds) override;
+
+	// --- Tabs. The panel is too tall for one column in the headset, so the rows live on
+	//     three switcher pages and these pick which one is showing. ---
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void SetActiveTab(int32 TabIndex);
+	UFUNCTION() void ShowDisplayTab();
+	UFUNCTION() void ShowCalibTab();
+	UFUNCTION() void ShowViewerTab();
 
 	// --- Button handlers (also the OnClicked targets; still callable from BP) ---
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleMR();
@@ -98,6 +107,10 @@ public:
 	/** For readouts that are a mode rather than a state (view offset EYE/CAMERA) — neither value is "off". */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI|Style") FLinearColor NeutralColor = FLinearColor(0.85f, 0.85f, 0.90f, 1.0f);
 
+	/** Tab captions: the selected page must be obvious, or the panel looks like it lost its rows. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI|Style") FLinearColor ActiveTabColor   = FLinearColor(0.95f, 0.97f, 1.00f, 1.0f);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI|Style") FLinearColor InactiveTabColor = FLinearColor(0.45f, 0.47f, 0.52f, 1.0f);
+
 protected:
 	UCXMRSubsystem* GetCXMR() const;
 
@@ -109,6 +122,11 @@ protected:
 	void ApplyToggle(UTextBlock* Text, bool bOn);
 
 	UPROPERTY(Transient) TObjectPtr<UCXMRSubsystem> Subsystem;
+
+	// Last offset written to the readout, so NativeTick can skip unchanged frames.
+	FVector  ShownOffsetLocation = FVector::ZeroVector;
+	FRotator ShownOffsetRotation = FRotator::ZeroRotator;
+	bool     bOffsetReadoutValid = false;
 
 	// ============================================================================
 	//  Bound widgets — the WBP only needs widgets with these exact names.
@@ -139,6 +157,10 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_NextManikin;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_PrevManikin;
 
+	// Marker offset adjustment (runtime fine-tuning via gamepad / numpad)
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_OffsetSave;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_OffsetReset;
+
 	// Toggle status texts (ON / OFF)
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_MR_State;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_VRBackground_State;
@@ -160,4 +182,19 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_DepthRange;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_ManikinName;
 	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_ManikinPos;
+
+	// Marker offset adjustment readouts (X, Y, Z, Yaw values)
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_OffsetX;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_OffsetY;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_OffsetZ;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Txt_OffsetYaw;
+
+	// Tab bar + pages
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UWidgetSwitcher> Switcher_Pages;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_Tab_Display;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_Tab_Calib;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UButton> Btn_Tab_Viewer;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Cap_Btn_Tab_Display;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Cap_Btn_Tab_Calib;
+	UPROPERTY(meta = (BindWidgetOptional)) TObjectPtr<UTextBlock> Cap_Btn_Tab_Viewer;
 };

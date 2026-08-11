@@ -437,6 +437,27 @@ void UCXMRSubsystem::RequestPlaceInFront()
 	OnPlaceRequested.Broadcast();
 }
 
+void UCXMRSubsystem::RequestAdjustMarkerOffset(FVector DeltaLocation, FRotator DeltaRotation)
+{
+	OnAdjustMarkerOffsetRequested.Broadcast(DeltaLocation, DeltaRotation);
+}
+
+void UCXMRSubsystem::RequestSaveMarkerOffset()
+{
+	OnSaveMarkerOffsetRequested.Broadcast();
+}
+
+void UCXMRSubsystem::RequestResetMarkerOffset()
+{
+	OnResetMarkerOffsetRequested.Broadcast();
+}
+
+void UCXMRSubsystem::PublishMarkerOffset(FVector Location, FRotator Rotation)
+{
+	MarkerLocationOffset = Location;
+	MarkerRotationOffset = Rotation;
+}
+
 // ---------- Viewer relay ----------
 
 void UCXMRSubsystem::RequestViewerAction(ECXMRViewerAction Action)

@@ -67,6 +67,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> RecalibrateAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> PlaceVehicleAction;
 
+	// --- Marker offset adjustment (fine-tuning marker calibration) ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> OffsetAdjustXAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> OffsetAdjustYAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> OffsetAdjustZAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> OffsetAdjustYawAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> OffsetSaveAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> OffsetResetAction;
+
+	/** Adjustment speed (cm/deg per second while axis is held). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions", meta = (ClampMin = "0.0"))
+	float OffsetAdjustSpeed = 10.0f;
+
 	// --- Exterior turntable (left controller) ---
 	/** Axis1D. Held stick rotates the vehicle; sign is the direction. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> TurntableAxisAction;
@@ -141,4 +153,11 @@ private:
 	bool bTrimLatched    = false;
 	bool bVehicleLatched = false;
 	bool bManikinLatched = false;
+
+	void OnOffsetAdjustX(const FInputActionValue& Value);
+	void OnOffsetAdjustY(const FInputActionValue& Value);
+	void OnOffsetAdjustZ(const FInputActionValue& Value);
+	void OnOffsetAdjustYaw(const FInputActionValue& Value);
+	void OnOffsetSave(const FInputActionValue& Value);
+	void OnOffsetReset(const FInputActionValue& Value);
 };

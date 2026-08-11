@@ -46,6 +46,27 @@ GameMode(`BP_CXMRGameMode`)가 `BP_CXMRPawn`을 자동 스폰한다. 레벨에 p
 | `E` | 차량을 내 앞에 배치 |
 | `F` | 컨트롤 패널 클릭 (레이저가 가리키는 곳) |
 
+### 넘버패드 — 차량 위치 미세조정 (§3-1)
+
+넘버패드 배치를 그대로 축 방향에 대응시켰다. **왼쪽 키가 +, 오른쪽 키가 −.**
+
+| 축 | + | − |
+|---|---|---|
+| X (앞뒤) | `NumPad 7` | `NumPad 9` |
+| Yaw (회전) | `NumPad 4` | `NumPad 6` |
+| Y (좌우) | `NumPad 1` | `NumPad 3` |
+| Z (상하) | `NumPad 0` | `NumPad .` |
+| **저장** | `NumPad Enter` | |
+| **초기화** | `NumPad *` | |
+
+⚠️ **NumLock이 꺼져 있으면 하나도 안 먹는다.** 꺼진 상태에서는 NumPad 7이 Home, 9가 PageUp으로
+전달되어 매핑이 통째로 빗나간다. 아무 반응이 없으면 NumLock부터 확인한다.
+
+축은 **차량 기준**이다. 차 옆에 서 있어도 `NumPad 7`은 사용자의 좌우가 아니라 차의 앞뒤로 민다.
+어디에 서 있든 같은 키가 같은 방향이라 익숙해지면 이쪽이 헷갈리지 않는다.
+
+조정 속도는 `BP_CXMRPawn → VarjoInput → Offset Adjust Speed`(cm·deg/초, 기본 10).
+
 ⚠️ **아무 일도 안 하는 키**: `G`(gaze) `C`(dynamic tracking) `I`(foveation 시각화).
 Varjo 예제에서 애셋만 넘어오고 C++ 배선이 없다. 필요해지면 `UCXMRVarjoInputComponent`에
 액션을 추가하고 `IMC_Varjo`에 매핑한다.
@@ -114,13 +135,112 @@ CXMR은 이제 range를 **기본으로 켜고 0.0–0.75m로 시작**한다. `Y`
 즉 *"이 마커는 차 원점에서 앞으로 120cm, 위로 80cm에 붙어 있다"*고 알려주면, 시스템이 마커를
 찾았을 때 **차를 거꾸로 계산해서** 그 자리에 놓는다.
 
-**실측 절차**:
+**실측 절차** (설계 단계에서 부착 지점을 정할 수 있을 때):
 1. 차량 3D 모델에서 마커를 붙일 지점의 좌표를 읽는다 (차 원점 기준, cm)
 2. 실물에도 **같은 자리에** 마커를 붙인다
 3. 그 좌표를 Local Offset의 Translation에 넣는다
 4. 마커가 기울어져 붙는다면 Rotation도 넣는다 (대시보드 경사 등)
 
 **Local Offset을 0으로 두면** 차량 원점이 마커 위에 정확히 얹힌다. 테스트할 땐 이게 편하다.
+
+현장에서 마커를 손으로 붙이는 경우는 이 실측이 불가능하다 → **§3-1**로.
+
+---
+
+## 3-1. 현장 캘리브레이션 ★ 마커 위치를 모를 때
+
+clay 모형에 마커를 손으로 붙이면 **붙인 자리를 차량 좌표계로 잴 방법이 없다.** authored
+Local Offset은 그때 의미가 없다. 그래서 반대로 한다 — **눈으로 맞춘 뒤, 그 상태에서 마커가
+어디 있었는지를 기록**한다.
+
+### 절차
+
+1. 마커를 **아무 데나** 붙인다 (잘 보이는 고정 부위)
+2. 그 마커 번호들을 프로파일에 등록한다 (§3). 위치는 안 넣어도 된다 — **번호만 맞으면 된다**
+3. 실행 → 차가 엉뚱한 자리에 뜬다 (아직 관계를 모르니 당연하다)
+4. `E`로 대략 놓고, **넘버패드로 실물에 겹칠 때까지 맞춘다** (§2)
+5. 콘솔에 **`CXMR.LearnMarkers`**
+6. 끝. 이후 마커만 보이면 그 자리가 재현된다
+
+5번이 하는 일: 지금 보이는 마커들의 포즈를 **차량 기준 상대값으로** 계산해
+(`마커월드.GetRelativeTransform(차량월드)`) 프로파일에 쓰고, 파일로 저장한다.
+
+### 왜 마커가 필요한가 — 첫 정렬은 어차피 수동인데
+
+**마커는 첫 정렬을 자동화하는 물건이 아니라, 한 번 맞춘 것을 세션을 넘어 재현하는 물건이다.**
+
+앱이나 헤드셋을 다시 켜면 **OpenXR이 월드 원점을 새로 잡는다.** 어제 저장한 "차량 월드 좌표"는
+오늘 방의 엉뚱한 지점이다. 반면 마커는 실공간에 물리적으로 고정돼 있으므로, 마커를 보면
+"지금 좌표계에서 마커가 어디인지"를 알 수 있고 저장해 둔 *마커↔차량* 관계로 차를 제자리에 놓는다.
+
+| | 마커 없음 | 마커 + 학습 |
+|---|---|---|
+| 설치 (1회) | 눈으로 맞춤 | 눈으로 맞춤 + 학습 |
+| 앱 재시작 | **다시 맞춤** | 자동 |
+| 헤드셋 재부팅 | **다시 맞춤** | 자동 |
+| 착용자 교체 | **다시 맞춤** | 자동 |
+| 시간 경과 드리프트 | 밀린 채로 | 마커 보일 때마다 보정 |
+
+1~2주 운영이면 재시작이 수십 번이다. **설치 1회의 수동 정렬 대 수십 번의 수동 정렬**이 차이다.
+
+### 저장 위치
+
+```
+<Project>/Saved/CXMR/MarkerCalib_<프로파일명>.json
+```
+
+차량마다 파일이 갈린다. 내용은 **차량 기준 마커 포즈**뿐이다 — 차량 위치는 저장하지 않는다
+(마커에서 매번 계산되므로 저장할 이유가 없다).
+
+```json
+{
+  "profile": "DA_MarkerProfile_TestCar",
+  "units": "cm, degrees; marker pose in vehicle-local space",
+  "markers": [
+    { "id": 5, "label": "A", "x": 210.4, "y": -85.2, "z": 12.0, "pitch": 0, "yaw": 90.0, "roll": 0 }
+  ]
+}
+```
+
+**텍스트로 둔 이유**: 원격 지원에서 "그 파일 열어서 숫자 불러주세요"가 되고, 현장 실측값을
+메일로 되받아 다음 납품에 반영할 수 있다.
+
+⚠️ **쿠킹된 빌드는 자기 데이터 애셋을 저장하지 못한다.** `MarkPackageDirty()`는 에디터에서만
+의미가 있다. 이 JSON이 없으면 **앱을 끄는 순간 캘리브레이션이 사라진다.**
+
+### 콘솔 명령
+
+| 명령 | 하는 일 |
+|---|---|
+| `CXMR.LearnMarkers` | 지금 차량 포즈 기준으로 마커 배치를 학습하고 저장 |
+| `CXMR.SaveCalibration` | 현재 값을 파일로 (경로도 로그에 찍는다) |
+| `CXMR.ResetCalibration` | 파일 삭제 + 프로파일이 원래 갖고 있던 값으로 복원 |
+
+`NumPad Enter`(오프셋 저장)도 파일까지 쓴다.
+
+### 마커를 어디에 붙일 것인가
+
+| 원칙 | 이유 |
+|---|---|
+| **움직이는 부품은 금지** | 문·후드·트렁크에 붙이면 **열리는 순간 캘리브레이션이 깨진다** |
+| 3개 이상 | 하나 가려져도 버틴다 |
+| **서로 최대한 멀리** | 마커 사이 기준선이 길수록 yaw가 안정된다 |
+| 높이를 다르게 | 전부 한 평면이면 그 평면 수직 방향 추정이 약해진다 |
+| 사람이 서는 위치에서 보이게 | 리뷰 중에도 계속 보정된다 |
+
+차 외부가 실내보다 낫다 — 실내는 좁아 시야에 안 들어오는 각도가 많고 어둡다.
+좌우 펜더에 하나씩(기준선 확보) + 루프나 후드에 하나(높이 차) 정도가 좋은 분포다.
+
+clay 표면 보호도 감안한다. 직접 붙이면 자국이 남으므로 저점착 테이프나 별도 스탠드를 쓴다.
+**받침대에 붙인다면 clay와 받침대가 절대 움직이지 않아야 한다** — 청소하려고 살짝만 밀어도
+전부 틀어진다.
+
+### 한계
+
+- **프로파일에 등록된 마커 ID만** 학습된다. 미등록 마커를 자동으로 넣는 기능은 아직 없다.
+  번호는 `CXMR.DebugMarkers 1` 또는 로그의 `LogCXMRDebug: DETECTED id=` 줄로 확인한다
+- 학습 시점에 **모든 마커가 동시에 보여야** 서로의 상대 위치가 잡힌다
+- 마커가 물리적으로 밀리면 저장값이 거짓이 된다 → 다시 `CXMR.LearnMarkers`
 
 ### 마커 몇 개를 쓸 것인가
 
@@ -214,12 +334,16 @@ Sky·RayTracing·Decal off). 수동 설정 불필요.
 `UCXMRErgonomicsProfile`의 `Positions[]`: `{Name, Eye Point, bHasHipPoint, Hip Point}`
 Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 
-**조작**: 패널의 `< 착좌 >` 버튼, 또는 `VarjoInput → Cycle Manikin Action`에 Axis1D IA를 지정하면
-스틱 flick으로도 순환한다(트림/차량 순환과 같은 히스테리시스).
+**조작**: `VarjoInput → Cycle Manikin Action`에 Axis1D IA를 지정하면 스틱 flick으로 순환한다
+(트림/차량 순환과 같은 히스테리시스).
 
-⚠️ **이 기능은 오랫동안 발동 경로 자체가 없었다.** `UCXMRErgonomicsComponent`는 완전히 구현돼
-구독까지 하고 있었지만 `RequestErgonomicsStep`을 부르는 곳이 하나도 없어서, 이 문서가 설명하는
-동작을 아무도 볼 수 없었다. 지금은 패널 버튼이 기본 경로다.
+⚠️ **패널에는 착좌 버튼이 없다.** C++ 쪽 바인딩(`Btn_NextManikin` / `Btn_PrevManikin` /
+`Txt_ManikinName` / `Txt_ManikinPos`)은 준비돼 있지만 **WBP에 해당 위젯이 없어서**
+`BindWidgetOptional`로 조용히 null이 된다. 즉 지금은 **컨트롤러로만** 쓸 수 있다.
+쓰려면 WBP에 행을 추가해야 한다.
+
+⚠️ **차량 프로파일에 ergonomics 애셋이 연결돼 있어야 동작한다.** 안 걸려 있으면
+`ResolveProfile()`이 null을 반환해 눌러도 조용히 아무 일도 일어나지 않는다.
 
 동작이 모드에 따라 **정반대**다:
 - **VR**: 세계가 가상이므로 **내 시점을 옮긴다**
@@ -239,11 +363,28 @@ Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 |---|---|---|
 | `Panel Offset` | (8, 0, 4) | 왼손 컨트롤러 기준 위치(cm) |
 | `Panel Rotation` | pitch −25, yaw 180 | 기울기. yaw 180이 착용자 쪽을 향하게 한다 |
-| `Panel Scale` | 0.03 | cm/픽셀. 432×721px → 약 13×22cm |
-| `Panel Draw Size` | 432×721 | WBP 콘텐츠 크기와 **일치해야** 잘리지 않는다 |
+| `Panel Scale` | 0.03 | cm/픽셀. 432×520px → 약 13×16cm |
+| `Panel Draw Size` | 432×520 | WBP 콘텐츠 크기와 **일치해야** 잘리지 않는다 |
 | `Control Panel Class` | WBP_CXMRControlPanel | 다른 패널로 교체 가능 |
 
 **패널이 안 보이면** 너무 가까워 근접 클리핑(10cm)에 잘린 것이다 — `Panel Offset`의 X를 늘린다.
+
+### 탭 구조
+
+한 열로 다 늘어놓으면 33cm가 되어 헤드셋에서 읽기 어려웠다. 지금은 **탭 3개**로 나뉘어 있다.
+
+| 탭 | 내용 |
+|---|---|
+| **DISPLAY** | MR / VR Background / View Offset / Depth Test / Env Depth / Depth Range / Masking / Markers / Hands |
+| **CALIB** | Recalibrate·Place Vehicle + **MARKER OFFSET**(X/Y/Z/Yaw 값 + Save·Reset) |
+| **VIEWER** | 차량 / 트림 / CMF 순환 |
+
+현재 탭만 밝게, 나머지는 흐리게 표시된다(`Active Tab Color` / `Inactive Tab Color`).
+**행을 추가하면 `Panel Draw Size` Y도 같이 키워야 한다** — `SetDrawAtDesiredSize(false)`라
+DrawSize가 절대 기준이고, 넘치는 만큼 아래가 잘린다. `EditAnywhere`이므로 재빌드는 필요 없다.
+
+MARKER OFFSET의 X/Y/Z/Yaw 값은 `NativeTick`이 서브시스템에서 읽어 갱신한다. 조정 중에 실시간으로
+움직이는 게 정상이다.
 
 ---
 
@@ -282,8 +423,15 @@ Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 | 손이 허공에 얼어붙어 있다 | 그럴 수 없다 — 추적이 끊기면 그리지 않는다. 보인다면 실제로 추적 중이다 |
 | `H`를 눌러도 손이 안 나온다 | `OpenXRHandTracking` 플러그인 활성 여부. 로그 `LogCXMRHands: Hand tracker present:` |
 | 캘리브 후 다른 마커가 안 잡힌다 | `Stop Marker Tracking When Calibrated`가 켜져 있다 → 끈다 |
+| **넘버패드를 눌러도 차가 안 움직인다** | ① **NumLock 확인** ② 로그에 `Marker offset adjusted`가 찍히는지 본다. 안 찍히면 입력이 도달하지 않은 것이고, 찍히는데 안 움직이면 배치 계산 쪽이다 |
+| 재시작하면 캘리브레이션이 사라진다 | `Saved/CXMR/MarkerCalib_*.json`이 있는지 확인. 없으면 저장이 안 된 것 — `CXMR.SaveCalibration`을 치면 경로가 로그에 찍힌다 (§3-1) |
+| `CXMR.LearnMarkers`가 아무것도 안 한다 | 마커가 하나도 안 잡혔거나, 잡힌 마커가 프로파일에 없다. 로그에 이유가 찍힌다 |
+| 문을 열었더니 차가 튄다 | 문에 마커가 붙어 있다. 움직이는 부품에는 붙이면 안 된다 (§3-1) |
+| 패널 아래쪽이 잘린다 | `Panel Draw Size` Y를 키운다 (§7). 재빌드 불필요 |
 
-**로그 카테고리**: `LogCXMR`(서브시스템) `LogCXMRHands`(손) `LogCXMRDebug`(마커) `LogCXMRErgo`(착좌) `LogCXMRPawn`(패널)
+**로그 카테고리**: `LogCXMR`(서브시스템) `LogCXMRHands`(손) `LogCXMRDebug`(마커)
+`LogCXMRErgo`(착좌) `LogCXMRPawn`(패널) `LogCXMRPlacement`(배치·캘리브) `LogCXMRMask`(마스킹)
+`LogCXMRVehicle`(차량 로더) `LogCXMRInput`(입력)
 
 **마커 계측기**: 콘솔에 `CXMR.DebugMarkers 1` — 플러그인이 보고하는 마커 pose를 **가공 없이** 그린다.
 캘리브가 이상할 때 "마커를 못 보는 것"인지 "오프셋이 틀린 것"인지 가른다.

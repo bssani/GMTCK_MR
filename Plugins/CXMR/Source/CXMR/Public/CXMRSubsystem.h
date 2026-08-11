@@ -22,6 +22,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnMarkerId, int32, MarkerId);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FCXMROnRequest);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnViewerAction, ECXMRViewerAction, Action);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnIntChanged, int32, Value);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FCXMROnOffsetAdjust, FVector, DeltaLocation, FRotator, DeltaRotation);
 
 UCLASS(DisplayName = "CXMR Subsystem")
 class CXMR_API UCXMRSubsystem : public UGameInstanceSubsystem
@@ -156,6 +157,20 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Placement") FCXMROnRequest OnRecalibrateRequested;
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Placement") FCXMROnRequest OnPlaceRequested;
 
+	// Marker offset relay. The placement component does not live on the pawn, so input and UI cannot
+	// reach it directly — they go through here like every other placement request.
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void RequestAdjustMarkerOffset(FVector DeltaLocation, FRotator DeltaRotation);
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void RequestSaveMarkerOffset();
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void RequestResetMarkerOffset();
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Placement") FCXMROnOffsetAdjust OnAdjustMarkerOffsetRequested;
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Placement") FCXMROnRequest OnSaveMarkerOffsetRequested;
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Placement") FCXMROnRequest OnResetMarkerOffsetRequested;
+
+	/** Readout of the live offset, published by the placement component so the panel can show it. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void PublishMarkerOffset(FVector Location, FRotator Rotation);
+	UFUNCTION(BlueprintPure, Category = "CXMR|Placement") FVector  GetMarkerLocationOffset() const { return MarkerLocationOffset; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Placement") FRotator GetMarkerRotationOffset() const { return MarkerRotationOffset; }
+
 	// ---------- Viewer relay (input/UI -> vehicle actor: turntable, vehicle/trim cycling) ----------
 	// Same rendezvous as placement: the pawn holds the input, the vehicle holds the turntable.
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Viewer") void RequestViewerAction(ECXMRViewerAction Action);
@@ -247,4 +262,9 @@ private:
 	FDelegateHandle DetectedHandle;
 	FDelegateHandle MovedHandle;
 	FDelegateHandle LostHandle;
+
+	// Mirror of the placement component's live marker offset, so the panel can read it without
+	// having to find a component that does not live on the pawn.
+	FVector  MarkerLocationOffset = FVector::ZeroVector;
+	FRotator MarkerRotationOffset = FRotator::ZeroRotator;
 };

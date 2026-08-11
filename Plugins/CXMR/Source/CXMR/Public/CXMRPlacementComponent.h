@@ -66,6 +66,47 @@ public:
 	/** Pawn Relative: place the vehicle in front of the local player, on the floor, facing them. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void PlaceInFrontOfPawn();
 
+	/** Adjust marker offset (temporary). X/Y/Z cm + rotation deg. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void AdjustMarkerOffset(FVector DeltaLocation, FRotator DeltaRotation);
+
+	/** Save adjusted offset to the marker profile (permanent). */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void SaveMarkerOffsetToProfile();
+
+	/** Reset temporary offset adjustments. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void ResetMarkerOffset();
+
+	/** Adopt the vehicle's current transform as the pose the offset is measured from. Call this after
+	 *  moving the vehicle by any other means (ergonomics, a script) — otherwise the next offset nudge
+	 *  snaps it back to whatever calibration last computed. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void RebaseToCurrentTransform();
+
+	// ---- Field calibration -------------------------------------------------------------------
+	// Markers get stuck onto a clay model by hand and nobody measures where they ended up, so the
+	// authored LocalOffsets mean nothing. These turn that around: place the vehicle by eye, then
+	// record where the markers are RELATIVE to it. From then on seeing a marker restores that pose.
+
+	/** Record every detected marker's pose relative to the vehicle as it stands right now. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void LearnMarkerLayout();
+
+	/** Write the current marker layout to Saved/CXMR. A cooked build cannot save its data assets,
+	 *  so without this every restart loses the calibration. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") bool SaveCalibrationToDisk();
+
+	/** Apply a previously saved layout, if one exists for this profile. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") bool LoadCalibrationFromDisk();
+
+	/** Delete the saved file and restore the offsets the profile shipped with. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void ResetCalibrationToAuthored();
+
+	/** Where the calibration for the current profile is written. Empty if no profile is set. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Placement") FString GetCalibrationFilePath() const;
+
+	/** Live temporary offset. NOTE: the control panel must NOT read these — this component does not
+	 *  live on the pawn, so widgets cannot find it. It publishes the same values to the subsystem;
+	 *  UI reads UCXMRSubsystem::GetMarkerLocationOffset() instead. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Placement") FVector GetMarkerLocationOffset() const { return TempMarkerLocationOffset; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Placement") FRotator GetMarkerRotationOffset() const { return TempMarkerRotationOffset; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
@@ -93,6 +134,36 @@ private:
 
 	/** Detected Calibration markers this session: id -> marker world transform. */
 	TMap<int32, FTransform> DetectedCalib;
+
+	/** Temporary offset adjustment (cm + deg) for fine-tuning marker calibration. */
+	FVector TempMarkerLocationOffset = FVector::ZeroVector;
+	FRotator TempMarkerRotationOffset = FRotator::ZeroRotator;
+
+	/** The pose the manual offset is measured from — whatever markers (or a manual placement) last
+	 *  produced, before the offset is applied. Cached so the offset can still be nudged when no
+	 *  marker is in view: without it, looking away from the markers froze the adjustment keys. */
+	FTransform BaseVehicleTransform = FTransform::Identity;
+	bool bHaveBasePose = false;
+
+	/** Writes BaseVehicleTransform + the temporary offset onto the vehicle. */
+	void ApplyPlacement();
+
+	/** Mirrors the live offset onto the subsystem so the control panel can display it. */
+	void PublishOffset();
+
+	/** Snapshots the profile's shipped offsets so ResetCalibrationToAuthored can undo field edits,
+	 *  and so EndPlay can hand the asset back unmodified (PIE would otherwise leave it dirty). */
+	void CaptureAuthoredOffsets();
+	void RestoreAuthoredOffsets();
+
+	/** Offsets exactly as the profile shipped them, keyed by marker id. */
+	TMap<int32, FTransform> AuthoredOffsets;
+	TWeakObjectPtr<UCXMRMarkerProfile> CapturedProfile;
+
+	// Relayed from the subsystem — input and UI cannot reach this component directly.
+	UFUNCTION() void HandleAdjustOffsetRequest(FVector DeltaLocation, FRotator DeltaRotation);
+	UFUNCTION() void HandleSaveOffsetRequest();
+	UFUNCTION() void HandleResetOffsetRequest();
 
 	UPROPERTY(Transient) TObjectPtr<UCXMRSubsystem> Subsystem;
 };

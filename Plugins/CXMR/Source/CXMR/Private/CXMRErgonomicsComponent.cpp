@@ -157,14 +157,13 @@ void UCXMRErgonomicsComponent::MoveVehicleToEye(const FTransform& EyeWorld)
 {
 	// With a real seat (marker-anchored) the eye point is already physical — moving the car would
 	// fight both the calibration and the real seat, so leave it.
-	if (const UCXMRPlacementComponent* Placement = GetOwner()->FindComponentByClass<UCXMRPlacementComponent>())
+	UCXMRPlacementComponent* Placement =
+		GetOwner() ? GetOwner()->FindComponentByClass<UCXMRPlacementComponent>() : nullptr;
+	if (Placement && Placement->Mode == ECXMRPlacementMode::MarkerAnchor)
 	{
-		if (Placement->Mode == ECXMRPlacementMode::MarkerAnchor)
-		{
-			UE_LOG(LogCXMRErgo, Warning,
-				TEXT("Ergonomics: vehicle is marker-anchored to a real seat; the eye point is physical. Not moving the car."));
-			return;
-		}
+		UE_LOG(LogCXMRErgo, Warning,
+			TEXT("Ergonomics: vehicle is marker-anchored to a real seat; the eye point is physical. Not moving the car."));
+		return;
 	}
 
 	APawn* Pawn = nullptr;
@@ -188,6 +187,14 @@ void UCXMRErgonomicsComponent::MoveVehicleToEye(const FTransform& EyeWorld)
 	//   EyeWorld = EyeRelAnchor * AnchorWorld   ->   AnchorNew = EyeRelAnchor^-1 * Head
 	const FTransform EyeRelAnchor = EyeWorld.GetRelativeTransform(Anchor->GetComponentTransform());
 	Anchor->SetWorldTransform(EyeRelAnchor.Inverse() * Head);
+
+	// The anchor is calibration's transform to own (see ACXMRVehicleRoot). Having written it from the
+	// outside, hand the new pose back — otherwise the next marker-offset nudge would snap the car to
+	// wherever calibration last put it, undoing this snap.
+	if (Placement)
+	{
+		Placement->RebaseToCurrentTransform();
+	}
 }
 
 void UCXMRErgonomicsComponent::ApplyManikin(int32 Index)

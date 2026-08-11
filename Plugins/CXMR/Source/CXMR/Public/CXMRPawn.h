@@ -69,9 +69,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI") TObjectPtr<UInputAction> PanelClickAction;
 
 	/** Quad size in pixels. Must match the WBP's content size, or the layout is cropped or stretched. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI") FVector2D PanelDrawSize = FVector2D(432.f, 721.f);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI") FVector2D PanelDrawSize = FVector2D(432.f, 520.f);
 
-	/** cm per pixel. 0.03 puts a 432x721 panel at roughly 13 x 22 cm — a tablet in the hand. */
+	/** cm per pixel. 0.03 puts a 432x520 panel at roughly 13 x 16 cm — a tablet in the hand. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI", meta = (ClampMin = "0.005", ClampMax = "0.2"))
 	float PanelScale = 0.03f;
 

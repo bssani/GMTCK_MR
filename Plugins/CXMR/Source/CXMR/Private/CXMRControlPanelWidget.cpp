@@ -6,6 +6,7 @@
 
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
+#include "Components/WidgetSwitcher.h"
 
 // Binds a button's OnClicked to a handler, if the WBP provided that button.
 #define CXMR_BIND_BUTTON(Btn, Handler) if (Btn) { (Btn)->OnClicked.AddDynamic(this, &UCXMRControlPanelWidget::Handler); }
@@ -64,7 +65,75 @@ void UCXMRControlPanelWidget::NativeConstruct()
 	CXMR_BIND_BUTTON(Btn_NextManikin, NextManikin);
 	CXMR_BIND_BUTTON(Btn_PrevManikin, PreviousManikin);
 
+	CXMR_BIND_BUTTON(Btn_Tab_Display, ShowDisplayTab);
+	CXMR_BIND_BUTTON(Btn_Tab_Calib,   ShowCalibTab);
+	CXMR_BIND_BUTTON(Btn_Tab_Viewer,  ShowViewerTab);
+	SetActiveTab(0);
+
 	RefreshVisuals();
+}
+
+void UCXMRControlPanelWidget::ShowDisplayTab() { SetActiveTab(0); }
+void UCXMRControlPanelWidget::ShowCalibTab()   { SetActiveTab(1); }
+void UCXMRControlPanelWidget::ShowViewerTab()  { SetActiveTab(2); }
+
+void UCXMRControlPanelWidget::SetActiveTab(int32 TabIndex)
+{
+	if (Switcher_Pages)
+	{
+		const int32 PageCount = Switcher_Pages->GetNumWidgets();
+		if (PageCount > 0)
+		{
+			TabIndex = FMath::Clamp(TabIndex, 0, PageCount - 1);
+		}
+		Switcher_Pages->SetActiveWidgetIndex(TabIndex);
+	}
+
+	// Dim the captions of the pages you are not on — otherwise the panel just looks like it lost rows.
+	UTextBlock* const Captions[] = { Cap_Btn_Tab_Display, Cap_Btn_Tab_Calib, Cap_Btn_Tab_Viewer };
+	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Captions); ++Index)
+	{
+		if (Captions[Index])
+		{
+			Captions[Index]->SetColorAndOpacity(FSlateColor(Index == TabIndex ? ActiveTabColor : InactiveTabColor));
+		}
+	}
+}
+
+void UCXMRControlPanelWidget::NativeTick(const FGeometry& Geometry, float DeltaSeconds)
+{
+	Super::NativeTick(Geometry, DeltaSeconds);
+
+	// The marker offset changes continuously while an adjust key is held and the placement component
+	// broadcasts nothing, so the readout has to be polled — there is no event to hang it off.
+	if (!Txt_OffsetX && !Txt_OffsetY && !Txt_OffsetZ && !Txt_OffsetYaw)
+	{
+		return;
+	}
+
+	// Read it off the subsystem: the placement component is on the vehicle rig, not the pawn.
+	const UCXMRSubsystem* CXMR = Subsystem ? Subsystem.Get() : GetCXMR();
+	if (!CXMR)
+	{
+		return;
+	}
+
+	// Only touch the text when the value actually moved. This runs every frame in VR, and each
+	// SetText is a string build plus a Slate invalidation.
+	const FVector  Location = CXMR->GetMarkerLocationOffset();
+	const FRotator Rotation = CXMR->GetMarkerRotationOffset();
+	if (bOffsetReadoutValid && Location.Equals(ShownOffsetLocation) && Rotation.Equals(ShownOffsetRotation))
+	{
+		return;
+	}
+	ShownOffsetLocation  = Location;
+	ShownOffsetRotation  = Rotation;
+	bOffsetReadoutValid  = true;
+
+	if (Txt_OffsetX)   { Txt_OffsetX->SetText(FText::FromString(FString::Printf(TEXT("%.1f cm"),  Location.X))); }
+	if (Txt_OffsetY)   { Txt_OffsetY->SetText(FText::FromString(FString::Printf(TEXT("%.1f cm"),  Location.Y))); }
+	if (Txt_OffsetZ)   { Txt_OffsetZ->SetText(FText::FromString(FString::Printf(TEXT("%.1f cm"),  Location.Z))); }
+	if (Txt_OffsetYaw) { Txt_OffsetYaw->SetText(FText::FromString(FString::Printf(TEXT("%.1f deg"), Rotation.Yaw))); }
 }
 
 void UCXMRControlPanelWidget::NativeDestruct()

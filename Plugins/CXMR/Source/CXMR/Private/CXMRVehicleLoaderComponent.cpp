@@ -12,6 +12,8 @@
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogCXMRVehicle, Log, All);
+
 UCXMRVehicleLoaderComponent::UCXMRVehicleLoaderComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
@@ -85,7 +87,7 @@ void UCXMRVehicleLoaderComponent::LoadVehicle(UCXMRVehicleProfile* NewProfile)
 	UClass* VehicleClass = Profile->VehicleActor.LoadSynchronous();
 	if (!VehicleClass)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("CXMR: vehicle profile '%s' has no VehicleActor set."), *Profile->GetName());
+		UE_LOG(LogCXMRVehicle, Warning, TEXT("Vehicle profile '%s' has no VehicleActor set."), *Profile->GetName());
 		return;
 	}
 

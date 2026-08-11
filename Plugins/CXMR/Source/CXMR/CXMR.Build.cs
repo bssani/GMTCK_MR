@@ -27,6 +27,9 @@ public class CXMR : ModuleRules
 		{
 			"Slate",
 			"SlateCore",
+			// Marker calibration is written to Saved/CXMR as JSON: a cooked build cannot write back to
+			// its own data assets, and text is what makes a remote session diagnosable over the phone.
+			"Json",
 		});
 	}
 }
