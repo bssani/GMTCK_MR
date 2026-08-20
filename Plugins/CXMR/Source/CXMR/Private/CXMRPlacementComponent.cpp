@@ -395,6 +395,12 @@ void UCXMRPlacementComponent::SetMarkerProfile(UCXMRMarkerProfile* NewProfile)
 	}
 	MarkerProfile = NewProfile;
 	EnsureCalibrationLoaded();
+
+	// Everything detected so far was keyed by the OLD profile's marker ids. Keeping it means the
+	// solve runs against markers the new vehicle never heard of, and bCalibrated would keep
+	// HandleMarkerPose frozen so the new ones are ignored too — a swap that silently never aligns.
+	DetectedCalib.Reset();
+	bCalibrated = false;
 }
 
 void UCXMRPlacementComponent::CaptureAuthoredOffsets()

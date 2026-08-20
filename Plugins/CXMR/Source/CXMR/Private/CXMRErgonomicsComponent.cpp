@@ -237,6 +237,20 @@ void UCXMRErgonomicsComponent::Cycle(int32 Step)
 	ApplyManikin(((CurrentIndex + Step) % Count + Count) % Count);
 }
 
+void UCXMRErgonomicsComponent::RefreshForNewVehicle()
+{
+	const UCXMRErgonomicsProfile* Profile = ResolveProfile();
+	const int32 Count = Profile ? Profile->Positions.Num() : 0;
+
+	CurrentIndex = (Count > 0) ? FMath::Clamp(CurrentIndex, 0, Count - 1) : 0;
+
+	if (Subsystem)
+	{
+		const FText Name = (Count > 0) ? FText::FromName(Profile->Positions[CurrentIndex].Name) : FText::GetEmpty();
+		Subsystem->ReportManikin(Name, CurrentIndex, Count);
+	}
+}
+
 void UCXMRErgonomicsComponent::SetManikin(int32 Index)   { ApplyManikin(Index); }
 void UCXMRErgonomicsComponent::NextManikin()             { Cycle(1); }
 void UCXMRErgonomicsComponent::PreviousManikin()         { Cycle(-1); }

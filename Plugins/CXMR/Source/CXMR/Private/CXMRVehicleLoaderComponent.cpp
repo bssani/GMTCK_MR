@@ -4,6 +4,7 @@
 #include "CXMRVehicleProfile.h"
 #include "CXMRMarkerProfile.h"
 #include "CXMRPlacementComponent.h"
+#include "CXMRErgonomicsComponent.h"
 
 #include "Components/PrimitiveComponent.h"
 #include "Materials/MaterialInterface.h"
@@ -120,6 +121,16 @@ void UCXMRVehicleLoaderComponent::LoadVehicle(UCXMRVehicleProfile* NewProfile)
 	CMFIndex  = ResolveDefaultCMF(0);
 	ApplyTrim();
 	ApplyCMF();
+
+	// The ergonomics profile swaps with the car. Without this the index can point past the end of a
+	// shorter profile and every seating getter fails silently — the panel row just goes blank.
+	if (AActor* Owner = GetOwner())
+	{
+		if (UCXMRErgonomicsComponent* Ergonomics = Owner->FindComponentByClass<UCXMRErgonomicsComponent>())
+		{
+			Ergonomics->RefreshForNewVehicle();
+		}
+	}
 
 	ReportStatus();
 	OnVehicleLoaded.Broadcast(Profile);

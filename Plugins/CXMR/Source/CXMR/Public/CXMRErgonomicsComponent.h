@@ -47,6 +47,11 @@ public:
 	/** Re-applies the current manikin — e.g. after the vehicle is re-placed. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Ergonomics") void ReapplyCurrent();
 
+	/** Clamp to the newly loaded vehicle's profile and refresh the readout, WITHOUT moving anything.
+	 *  A vehicle swap must not teleport the viewpoint (VR) or the car (MR) on its own — but leaving
+	 *  the index past the end of a shorter profile makes the row go blank and every getter fail. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Ergonomics") void RefreshForNewVehicle();
+
 	UFUNCTION(BlueprintPure, Category = "CXMR|Ergonomics") int32 GetManikinIndex() const { return CurrentIndex; }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Ergonomics") FName GetManikinName() const;
 
