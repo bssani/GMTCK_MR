@@ -110,8 +110,8 @@ void UCXMRPlacementComponent::BeginPlay()
 
 	// Keep the shipped values so field edits can be undone, then let a saved calibration win —
 	// on site that file, not the asset, is what describes where the markers actually are.
-	CaptureAuthoredOffsets();
-	LoadCalibrationFromDisk();
+	// The vehicle loader may have swapped the profile before we got here, so this is idempotent.
+	EnsureCalibrationLoaded();
 }
 
 void UCXMRPlacementComponent::EndPlay(const EEndPlayReason::Type Reason)
@@ -371,6 +371,32 @@ void UCXMRPlacementComponent::PlaceInFrontOfPawn()
 
 // ---------- Field calibration ----------
 
+void UCXMRPlacementComponent::EnsureCalibrationLoaded()
+{
+	if (bCalibrationLoaded && CapturedProfile == MarkerProfile)
+	{
+		return;
+	}
+
+	// Whatever the previous profile is holding came from a file, not from its author. Give it back
+	// before moving on, or that asset stays edited for the rest of the session.
+	RestoreAuthoredOffsets();
+
+	CaptureAuthoredOffsets();
+	LoadCalibrationFromDisk();
+	bCalibrationLoaded = true;
+}
+
+void UCXMRPlacementComponent::SetMarkerProfile(UCXMRMarkerProfile* NewProfile)
+{
+	if (MarkerProfile == NewProfile)
+	{
+		return;
+	}
+	MarkerProfile = NewProfile;
+	EnsureCalibrationLoaded();
+}
+
 void UCXMRPlacementComponent::CaptureAuthoredOffsets()
 {
 	AuthoredOffsets.Reset();
@@ -408,7 +434,14 @@ FString UCXMRPlacementComponent::GetCalibrationFilePath() const
 		return FString();
 	}
 	return FPaths::ProjectSavedDir() / TEXT("CXMR")
-		/ FString::Printf(TEXT("MarkerCalib_%s.json"), *MarkerProfile->GetName());
+		/ FString::Printf(TEXT("MarkerCalib_%s.json"), *MarkerProfile->GetCalibrationId());
+}
+
+/** Untouched copy of whatever was on disk when this session started. The live file is overwritten
+ *  every save, so a run of bad saves would otherwise leave nothing to go back to. */
+static FString StartupBackupPath(const FString& LivePath)
+{
+	return FPaths::ChangeExtension(LivePath, TEXT("startup.json"));
 }
 
 void UCXMRPlacementComponent::LearnMarkerLayout()
@@ -455,6 +488,11 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 	PublishOffset();
 
 	UE_LOG(LogCXMRPlacement, Log, TEXT("Learned layout of %d marker(s) from the current vehicle pose."), Learned);
+
+	// Re-place from what we just learned. If the maths is right the vehicle does not move; if it
+	// jumps, the layout is wrong and the operator sees it immediately instead of hours later.
+	RecomputeCalibration();
+
 	SaveCalibrationToDisk();
 }
 
@@ -498,6 +536,10 @@ bool UCXMRPlacementComponent::SaveCalibrationToDisk()
 		return false;
 	}
 
+	// SaveStringToFile does not create directories, and Saved/CXMR does not exist on a fresh install
+	// — without this the very first save fails.
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), /*Tree*/ true);
+
 	if (!FFileHelper::SaveStringToFile(Text, *Path))
 	{
 		UE_LOG(LogCXMRPlacement, Warning, TEXT("Failed to write marker calibration to '%s'."), *Path);
@@ -530,6 +572,24 @@ bool UCXMRPlacementComponent::LoadCalibrationFromDisk()
 		UE_LOG(LogCXMRPlacement, Warning,
 			TEXT("Marker calibration '%s' is not valid JSON — ignoring it and using the profile as authored."), *Path);
 		return false;
+	}
+
+	// Two profiles sharing a CalibrationId would silently read each other's file. Say so.
+	FString SavedFor;
+	if (RootObj->TryGetStringField(TEXT("profile"), SavedFor) && SavedFor != MarkerProfile->GetName())
+	{
+		UE_LOG(LogCXMRPlacement, Warning,
+			TEXT("Calibration '%s' was saved for profile '%s' but is being applied to '%s'. "
+			     "Check for a duplicate Calibration Id."),
+			*Path, *SavedFor, *MarkerProfile->GetName());
+	}
+
+	// One untouched copy per session, taken before anything can overwrite the live file. Keyed by
+	// path, not a bool, so switching vehicles backs up each profile's file exactly once.
+	if (!StartupBackedUp.Contains(Path))
+	{
+		IFileManager::Get().Copy(*StartupBackupPath(Path), *Path);
+		StartupBackedUp.Add(Path);
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* MarkerArray = nullptr;

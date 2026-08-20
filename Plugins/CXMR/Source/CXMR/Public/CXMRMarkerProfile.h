@@ -20,6 +20,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Marker Profile", meta = (TitleProperty = "Label"))
 	TArray<FCXMRMarkerEntry> Markers;
 
+	/** File-name stem for the field calibration saved to Saved/CXMR. Empty = use the asset name.
+	 *  Keep it short — this is the name someone reads out over the phone from a remote site.
+	 *  ⚠ Two profiles sharing an id overwrite each other's calibration. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Marker Profile")
+	FString CalibrationId;
+
+	/** CalibrationId if set, otherwise the asset name. Sanitised for use in a file name. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Marker Profile")
+	FString GetCalibrationId() const;
+
 	/** Find the entry for a marker id. Returns false if not in the profile. */
 	UFUNCTION(BlueprintPure, Category = "CXMR|Marker Profile")
 	bool FindEntry(int32 MarkerId, FCXMRMarkerEntry& OutEntry) const;

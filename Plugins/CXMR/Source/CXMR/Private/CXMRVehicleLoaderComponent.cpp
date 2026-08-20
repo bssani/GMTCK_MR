@@ -145,7 +145,9 @@ void UCXMRVehicleLoaderComponent::SyncMarkerProfile()
 	{
 		if (UCXMRPlacementComponent* Placement = Owner->FindComponentByClass<UCXMRPlacementComponent>())
 		{
-			Placement->MarkerProfile = Profile->MarkerProfile.LoadSynchronous();
+			// Through the setter, not a plain write: it restores the outgoing profile and brings the
+			// incoming one's saved field calibration with it.
+			Placement->SetMarkerProfile(Profile->MarkerProfile.LoadSynchronous());
 		}
 	}
 }

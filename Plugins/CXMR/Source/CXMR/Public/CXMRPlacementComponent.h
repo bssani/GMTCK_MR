@@ -27,8 +27,14 @@ class CXMR_API UCXMRPlacementComponent : public UActorComponent
 public:
 	UCXMRPlacementComponent();
 
-	/** Per-program marker config (project asset, /Game/Vehicles/[program]/). */
+	/** Per-program marker config (project asset, /Game/Vehicles/[program]/).
+	 *  ⚠ At runtime assign through SetMarkerProfile() — a plain write skips the calibration swap
+	 *  and leaves the previous profile holding field values. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") TObjectPtr<UCXMRMarkerProfile> MarkerProfile;
+
+	/** Swap the profile and bring its saved calibration with it. Restores the outgoing profile to
+	 *  the values it shipped with, so switching vehicles never leaves an asset edited. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void SetMarkerProfile(UCXMRMarkerProfile* NewProfile);
 
 	/** Actor placed at the calibrated vehicle origin (children = vehicle mesh). Defaults to this component's owner. */
 	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category = "CXMR|Placement") TObjectPtr<AActor> VehicleRoot;
@@ -156,9 +162,18 @@ private:
 	void CaptureAuthoredOffsets();
 	void RestoreAuthoredOffsets();
 
+	/** Idempotent: snapshot the current profile and apply its saved calibration, once per profile.
+	 *  Called from BeginPlay AND from SetMarkerProfile because component BeginPlay order is not
+	 *  guaranteed — whichever runs first wins and the other becomes a no-op. */
+	void EnsureCalibrationLoaded();
+
 	/** Offsets exactly as the profile shipped them, keyed by marker id. */
 	TMap<int32, FTransform> AuthoredOffsets;
 	TWeakObjectPtr<UCXMRMarkerProfile> CapturedProfile;
+	bool bCalibrationLoaded = false;
+
+	/** Calibration files already copied to their .startup backup this session. */
+	TSet<FString> StartupBackedUp;
 
 	// Relayed from the subsystem — input and UI cannot reach this component directly.
 	UFUNCTION() void HandleAdjustOffsetRequest(FVector DeltaLocation, FRotator DeltaRotation);
