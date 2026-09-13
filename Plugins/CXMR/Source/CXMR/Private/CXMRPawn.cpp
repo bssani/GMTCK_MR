@@ -5,6 +5,7 @@
 #include "CXMRMaskingComponent.h"
 #include "CXMRMarkerDebugComponent.h"
 #include "CXMRHandDebugComponent.h"
+#include "CXMRVirtualHandComponent.h"
 #include "CXMRControlPanelWidget.h"
 #include "CXMRDesktopPanelComponent.h"
 
@@ -49,6 +50,10 @@ ACXMRPawn::ACXMRPawn()
 
 	// Same reasoning: the instrument ships in the build, drawn only while its toggle is on.
 	HandDebug = CreateDefaultSubobject<UCXMRHandDebugComponent>(TEXT("HandDebug"));
+
+	// Drawn only while CXMR.VirtualHands is set. A virtual console hides the real hand in MR; this is the
+	// hand that stays visible against it.
+	VirtualHands = CreateDefaultSubobject<UCXMRVirtualHandComponent>(TEXT("VirtualHands"));
 
 	// --- Control panel: world-space quad on the left hand ---
 	ControlPanel = CreateDefaultSubobject<UWidgetComponent>(TEXT("ControlPanel"));

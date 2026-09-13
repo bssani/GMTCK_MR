@@ -17,6 +17,7 @@ class UCXMRVarjoInputComponent;
 class UCXMRMaskingComponent;
 class UCXMRMarkerDebugComponent;
 class UCXMRHandDebugComponent;
+class UCXMRVirtualHandComponent;
 class UCXMRControlPanelWidget;
 class UCXMRDesktopPanelComponent;
 class UWidgetComponent;
@@ -50,6 +51,9 @@ public:
 
 	/** Headset verification instrument. Draws the tracked hand skeleton; toggled with H. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRHandDebugComponent> HandDebug;
+
+	/** Tracked hands as solid virtual geometry holding a plug, so they show against virtual surfaces. CXMR.VirtualHands. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Hands") TObjectPtr<UCXMRVirtualHandComponent> VirtualHands;
 
 	/** Operator's control window on the desktop monitor, beside the headset view. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|UI") TObjectPtr<UCXMRDesktopPanelComponent> DesktopPanel;
