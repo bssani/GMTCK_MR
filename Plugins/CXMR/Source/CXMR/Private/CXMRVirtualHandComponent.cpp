@@ -387,21 +387,15 @@ void UCXMRVirtualHandComponent::UpdateHand(EControllerHand Hand, const TArray<FV
 	WriteInstances(BoneParts, BoneTransforms);
 }
 
-void UCXMRVirtualHandComponent::UpdatePlug(const TArray<FVector>& Positions)
+bool UCXMRVirtualHandComponent::ComputeGrip(const TArray<FVector>& Positions, FTransform& OutGrip) const
 {
-	if (!PlugBody || !PlugTip || !PlugCable)
-	{
-		return;
-	}
-
 	const FVector ThumbTip = Positions[K(EHandKeypoint::ThumbTip)];
 	const FVector IndexTip = Positions[K(EHandKeypoint::IndexTip)];
 
 	FVector Along = IndexTip - Positions[K(EHandKeypoint::IndexProximal)];
 	if (!Along.Normalize())
 	{
-		SetPlugVisible(false);
-		return;
+		return false;
 	}
 
 	// The plug is pinched flat between thumb and index, so its thin axis runs between the two tips.
@@ -414,7 +408,40 @@ void UCXMRVirtualHandComponent::UpdatePlug(const TArray<FVector>& Positions)
 		Pinch = FVector::CrossProduct(Along, Helper).GetSafeNormal();
 	}
 
-	const FTransform Grip = PlugOffset * FTransform(FRotationMatrix::MakeFromXZ(Along, Pinch).ToQuat(), (ThumbTip + IndexTip) * 0.5f);
+	OutGrip = PlugOffset * FTransform(FRotationMatrix::MakeFromXZ(Along, Pinch).ToQuat(), (ThumbTip + IndexTip) * 0.5f);
+	return true;
+}
+
+bool UCXMRVirtualHandComponent::GetPlugTip(FVector& OutTipLocation, FVector& OutDirection) const
+{
+	const bool bPreview = CVarVirtualHandsPreview.GetValueOnGameThread() != 0;
+
+	TArray<FVector> Positions;
+	TArray<float> Radii;
+	FTransform Grip;
+	if (!GetJoints(PlugHand, bPreview, Positions, Radii) || !ComputeGrip(Positions, Grip))
+	{
+		return false;
+	}
+
+	OutTipLocation = Grip.TransformPosition(FVector(PlugBodySize.X * 0.5f + PlugTipSize.X, 0., 0.));
+	OutDirection = Grip.GetUnitAxis(EAxis::X);
+	return true;
+}
+
+void UCXMRVirtualHandComponent::UpdatePlug(const TArray<FVector>& Positions)
+{
+	if (!PlugBody || !PlugTip || !PlugCable)
+	{
+		return;
+	}
+
+	FTransform Grip;
+	if (!ComputeGrip(Positions, Grip))
+	{
+		SetPlugVisible(false);
+		return;
+	}
 	const float BodyHalf = PlugBodySize.X * 0.5f;
 
 	PlugBody->SetWorldTransform(FTransform(FQuat::Identity, FVector::ZeroVector, PlugBodySize / ShapeCm) * Grip);

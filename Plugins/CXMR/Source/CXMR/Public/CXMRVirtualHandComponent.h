@@ -41,6 +41,13 @@ public:
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
+	/**
+	 * Front end of the plug's metal tip and the direction it points, from the tracker (or the preview pose) with
+	 * the same grip math that draws the plug. Works while the hands are hidden, so a port can still judge
+	 * alignment when the real hand is shown through depth test instead. False = the plug hand is not tracked.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Virtual Hands") bool GetPlugTip(FVector& OutTipLocation, FVector& OutDirection) const;
+
 	// --- Hand ---
 
 	/** Applied when play starts. */
@@ -102,6 +109,9 @@ private:
 
 	/** Tracker joints for one hand, or the canned preview pose. False = draw nothing for this hand. */
 	bool GetJoints(EControllerHand Hand, bool bPreview, TArray<FVector>& OutPositions, TArray<float>& OutRadii) const;
+
+	/** Grip frame between thumb tip and index tip, PlugOffset applied. Shared by drawing and GetPlugTip. */
+	bool ComputeGrip(const TArray<FVector>& Positions, FTransform& OutGrip) const;
 
 	void UpdateHand(EControllerHand Hand, const TArray<FVector>& Positions, const TArray<float>& Radii);
 	void UpdatePlug(const TArray<FVector>& Positions);
