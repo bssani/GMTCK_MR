@@ -23,6 +23,10 @@
 **→ 조치는 §3의 A안.** 나머지 세 용의자(scene color format / TSR 알파 / 알파 전파)는
 이 건의 원인이 아니다. 다만 A안을 적용한 뒤에도 증상이 남으면 그때 아래 절차로 돌아온다.
 
+**✅ A안 적용됨 (2026-09-13)**: 상세는 [Editor-Followup.md](Editor-Followup.md) §1에 있다. PP_MR이 엉뚱한
+콜렉션(`/Game/VarjoContent/...`)을 보던 회귀도 같이 고쳤고, PostProcessVolume의 PP_MR 가중치도 1로 되돌렸다.
+XR-4에서 `M`+`B`가 여전히 검으면 §2의 C → B → D 순서로 확인한다.
+
 ---
 
 ## (참고) 원래의 판별 절차

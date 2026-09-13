@@ -9,7 +9,33 @@ C++ 쪽은 전부 반영됐다. 여기 있는 것은 **`.uasset` 편집이라 �
 
 ---
 
-## 1. 🔴 PP_MR 알파 — 패스스루가 안 뜨는 원인 (최우선)
+## 1. ✅ PP_MR 알파 — 적용됨 (2026-09-13), XR-4 확인만 남음
+
+**2026-09-13 처리** (UnrealAgent Python으로 아래 1-2를 적용했다):
+
+- **구멍 밖 Opacity**: 상수 1 대신 `PostProcessInput0`의 **알파 × 구멍 계수**를 쓴다. RGB에도 같은 계수를 곱해
+  premultiplied를 유지한다. 구멍이면 RGBA 0이고, 그 외에는 씬 자신의 RGBA가 나간다.
+- **`If`의 `A > B` 입력**: Varjo 원본의 `Min(Ceil(Custom − Scene), 1)` 대신 **상수 1**을 쓴다. 원래 식은
+  "빈 픽셀은 두 depth가 무한대로 같다"는 가정으로 알파 0을 만들었다. 이제는 빈 픽셀을 입력 알파(0)가 처리하므로
+  그 가정이 필요 없다. `A == B`는 미연결이라 `A > B`를 따라 1이 된다. 그래서 커스텀 뎁스와 메인 패스를 둘 다 그리는
+  물체가 뚫리지 않는다.
+- 🔴 **같이 찾은 회귀**: 08-11 커밋(`20e118d`)에서 PP_MR의 콜렉션 참조가
+  `/Game/VarjoContent/MixedReality/PP_MRParameters`로 바뀌어 있었다. 그런데 C++(`CXMRMaskingComponent`)은
+  `/CXMR/Core/Materials/PP_MRParameters`에 값을 쓴다. 그래서 **`N`이 머티리얼에 닿지 않았다**. 게다가
+  `Content/VarjoContent/`는 gitignore라 **새 clone에서는 참조가 깨진다**. 참조를 `/CXMR/`로 되돌렸다.
+  - ⚠️ Python으로 콜렉션을 바꿀 때는 `parameter_name`을 같은 값으로 다시 넣되 `notify_mode=ALWAYS`를 줘야 한다.
+    컴파일은 이름이 아니라 `ParameterId`(GUID)로 파라미터를 찾고, GUID를 다시 푸는 곳이 PostEditChange뿐이다.
+- **`L_Main` PostProcessVolume**: PP_MR 가중치를 0(7월 실기 때의 임시 우회)에서 **1로 되돌렸다**.
+
+**확인한 것**: 컴파일 에러 없음(PS 86 instructions). 저장된 `.uasset`에 `VarjoContent` 참조 0개.
+asset registry 의존성은 `/CXMR/Core/Materials/PP_MRParameters` 하나뿐이다.
+
+**남은 것**: 헤드셋에서 §5 표 1번(`M`+`B` → 패스스루, `N` → 구멍)을 본다. 그래도 검으면
+[Passthrough-Black-Screen.md](Passthrough-Black-Screen.md) §2의 C → B → D로 간다. A는 이번 수정으로 소거됐다.
+
+---
+
+(이하 원래 기록)
 
 **증상**: MR을 켜고 `B`로 VR 배경을 끄면 패스스루가 아니라 **검정 화면**.
 `T`(Depth Test)를 켤 때만 패스스루가 보임.
