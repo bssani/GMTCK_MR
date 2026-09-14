@@ -429,6 +429,7 @@ PIE를 멈추면 자동으로 닫힌다(Slate 창은 GC 대상이 아니라 명�
 | **Depth** | Depth Test · 범위 제한 · 범위 near / far(m) · 환경 depth 추정 |
 | **Display** | 노출 보정(EV) |
 | **Input** | 넘버패드 조정 속도 |
+| **Hands** | 오른손·왼손 검지 끝 위치(머리 기준 cm) · 검지 끝 − 가장 가까운 마커 · 손 보정 앞/오른쪽/위(cm) · 마커에 맞추기 버튼 — 절차는 `Headset-Test-Checklist.md` §8 |
 
 - **값은 매 프레임 실제 기능에서 읽어 온다.** 키보드·컨트롤러·컨트롤 창으로 바꾼 것도 바로 보인다
 - 숫자 칸은 **드래그하거나 클릭해서 입력**한다. 드래그하는 동안 바로 적용되고, 손을 떼거나 Enter를 누를 때 저장된다
@@ -440,7 +441,7 @@ PIE를 멈추면 자동으로 닫힌다(Slate 창은 GC 대상이 아니라 명�
 
 | 저장되는 것 (다음 실행에 그대로) | 저장 안 되는 것 (매 세션 새로) |
 |---|---|
-| View Offset, 범위 제한 on/off, 범위 near/far, 노출 보정, 이동량·회전량, 넘버패드 속도 | MR·VR 배경·마스킹·Depth Test·환경 depth on/off, 회전 중심, 수평 유지 |
+| View Offset, 범위 제한 on/off, 범위 near/far, 노출 보정, 이동량·회전량, 넘버패드 속도, 손 보정(앞/오른쪽/위) | MR·VR 배경·마스킹·Depth Test·환경 depth on/off, 회전 중심, 수평 유지 |
 
 차 위치 자체는 이 파일이 아니라 **캘리브레이션 파일**(`Saved/CXMR/MarkerCalib_*.json`, §3-1)이 담당한다.
 창의 "Save adjustment into the marker layout"은 `NumPad Enter`와 같다.
