@@ -27,9 +27,10 @@ namespace
 		{ static_cast<int32>(EHandKeypoint::LittleMetacarpal), static_cast<int32>(EHandKeypoint::LittleTip) },
 	};
 
-	const int32 IndexTip = static_cast<int32>(EHandKeypoint::IndexTip);
+	// Named for what it indexes: a bare "IndexTip" collides with locals in other files of the same unity blob.
+	const int32 IndexTipKeypoint = static_cast<int32>(EHandKeypoint::IndexTip);
 
-	const FName OffsetIds[3] = { "Hands.OffsetForward", "Hands.OffsetRight", "Hands.OffsetUp" };
+	const FName HandOffsetIds[3] = { "Hands.OffsetForward", "Hands.OffsetRight", "Hands.OffsetUp" };
 
 	/** A vector already expressed in the head frame. */
 	FString HeadFrameText(const FVector& V)
@@ -256,7 +257,7 @@ void UCXMRHandDebugComponent::RegisterTunables()
 		NSLOCTEXT("CXMRHands", "OffsetUp", "Hand offset up") };
 	for (int32 Axis = 0; Axis < 3; ++Axis)
 	{
-		FCXMRTunable T = Make(OffsetIds[Axis], Labels[Axis], ECXMRTunableKind::Float);
+		FCXMRTunable T = Make(HandOffsetIds[Axis], Labels[Axis], ECXMRTunableKind::Float);
 		T.Unit = NSLOCTEXT("CXMRHands", "cm", "cm");
 		T.Min = -30.0f; T.Max = 30.0f; T.Delta = 0.5f; T.Default = 0.0f; T.bPersist = true;
 		T.Get = [Axis] { return static_cast<float>(CXMRHands::GetOffset()[Axis]); };
@@ -292,7 +293,7 @@ FText UCXMRHandDebugComponent::DescribeTip(EControllerHand Hand) const
 	{
 		return NSLOCTEXT("CXMRHands", "NoView", "no view");
 	}
-	return FText::FromString(HeadFrameText(Head.InverseTransformPositionNoScale(Positions[IndexTip])));
+	return FText::FromString(HeadFrameText(Head.InverseTransformPositionNoScale(Positions[IndexTipKeypoint])));
 }
 
 FText UCXMRHandDebugComponent::DescribeTipToMarker() const
@@ -333,7 +334,7 @@ bool UCXMRHandDebugComponent::FindTipAndMarker(FVector& OutTip, int32& OutMarker
 		return false;
 	}
 
-	OutTip = Positions[IndexTip];
+	OutTip = Positions[IndexTipKeypoint];
 	double Best = TNumericLimits<double>::Max();
 	for (const TPair<int32, FVector>& Pair : MarkerPositions)
 	{
@@ -378,9 +379,9 @@ bool UCXMRHandDebugComponent::CalibrateHandOffset(FVector TipWorld, FVector Targ
 	// Through the registry so the result is clamped and saved exactly like an edit in the window.
 	UCXMRTuningSubsystem* Tuning = GetTuning();
 	const bool bThroughTuning = Tuning
-		&& Tuning->SetTunableValue(OffsetIds[0], static_cast<float>(Wanted.X))
-		&& Tuning->SetTunableValue(OffsetIds[1], static_cast<float>(Wanted.Y))
-		&& Tuning->SetTunableValue(OffsetIds[2], static_cast<float>(Wanted.Z));
+		&& Tuning->SetTunableValue(HandOffsetIds[0], static_cast<float>(Wanted.X))
+		&& Tuning->SetTunableValue(HandOffsetIds[1], static_cast<float>(Wanted.Y))
+		&& Tuning->SetTunableValue(HandOffsetIds[2], static_cast<float>(Wanted.Z));
 	if (!bThroughTuning)
 	{
 		CXMRHands::SetOffset(Wanted);
