@@ -1,6 +1,7 @@
 // Copyright GMTCK CX.
 
 #include "CXMRVirtualHandComponent.h"
+#include "CXMRHandTracking.h"
 
 #include "Camera/CameraComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -333,22 +334,11 @@ bool UCXMRVirtualHandComponent::GetJoints(EControllerHand Hand, bool bPreview, T
 		return true;
 	}
 
-	IHandTracker* Tracker = GetHandTracker();
-	if (!Tracker)
-	{
-		return false;
-	}
-
+	// Through CXMRHands like the H skeleton: tracked hands only (a virtual hand frozen beside the console would read
+	// as a real hand that stopped moving), with the same alignment correction, so snapping the skeleton to a marker
+	// moves this hand too.
 	TArray<FQuat> Rotations;   // required by the API, deliberately unused — see the header
-	bool bIsTracked = false;
-	if (!Tracker->GetAllKeypointStates(Hand, OutPositions, Rotations, OutRadii, bIsTracked))
-	{
-		return false;
-	}
-
-	// The tracker keeps returning the last pose after tracking drops. A virtual hand frozen beside the console
-	// would read as a real hand that stopped moving, so it disappears instead.
-	return bIsTracked && OutPositions.Num() >= EHandKeypointCount;
+	return CXMRHands::GetJoints(GetWorld(), Hand, OutPositions, Rotations, OutRadii);
 }
 
 void UCXMRVirtualHandComponent::UpdateHand(EControllerHand Hand, const TArray<FVector>& Positions, const TArray<float>& Radii)

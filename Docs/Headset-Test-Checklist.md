@@ -266,6 +266,8 @@ pinch/poke/palm은 C++ motion source로만 있고 BP 함수는 aim/grip뿐이다
 - 추적이 끊기면 손이 **사라지는 게 정상**이다. 마지막 자세로 얼어붙지 않게 만들었다
 - ⚠️ `T`(depth test)는 **끈다.** 켜 두면 실제 손도 같이 보여 손이 두 개가 된다
 - 조정은 `BP_CXMRPawn → VirtualHands`에서 한다. 리빌드는 필요 없다
+- **가상 손이 실제 손보다 위·앞에 뜨면** §8 "손이 실제 손과 어긋나 보이면" 절차로 맞춘다. 보정은 `H` 스켈레톤과
+  가상 손에 똑같이 들어가므로 스켈레톤으로 맞추면 가상 손도 같이 맞는다
   - 플러그 위치·각도: `Plug Offset` / 크기: `Plug Body Size` / 들고 있는 손: `Plug Hand`
   - 손가락 굵기: `Radius Scale` / 색: `Skin Color`(Play를 시작할 때 적용된다)
 - 헤드셋 없이 모양만 볼 때: `CXMR.VirtualHands.Preview 1`. 카메라 앞에 고정 자세 손 두 개가 나온다
