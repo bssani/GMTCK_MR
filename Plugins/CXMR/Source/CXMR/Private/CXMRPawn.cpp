@@ -8,6 +8,7 @@
 #include "CXMRVirtualHandComponent.h"
 #include "CXMRControlPanelWidget.h"
 #include "CXMRDesktopPanelComponent.h"
+#include "CXMRTuningWindowComponent.h"
 
 #include "Camera/CameraComponent.h"
 #include "MotionControllerComponent.h"
@@ -43,6 +44,9 @@ ACXMRPawn::ACXMRPawn()
 
 	// The operator runs the session from the desk, not from the wearer's wrist.
 	DesktopPanel = CreateDefaultSubobject<UCXMRDesktopPanelComponent>(TEXT("DesktopPanel"));
+
+	// Numbers the operator tunes live (depth range, exposure, vehicle nudges), beside the control window.
+	TuningWindow = CreateDefaultSubobject<UCXMRTuningWindowComponent>(TEXT("TuningWindow"));
 
 	// Always present, drawn only when CXMR.DebugMarkers is set — a headset session is a bad time to
 	// discover the instrument was not in the build.

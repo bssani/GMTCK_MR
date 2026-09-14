@@ -3,6 +3,7 @@
 #include "CXMRPlacementComponent.h"
 #include "CXMRSubsystem.h"
 #include "CXMRMarkerProfile.h"
+#include "CXMRTuningSubsystem.h"
 
 #include "Engine/GameInstance.h"
 #include "Kismet/GameplayStatics.h"
@@ -112,6 +113,8 @@ void UCXMRPlacementComponent::BeginPlay()
 	// on site that file, not the asset, is what describes where the markers actually are.
 	// The vehicle loader may have swapped the profile before we got here, so this is idempotent.
 	EnsureCalibrationLoaded();
+
+	RegisterTunables();
 }
 
 void UCXMRPlacementComponent::EndPlay(const EEndPlayReason::Type Reason)
@@ -130,6 +133,12 @@ void UCXMRPlacementComponent::EndPlay(const EEndPlayReason::Type Reason)
 	// Hand the data asset back exactly as it shipped. Field calibration lives in Saved/CXMR, so PIE
 	// must not leave the asset dirty with values that were only ever meant for one physical setup.
 	RestoreAuthoredOffsets();
+
+	const UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	if (UCXMRTuningSubsystem* Tuning = GI ? GI->GetSubsystem<UCXMRTuningSubsystem>() : nullptr)
+	{
+		Tuning->UnregisterOwner(this);
+	}
 
 	Super::EndPlay(Reason);
 }
@@ -727,6 +736,123 @@ FVector UCXMRPlacementComponent::ResolveNudgePivot(const FTransform& Vehicle, co
 		return ViewerLocation;
 	default:
 		return Vehicle.GetLocation();
+	}
+}
+
+void UCXMRPlacementComponent::RegisterTunables()
+{
+	const UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	UCXMRTuningSubsystem* Tuning = GI ? GI->GetSubsystem<UCXMRTuningSubsystem>() : nullptr;
+	if (!Tuning)
+	{
+		return;
+	}
+
+	const FText Category = NSLOCTEXT("CXMRPlacement", "CatVehicle", "Vehicle placement");
+	auto Make = [this, &Category](FName Id, const FText& Label, ECXMRTunableKind Kind)
+	{
+		FCXMRTunable Tunable;
+		Tunable.Id = Id;
+		Tunable.Category = Category;
+		Tunable.Label = Label;
+		Tunable.Kind = Kind;
+		Tunable.Owner = this;
+		return Tunable;
+	};
+
+	{
+		FCXMRTunable T = Make("Vehicle.Pose", NSLOCTEXT("CXMRPlacement", "Pose", "Vehicle (world)"), ECXMRTunableKind::Readout);
+		T.Text = [this]
+		{
+			const AActor* Root = ResolveVehicleRoot();
+			if (!Root)
+			{
+				return FText::GetEmpty();
+			}
+			const FVector L = Root->GetActorLocation();
+			return FText::FromString(FString::Printf(TEXT("X %.1f  Y %.1f  Z %.1f  Yaw %.1f"), L.X, L.Y, L.Z, Root->GetActorRotation().Yaw));
+		};
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.Markers", NSLOCTEXT("CXMRPlacement", "Markers", "Calibration markers"), ECXMRTunableKind::Readout);
+		T.Text = [this]
+		{
+			return FText::FromString(FString::Printf(TEXT("%d seen, %s"), DetectedCalib.Num(), bCalibrated ? TEXT("placed") : TEXT("not placed")));
+		};
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.MoveStep", NSLOCTEXT("CXMRPlacement", "MoveStep", "Move per press"), ECXMRTunableKind::Float);
+		T.Unit = NSLOCTEXT("CXMRPlacement", "cm", "cm"); T.Min = 0.1f; T.Max = 100.0f; T.Delta = 0.5f; T.Default = 1.0f; T.bPersist = true;
+		T.Get = [this] { return NudgeMoveStep; };
+		T.Set = [this](float V) { NudgeMoveStep = V; };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.YawStep", NSLOCTEXT("CXMRPlacement", "YawStep", "Turn per press"), ECXMRTunableKind::Float);
+		T.Unit = NSLOCTEXT("CXMRPlacement", "deg", "deg"); T.Min = 0.1f; T.Max = 45.0f; T.Delta = 0.1f; T.Default = 1.0f; T.bPersist = true;
+		T.Get = [this] { return NudgeYawStep; };
+		T.Set = [this](float V) { NudgeYawStep = V; };
+		Tuning->Register(MoveTemp(T));
+	}
+	// Steppers go through NudgeVehicle, so they move in the viewer's frame exactly like the NumPad keys.
+	{
+		FCXMRTunable T = Make("Vehicle.Away", NSLOCTEXT("CXMRPlacement", "Away", "Away from me (+) / toward (-)"), ECXMRTunableKind::Stepper);
+		T.Step = [this](float Direction) { NudgeVehicle(FVector(Direction * NudgeMoveStep, 0.0, 0.0), 0.0f); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.Right", NSLOCTEXT("CXMRPlacement", "Right", "To my right (+) / left (-)"), ECXMRTunableKind::Stepper);
+		T.Step = [this](float Direction) { NudgeVehicle(FVector(0.0, Direction * NudgeMoveStep, 0.0), 0.0f); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.Up", NSLOCTEXT("CXMRPlacement", "Up", "Up (+) / down (-)"), ECXMRTunableKind::Stepper);
+		T.Step = [this](float Direction) { NudgeVehicle(FVector(0.0, 0.0, Direction * NudgeMoveStep), 0.0f); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.Turn", NSLOCTEXT("CXMRPlacement", "Turn", "Turn clockwise (+) / counter (-)"), ECXMRTunableKind::Stepper);
+		T.Step = [this](float Direction) { NudgeVehicle(FVector::ZeroVector, Direction * NudgeYawStep); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.Pivot", NSLOCTEXT("CXMRPlacement", "Pivot", "Turn around"), ECXMRTunableKind::Choice);
+		T.Options = {
+			NSLOCTEXT("CXMRPlacement", "PivotMarkers", "Markers"),
+			NSLOCTEXT("CXMRPlacement", "PivotViewer", "Viewer"),
+			NSLOCTEXT("CXMRPlacement", "PivotOrigin", "Vehicle origin") };
+		T.Get = [this] { return static_cast<float>(static_cast<uint8>(NudgePivot)); };
+		T.Set = [this](float V) { NudgePivot = static_cast<ECXMRNudgePivot>(FMath::Clamp(FMath::RoundToInt(V), 0, 2)); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.KeepLevel", NSLOCTEXT("CXMRPlacement", "KeepLevel", "Keep level"), ECXMRTunableKind::Bool);
+		T.Default = 1.0f;
+		T.Get = [this] { return bKeepLevel ? 1.0f : 0.0f; };
+		T.Set = [this](float V) { bKeepLevel = V > 0.5f; RecomputeCalibration(); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.SaveOffset", NSLOCTEXT("CXMRPlacement", "SaveOffset", "Save adjustment into the marker layout"), ECXMRTunableKind::Action);
+		T.Invoke = [this] { SaveMarkerOffsetToProfile(); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.LearnMarkers", NSLOCTEXT("CXMRPlacement", "LearnMarkers", "Learn marker layout from this pose (and save)"), ECXMRTunableKind::Action);
+		T.Invoke = [this] { LearnMarkerLayout(); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.Recalibrate", NSLOCTEXT("CXMRPlacement", "Recalibrate", "Re-read markers"), ECXMRTunableKind::Action);
+		T.Invoke = [this] { Recalibrate(); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.ResetOffset", NSLOCTEXT("CXMRPlacement", "ResetOffset", "Discard unsaved adjustment"), ECXMRTunableKind::Action);
+		T.Invoke = [this] { ResetMarkerOffset(); };
+		Tuning->Register(MoveTemp(T));
 	}
 }
 
