@@ -19,7 +19,7 @@
 
 1. `GMTCK_MR.uproject` 열기
 2. `/Game/Map/L_Main` 열기 → **Play**
-3. 보여야 하는 것: 앞쪽 2.5m에 흰 큐브 차량, 모니터에 따로 뜨는 컨트롤 창(진행자용).
+3. 보여야 하는 것: 앞쪽 2.5m에 흰 큐브 차량, 모니터에 따로 뜨는 컨트롤 창(진행자용), 왼쪽 위의 튜닝 창(수치 입력, §7).
    착용자 손의 3D 패널은 기본으로 꺼져 있다(§7)
 
 GameMode(`BP_CXMRGameMode`)가 `BP_CXMRPawn`을 자동 스폰한다. 레벨에 pawn을 배치할 필요 없다.
@@ -416,6 +416,68 @@ CXR에서 헤드셋을 쓴 사람은 clay를 보러 온 결정권자지 조작�
 
 BP에서 `Open Window` / `Close Window` / `Toggle Window`를 부를 수 있다.
 PIE를 멈추면 자동으로 닫힌다(Slate 창은 GC 대상이 아니라 명시적으로 닫지 않으면 에디터에 남는다).
+
+### 튜닝 창 ★ 수치를 직접 넣는 곳
+
+**실행하면 컨트롤 창과 별개로 `CXMR Tuning` 창이 모니터 왼쪽 위에 뜬다.** 컨트롤 창이 켜고 끄는 곳이라면,
+이 창은 Depth 범위·노출·차 위치 이동량 같은 **숫자를 직접 넣는** 곳이다. 콘솔 `CXMR.Tuning`으로 열고 닫는다.
+
+| 분류 | 항목 |
+|---|---|
+| **Vehicle placement** | 현재 차 위치(월드) · 보인 마커 수 · 한 번 누를 때 이동량(cm)·회전량(°) · 멀어짐/오른쪽/위/시계 방향 `[-][+]` · 회전 중심(마커/내 머리/차 원점) · 수평 유지 · 저장 / 마커 배치 학습 / 마커 다시 읽기 / 조정 취소 |
+| **Mixed reality** | MR · VR 배경 · 마스킹 · View Offset(0 눈 ~ 1 카메라) |
+| **Depth** | Depth Test · 범위 제한 · 범위 near / far(m) · 환경 depth 추정 |
+| **Display** | 노출 보정(EV) |
+| **Input** | 넘버패드 조정 속도 |
+
+- **값은 매 프레임 실제 기능에서 읽어 온다.** 키보드·컨트롤러·컨트롤 창으로 바꾼 것도 바로 보인다
+- 숫자 칸은 **드래그하거나 클릭해서 입력**한다. 드래그하는 동안 바로 적용되고, 손을 떼거나 Enter를 누를 때 저장된다
+- **차 위치는 좌표를 넣는 게 아니라 이동량 + `[-][+]` 버튼**이다. 방향은 넘버패드와 같이 **내 시점 기준**이다(§2)
+- `Default` 버튼은 그 항목을 기본값으로 되돌리고 저장값도 지운다
+- ⚠️ 컨트롤 창과 같이 **키보드 단축키는 포커스를 따른다.** 창을 클릭한 뒤에는 게임 화면을 한 번 클릭해야 키가 다시 먹는다
+
+**저장** — `Saved/CXMR/Tuning.json`, **PC별**(마커 캘리브레이션 파일과 같은 이유: 이 방·이 조명에 맞춘 값이다).
+
+| 저장되는 것 (다음 실행에 그대로) | 저장 안 되는 것 (매 세션 새로) |
+|---|---|
+| View Offset, 범위 제한 on/off, 범위 near/far, 노출 보정, 이동량·회전량, 넘버패드 속도 | MR·VR 배경·마스킹·Depth Test·환경 depth on/off, 회전 중심, 수평 유지 |
+
+차 위치 자체는 이 파일이 아니라 **캘리브레이션 파일**(`Saved/CXMR/MarkerCalib_*.json`, §3-1)이 담당한다.
+창의 "Save adjustment into the marker layout"은 `NumPad Enter`와 같다.
+파일을 지우면 전부 기본값으로 돌아간다.
+
+**노출 보정**은 레벨의 **Unbound Post Process Volume**의 Exposure Compensation을 덮어쓴다. 그런 볼륨이
+없는 레벨에서는 아무 효과가 없다.
+
+설정은 `BP_CXMRPawn → Tuning Window`:
+
+| 프로퍼티 | 기본값 | 의미 |
+|---|---|---|
+| `Open On Begin Play` | true | 시작하자마자 열기 |
+| `Window Size` | 480 × 900 | 창 크기(픽셀) |
+| `Window Position` | (40, 60) | 창 위치(픽셀). 가운데 뜨는 컨트롤 창과 겹치지 않게 |
+| `Window Title` | CXMR Tuning | 제목 표시줄 |
+
+**프로젝트 브랜치에서 항목 추가하기** — 창은 기능을 모르고, 기능이 스스로 등록한다. 템플릿을 고칠 필요가 없다.
+
+```cpp
+// BeginPlay
+FCXMRTunable T;
+T.Id = "Hands.RadiusScale";            // Tuning.json 키 — 바꾸면 저장값을 잃는다
+T.Category = INVTEXT("Virtual hands");
+T.Label = INVTEXT("Finger thickness");
+T.Kind = ECXMRTunableKind::Float;      // Bool / Float / Choice / Stepper / Action / Readout
+T.Min = 0.5f; T.Max = 2.0f; T.Delta = 0.05f; T.Default = 1.0f; T.bPersist = true;
+T.Get = [this] { return RadiusScale; };
+T.Set = [this](float V) { RadiusScale = V; };
+T.Owner = this;
+GetWorld()->GetGameInstance()->GetSubsystem<UCXMRTuningSubsystem>()->Register(MoveTemp(T));
+
+// EndPlay
+Tuning->UnregisterOwner(this);
+```
+
+BP·Python에서는 `Set Tunable Value` / `Get Tunable Value` / `Invoke Tunable` / `Get Tunable Text`로 같은 항목을 다룬다.
 
 ### 탭 구조
 

@@ -78,6 +78,12 @@ public:
 	/** What the manual yaw adjustment rotates the vehicle around. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") ECXMRNudgePivot NudgePivot = ECXMRNudgePivot::Markers;
 
+	/** Distance one [-]/[+] press in the tuning window moves the vehicle, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ClampMin = "0.1")) float NudgeMoveStep = 1.0f;
+
+	/** Angle one [-]/[+] press in the tuning window turns the vehicle, degrees. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ClampMin = "0.1")) float NudgeYawStep = 1.0f;
+
 	/** Pawn Relative: distance in front of the pawn (cm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ClampMin = "0.0")) float PawnRelativeDistance = 350.0f;
 
@@ -168,6 +174,9 @@ private:
 	void RecomputeCalibration();
 	/** Rigid fit (yaw about Z + translation, roll/pitch = 0) from >=2 marker positions. */
 	bool ComputeMultiMarkerTransform(FTransform& Out) const;
+
+	/** Adds this component's rows (steps, nudges, pivot, save / learn) to the tuning window. */
+	void RegisterTunables();
 
 	/** World point NudgeVehicle turns the vehicle around, per NudgePivot. */
 	FVector ResolveNudgePivot(const FTransform& Vehicle, const FVector& ViewerLocation) const;

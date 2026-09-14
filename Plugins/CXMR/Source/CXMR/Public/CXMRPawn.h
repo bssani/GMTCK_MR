@@ -19,6 +19,7 @@ class UCXMRMarkerDebugComponent;
 class UCXMRHandDebugComponent;
 class UCXMRControlPanelWidget;
 class UCXMRDesktopPanelComponent;
+class UCXMRTuningWindowComponent;
 class UWidgetComponent;
 class UWidgetInteractionComponent;
 class UInputAction;
@@ -53,6 +54,9 @@ public:
 
 	/** Operator's control window on the desktop monitor, beside the headset view. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|UI") TObjectPtr<UCXMRDesktopPanelComponent> DesktopPanel;
+
+	/** Operator's tuning window: depth range, view offset, exposure, vehicle nudges as live numbers. CXMR.Tuning. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|UI") TObjectPtr<UCXMRTuningWindowComponent> TuningWindow;
 
 	// ============================================================================
 	//  Control panel — world space, on the left hand.
