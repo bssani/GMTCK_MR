@@ -117,6 +117,9 @@ void ACXMRPawn::BeginPlay()
 		UE_LOG(LogCXMRPawn, Warning,
 			TEXT("Control panel will NOT appear: ControlPanelClass is unset on %s."), *GetName());
 	}
+
+	// The widget is still created above, so turning the panel on later needs no rebuild of it.
+	SetControlPanelVisible(bShowHandPanel);
 }
 
 void ACXMRPawn::ApplyPanelTransform()
@@ -136,6 +139,11 @@ void ACXMRPawn::SetControlPanelVisible(bool bVisible)
 		ControlPanel->SetVisibility(bVisible, true);
 		// Stop the ray from clicking a panel nobody can see.
 		ControlPanel->SetCollisionEnabled(bVisible ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
+	}
+	if (PanelPointer)
+	{
+		// With no panel there is nothing to point at; stop tracing every frame for it.
+		PanelPointer->SetActive(bVisible);
 	}
 }
 

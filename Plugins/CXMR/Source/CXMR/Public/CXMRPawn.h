@@ -85,6 +85,13 @@ public:
 	/** Yaw 180 turns the quad back toward the wearer; pitch tilts it up like a held clipboard. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI") FRotator PanelRotation = FRotator(-25.f, 180.f, 0.f);
 
+	/**
+	 * Show the panel on the wearer's left hand. Off by default: the wearer is there to judge the car, and the
+	 * session is run from the desktop control window — a 3D panel floating in the level only gets in the way,
+	 * on the headset and on the spectator screen alike. Turn it on only when the wearer must operate alone.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI") bool bShowHandPanel = false;
+
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void SetControlPanelVisible(bool bVisible);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleControlPanel();
 
