@@ -86,37 +86,18 @@ asset registry 의존성은 `/CXMR/Core/Materials/PP_MRParameters` 하나뿐이�
 
 ---
 
-## 2. WBP_CXMRControlPanel — 행 추가 (대부분 완료)
+## 2. ~~WBP_CXMRControlPanel — 행 추가~~ → 2026-09-15 C++ 패널로 교체, 에디터 작업 없음
 
-**✅ 2026-08-08 처리됨**: `Btn_Hands` / `Txt_Hands_State` / `Btn_DepthRange` /
-`Txt_DepthRange_State` / `Txt_DepthRange`를 추가하고, 패널을 탭 3개(DISPLAY / CALIB / VIEWER)로
-분할했다. `Panel Draw Size`도 `432 × 520`으로 맞췄다(한 열로는 33cm가 되어 읽기 어려웠다).
-MARKER OFFSET 행(X/Y/Z/Yaw + Save·Reset)도 CALIB 탭에 들어갔다.
+컨트롤 패널은 이제 **C++(`UCXMRControlPanelWidget`)이 튜닝 창과 같은 모양(`CXMRPanelUI`)으로 직접 그린다.**
+`/CXMR/Core/UI/WBP_CXMRControlPanel`은 C++ 어디에서도 참조하지 않는다. 그래서 이 항목의 할 일이 전부 사라졌다.
 
-같은 작업에서 드러난 것: `Btn_ViewOffset` / `Cap_ViewOffset` / `Row_ViewOffset`이 이전 편집 중
-소실돼 있었다(`BindWidgetOptional`이라 조용히 null). 복구했다. `Btn_Hands`·`Btn_DepthRange`는
-CanvasPanel 직속 고아로 좌상단에 겹쳐 있던 것을 행으로 묶어 편입했다.
-
-### ❌ 아직 없는 것 — 착좌(매니킨) 행
-
-| 이름 | 종류 | 용도 |
-|---|---|---|
-| `Btn_PrevManikin` | Button | 착좌 이전 |
-| `Btn_NextManikin` | Button | 착좌 다음 |
-| `Txt_ManikinName` | TextBlock | 마니킨 이름 |
-| `Txt_ManikinPos` | TextBlock | `2 / 3` |
-
-**이 넷이 없어서 착좌 기능은 지금 컨트롤러로만 쓸 수 있다.** C++은 전부 준비돼 있다.
-차량 프로파일에 ergonomics 애셋이 안 걸려 있으면 어차피 동작하지 않으므로, 그것부터 확인한다.
-
-C++이 클릭 바인딩과 텍스트·색을 전부 처리한다. **WBP는 이름만 맞으면 되고 이벤트 그래프는 비운다**
-(유령 이벤트 그래프가 컴파일을 막은 전례 — 커밋 `0414e61`).
-
-### ⚠️ 행이 늘면 `PanelDrawSize`도 늘려야 한다
-
-`BP_CXMRPawn → Panel Draw Size`가 **WBP 콘텐츠 높이와 일치해야** 잘리지 않는다
-(`SetDrawAtDesiredSize(false)`라 DrawSize가 절대 기준이다). `EditAnywhere`이므로 재빌드는 불필요.
-디자이너에서 `get_desired_size()`는 항상 0을 주므로 실측이 안 된다 — 행당 약 40px로 계산한다.
+- 예전 WBP 방식은 위젯 이름(`Btn_*` / `Txt_*`)으로 C++과 연결돼 있었고, `BindWidgetOptional`이라 위젯이 사라지거나
+  이름이 틀려도 **조용히** 동작을 멈췄다(실제로 `Btn_ViewOffset` 행이 소실된 적이 있다)
+- 착좌(매니킨) 행은 이제 Viewer 탭에 있다 — WBP에 위젯 4개를 추가할 필요가 없다
+- 행을 추가하려면 `CXMRControlPanelWidget.cpp`의 해당 탭 함수에 한 줄을 넣는다. 레이아웃 계산도, DrawSize 맞추기도 필요 없다
+  (내용이 길면 스크롤된다)
+- `BP_CXMRPawn`이 옛 WBP를 `Control Panel Class`로 덮어쓰고 있어도 같은 모양이 나온다(WBP의 부모가 C++ 패널이라서).
+  WBP 애셋 자체는 지워도 되지만, 지우는 것은 되돌리기 어려우니 따로 결정한다
 
 ---
 

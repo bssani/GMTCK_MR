@@ -1,313 +1,326 @@
 // Copyright GMTCK CX.
 
 #include "CXMRControlPanelWidget.h"
+#include "CXMRPanelUI.h"
 #include "CXMRSubsystem.h"
+#include "CXMRTuningSubsystem.h"
+
 #include "Engine/GameInstance.h"
+#include "Engine/World.h"
+#include "Widgets/Layout/SWidgetSwitcher.h"
+#include "Widgets/SBoxPanel.h"
 
-#include "Components/Button.h"
-#include "Components/TextBlock.h"
-#include "Components/WidgetSwitcher.h"
+#define LOCTEXT_NAMESPACE "CXMRControlPanel"
 
-// Binds a button's OnClicked to a handler, if the WBP provided that button.
-#define CXMR_BIND_BUTTON(Btn, Handler) if (Btn) { (Btn)->OnClicked.AddDynamic(this, &UCXMRControlPanelWidget::Handler); }
+namespace
+{
+	using FRows = TArray<CXMRPanelUI::FRowSpec>;
+
+	FCXMRTunable MakeRow(FName Id, const FText& Category, const FText& Label, ECXMRTunableKind Kind)
+	{
+		FCXMRTunable Row;
+		Row.Id = Id;
+		Row.Category = Category;
+		Row.Label = Label;
+		Row.Kind = Kind;
+		return Row;
+	}
+
+	void AddRow(FRows& Rows, FCXMRTunable&& Row)
+	{
+		CXMRPanelUI::FRowBinding Binding = CXMRPanelUI::BindDirect(Row);
+		Rows.Add({ MoveTemp(Row), MoveTemp(Binding) });
+	}
+
+	/** "Sedan  2 / 3". A dash when nothing is loaded — a stepper with no value reads as broken, not empty.
+	 *  ASCII only: the default font draws a box for anything else. */
+	FText NameAndPosition(const FText& Name, int32 Index, int32 Count)
+	{
+		if (Count <= 0)
+		{
+			return FText::FromString(TEXT("-"));
+		}
+		return FText::FromString(FString::Printf(TEXT("%s  %d / %d"),
+			Name.IsEmpty() ? TEXT("-") : *Name.ToString(), Index + 1, Count));
+	}
+}
 
 UCXMRSubsystem* UCXMRControlPanelWidget::GetCXMR() const
 {
-	if (const UWorld* World = GetWorld())
-	{
-		if (UGameInstance* GI = World->GetGameInstance())
-		{
-			return GI->GetSubsystem<UCXMRSubsystem>();
-		}
-	}
-	return nullptr;
+	const UWorld* World = GetWorld();
+	const UGameInstance* GI = World ? World->GetGameInstance() : nullptr;
+	return GI ? GI->GetSubsystem<UCXMRSubsystem>() : nullptr;
 }
 
-void UCXMRControlPanelWidget::NativeConstruct()
+UCXMRTuningSubsystem* UCXMRControlPanelWidget::GetTuning() const
 {
-	Super::NativeConstruct();
-
-	Subsystem = GetCXMR();
-	if (Subsystem)
-	{
-		Subsystem->OnMixedRealityChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnVRBackgroundChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnDepthTestChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnEnvironmentDepthEstimationChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnMaskingChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnMarkerTrackingChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		// Hand visualization shipped without this line, so the panel's Hands row could never change —
-		// pressing H drew the skeleton but the readout stayed at whatever it was built with.
-		Subsystem->OnHandVisualizationChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnDepthTestRangeChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnViewOffsetChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleFloatChanged);
-		Subsystem->OnVehicleStatusChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
-		Subsystem->OnManikinChanged.AddDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
-	}
-
-	// Wire whatever buttons the WBP layout provided. Missing ones are simply skipped.
-	CXMR_BIND_BUTTON(Btn_MR,          ToggleMR);
-	CXMR_BIND_BUTTON(Btn_VRBackground, ToggleVRBackground);
-	CXMR_BIND_BUTTON(Btn_ViewOffset,  ToggleViewOffset);
-	CXMR_BIND_BUTTON(Btn_DepthTest,   ToggleDepthTest);
-	CXMR_BIND_BUTTON(Btn_EnvDepth,    ToggleEnvDepth);
-	CXMR_BIND_BUTTON(Btn_Masking,     ToggleMasking);
-	CXMR_BIND_BUTTON(Btn_Markers,     ToggleMarkers);
-	CXMR_BIND_BUTTON(Btn_Hands,       ToggleHands);
-	CXMR_BIND_BUTTON(Btn_Recalibrate, RequestRecalibrate);
-	CXMR_BIND_BUTTON(Btn_PlaceVehicle, RequestPlaceVehicle);
-	CXMR_BIND_BUTTON(Btn_NextVehicle, NextVehicle);
-	CXMR_BIND_BUTTON(Btn_PrevVehicle, PreviousVehicle);
-	CXMR_BIND_BUTTON(Btn_NextTrim,    NextTrim);
-	CXMR_BIND_BUTTON(Btn_PrevTrim,    PreviousTrim);
-	CXMR_BIND_BUTTON(Btn_NextCMF,     NextCMF);
-	CXMR_BIND_BUTTON(Btn_DepthRange,  ToggleDepthRange);
-	CXMR_BIND_BUTTON(Btn_NextManikin, NextManikin);
-	CXMR_BIND_BUTTON(Btn_PrevManikin, PreviousManikin);
-
-	CXMR_BIND_BUTTON(Btn_Tab_Display, ShowDisplayTab);
-	CXMR_BIND_BUTTON(Btn_Tab_Calib,   ShowCalibTab);
-	CXMR_BIND_BUTTON(Btn_Tab_Viewer,  ShowViewerTab);
-	SetActiveTab(0);
-
-	RefreshVisuals();
+	const UWorld* World = GetWorld();
+	const UGameInstance* GI = World ? World->GetGameInstance() : nullptr;
+	return GI ? GI->GetSubsystem<UCXMRTuningSubsystem>() : nullptr;
 }
-
-void UCXMRControlPanelWidget::ShowDisplayTab() { SetActiveTab(0); }
-void UCXMRControlPanelWidget::ShowCalibTab()   { SetActiveTab(1); }
-void UCXMRControlPanelWidget::ShowViewerTab()  { SetActiveTab(2); }
 
 void UCXMRControlPanelWidget::SetActiveTab(int32 TabIndex)
 {
-	if (Switcher_Pages)
+	ActiveTab = FMath::Clamp(TabIndex, 0, 2);   // the switcher and the tab bar read it on their next paint
+}
+
+TSharedRef<SWidget> UCXMRControlPanelWidget::RebuildWidget()
+{
+	// The base does the user-widget bookkeeping (initialisation, player context). Its content — the widget tree,
+	// empty for this class — is not used.
+	Super::RebuildWidget();
+
+	const TWeakObjectPtr<UCXMRControlPanelWidget> Weak(this);
+	const TArray<FText> Tabs = {
+		LOCTEXT("TabDisplay", "Display"),
+		LOCTEXT("TabCalibration", "Calibration"),
+		LOCTEXT("TabViewer", "Viewer") };
+
+	SAssignNew(Pages, SWidgetSwitcher)
+		.WidgetIndex_Lambda([Weak] { return Weak.IsValid() ? Weak->ActiveTab : 0; })
+		+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(BuildDisplayPage()) ]
+		+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(BuildCalibrationPage()) ]
+		+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(BuildViewerPage()) ];
+
+	return CXMRPanelUI::MakeBackground(
+		SNew(SVerticalBox)
+		+ SVerticalBox::Slot().AutoHeight().Padding(6.0f, 6.0f, 6.0f, 2.0f)
+		[
+			CXMRPanelUI::MakeTabBar(Tabs,
+				[Weak] { return Weak.IsValid() ? Weak->ActiveTab : 0; },
+				[Weak](int32 Index) { if (Weak.IsValid()) { Weak->SetActiveTab(Index); } })
+		]
+		+ SVerticalBox::Slot().FillHeight(1.0f)
+		[
+			Pages.ToSharedRef()
+		]);
+}
+
+void UCXMRControlPanelWidget::ReleaseSlateResources(bool bReleaseChildren)
+{
+	Super::ReleaseSlateResources(bReleaseChildren);
+	Pages.Reset();
+}
+
+// ---- Display: what the wearer sees ----
+
+TSharedRef<SWidget> UCXMRControlPanelWidget::BuildDisplayPage()
+{
+	const TWeakObjectPtr<UCXMRControlPanelWidget> Weak(this);
+	auto CXMR = [Weak]() -> UCXMRSubsystem* { return Weak.IsValid() ? Weak->GetCXMR() : nullptr; };
+
+	FRows Rows;
+	auto Toggle = [&Rows, CXMR](FName Id, const FText& Category, const FText& Label,
+		TFunction<bool(const UCXMRSubsystem&)> IsOn, TFunction<void(UCXMRSubsystem&, bool)> SetOn,
+		TFunction<bool(const UCXMRSubsystem&)> IsSupported)
 	{
-		const int32 PageCount = Switcher_Pages->GetNumWidgets();
-		if (PageCount > 0)
+		FCXMRTunable Row = MakeRow(Id, Category, Label, ECXMRTunableKind::Bool);
+		Row.Get = [CXMR, IsOn] { const UCXMRSubsystem* S = CXMR(); return (S && IsOn(*S)) ? 1.0f : 0.0f; };
+		Row.Set = [CXMR, SetOn](float Value) { if (UCXMRSubsystem* S = CXMR()) { SetOn(*S, Value > 0.5f); } };
+		if (IsSupported)
 		{
-			TabIndex = FMath::Clamp(TabIndex, 0, PageCount - 1);
+			// Greyed out, not hidden, on a headset that cannot do it — the operator should see it is unavailable.
+			Row.IsEnabled = [CXMR, IsSupported] { const UCXMRSubsystem* S = CXMR(); return S && IsSupported(*S); };
 		}
-		Switcher_Pages->SetActiveWidgetIndex(TabIndex);
-	}
+		AddRow(Rows, MoveTemp(Row));
+	};
 
-	// Dim the captions of the pages you are not on — otherwise the panel just looks like it lost rows.
-	UTextBlock* const Captions[] = { Cap_Btn_Tab_Display, Cap_Btn_Tab_Calib, Cap_Btn_Tab_Viewer };
-	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Captions); ++Index)
+	const FText MR = LOCTEXT("CatMR", "Mixed reality");
+	Toggle("Panel.MR", MR, LOCTEXT("MR", "Mixed reality (passthrough)"),
+		[](const UCXMRSubsystem& S) { return S.IsMixedRealityOn(); },
+		[](UCXMRSubsystem& S, bool bOn) { S.SetMixedReality(bOn); },
+		[](const UCXMRSubsystem& S) { return S.IsMixedRealitySupported(); });
+	Toggle("Panel.VRBackground", MR, LOCTEXT("VRBackground", "VR background (sky, floor)"),
+		[](const UCXMRSubsystem& S) { return S.IsVRBackgroundVisible(); },
+		[](UCXMRSubsystem& S, bool bOn) { S.SetVRBackgroundVisible(bOn); },
+		nullptr);
 	{
-		if (Captions[Index])
+		// A mode, not a switch: both positions are deliberate choices, so it is a choice button rather than a checkbox.
+		FCXMRTunable Row = MakeRow("Panel.ViewOffset", MR, LOCTEXT("ViewOffset", "Render from"), ECXMRTunableKind::Choice);
+		Row.Options = { LOCTEXT("Eye", "Eyes"), LOCTEXT("Camera", "Cameras") };
+		Row.Get = [CXMR] { const UCXMRSubsystem* S = CXMR(); return (S && S->GetViewOffset() > 0.5f) ? 1.0f : 0.0f; };
+		Row.Set = [CXMR](float Value) { if (UCXMRSubsystem* S = CXMR()) { S->SetViewOffset(Value > 0.5f ? 1.0f : 0.0f); } };
+		AddRow(Rows, MoveTemp(Row));
+	}
+	Toggle("Panel.Masking", MR, LOCTEXT("Masking", "Masking (mask meshes cut through)"),
+		[](const UCXMRSubsystem& S) { return S.IsMaskingOn(); },
+		[](UCXMRSubsystem& S, bool bOn) { S.SetMasking(bOn); },
+		nullptr);
+
+	const FText Depth = LOCTEXT("CatDepth", "Depth");
+	Toggle("Panel.DepthTest", Depth, LOCTEXT("DepthTest", "Depth test (real in front of virtual)"),
+		[](const UCXMRSubsystem& S) { return S.IsDepthTestOn(); },
+		[](UCXMRSubsystem& S, bool bOn) { S.SetDepthTest(bOn); },
+		nullptr);
+	Toggle("Panel.EnvDepth", Depth, LOCTEXT("EnvDepth", "Environment depth estimation"),
+		[](const UCXMRSubsystem& S) { return S.IsEnvironmentDepthEstimationOn(); },
+		[](UCXMRSubsystem& S, bool bOn) { S.SetEnvironmentDepthEstimation(bOn); },
+		nullptr);
+	Toggle("Panel.DepthRange", Depth, LOCTEXT("DepthRange", "Limit depth test to range"),
+		[](const UCXMRSubsystem& S) { return S.IsDepthTestRangeOn(); },
+		[](UCXMRSubsystem& S, bool bOn) { S.SetDepthTestRange(bOn, S.GetDepthTestRangeNearZ(), S.GetDepthTestRangeFarZ()); },
+		nullptr);
+	{
+		FCXMRTunable Row = MakeRow("Panel.DepthRangeValue", Depth, LOCTEXT("DepthRangeValue", "Range"), ECXMRTunableKind::Readout);
+		Row.Text = [CXMR]
 		{
-			Captions[Index]->SetColorAndOpacity(FSlateColor(Index == TabIndex ? ActiveTabColor : InactiveTabColor));
-		}
+			const UCXMRSubsystem* S = CXMR();
+			if (!S)
+			{
+				return FText::GetEmpty();
+			}
+			// "unbounded" is what the compositor really gets with the range off (farZ = HUGE_VALF), and it is the
+			// state that makes the room flicker, so it is worth naming.
+			return S->IsDepthTestRangeOn()
+				? FText::FromString(FString::Printf(TEXT("%.2f - %.2f m"), S->GetDepthTestRangeNearZ(), S->GetDepthTestRangeFarZ()))
+				: LOCTEXT("Unbounded", "unbounded");
+		};
+		AddRow(Rows, MoveTemp(Row));
 	}
+
+	const FText Tracking = LOCTEXT("CatTracking", "Tracking");
+	Toggle("Panel.Markers", Tracking, LOCTEXT("Markers", "Marker tracking"),
+		[](const UCXMRSubsystem& S) { return S.IsMarkerTrackingOn(); },
+		[](UCXMRSubsystem& S, bool bOn) { S.SetMarkerTracking(bOn); },
+		[](const UCXMRSubsystem& S) { return S.IsMarkerTrackingSupported(); });
+	Toggle("Panel.Hands", Tracking, LOCTEXT("Hands", "Hand skeleton"),
+		[](const UCXMRSubsystem& S) { return S.IsHandVisualizationOn(); },
+		[](UCXMRSubsystem& S, bool bOn) { S.SetHandVisualization(bOn); },
+		nullptr);
+
+	return CXMRPanelUI::MakeRowList(Rows);
 }
 
-void UCXMRControlPanelWidget::NativeTick(const FGeometry& Geometry, float DeltaSeconds)
+// ---- Calibration: where the vehicle sits ----
+
+TSharedRef<SWidget> UCXMRControlPanelWidget::BuildCalibrationPage()
 {
-	Super::NativeTick(Geometry, DeltaSeconds);
-
-	// The marker offset changes continuously while an adjust key is held and the placement component
-	// broadcasts nothing, so the readout has to be polled — there is no event to hang it off.
-	if (!Txt_OffsetX && !Txt_OffsetY && !Txt_OffsetZ && !Txt_OffsetYaw)
+	const TWeakObjectPtr<UCXMRControlPanelWidget> Weak(this);
+	auto CXMR = [Weak]() -> UCXMRSubsystem* { return Weak.IsValid() ? Weak->GetCXMR() : nullptr; };
+	// Placement lives on the vehicle rig, not the pawn; it publishes its readouts through the tuning registry.
+	auto Published = [Weak](FName Id)
 	{
-		return;
+		return [Weak, Id]
+		{
+			const UCXMRTuningSubsystem* Tuning = Weak.IsValid() ? Weak->GetTuning() : nullptr;
+			const FString Text = Tuning ? Tuning->GetTunableText(Id) : FString();
+			return FText::FromString(Text.IsEmpty() ? TEXT("-") : Text);
+		};
+	};
+	auto Action = [CXMR](TFunction<void(UCXMRSubsystem&)> Do)
+	{
+		return [CXMR, Do] { if (UCXMRSubsystem* S = CXMR()) { Do(*S); } };
+	};
+
+	FRows Rows;
+	const FText Placement = LOCTEXT("CatPlacement", "Vehicle placement");
+	{
+		FCXMRTunable Row = MakeRow("Panel.VehiclePose", Placement, LOCTEXT("VehiclePose", "Vehicle (world)"), ECXMRTunableKind::Readout);
+		Row.Text = Published("Vehicle.Pose");
+		AddRow(Rows, MoveTemp(Row));
+	}
+	{
+		FCXMRTunable Row = MakeRow("Panel.Markers", Placement, LOCTEXT("MarkersSeen", "Calibration markers"), ECXMRTunableKind::Readout);
+		Row.Text = Published("Vehicle.Markers");
+		AddRow(Rows, MoveTemp(Row));
+	}
+	{
+		FCXMRTunable Row = MakeRow("Panel.Recalibrate", Placement, LOCTEXT("Recalibrate", "Re-read markers"), ECXMRTunableKind::Action);
+		Row.Invoke = Action([](UCXMRSubsystem& S) { S.RequestRecalibrate(); });
+		AddRow(Rows, MoveTemp(Row));
+	}
+	{
+		FCXMRTunable Row = MakeRow("Panel.PlaceInFront", Placement, LOCTEXT("PlaceInFront", "Place vehicle in front of me"), ECXMRTunableKind::Action);
+		Row.Invoke = Action([](UCXMRSubsystem& S) { S.RequestPlaceInFront(); });
+		AddRow(Rows, MoveTemp(Row));
 	}
 
-	// Read it off the subsystem: the placement component is on the vehicle rig, not the pawn.
-	const UCXMRSubsystem* CXMR = Subsystem ? Subsystem.Get() : GetCXMR();
-	if (!CXMR)
+	const FText Adjustment = LOCTEXT("CatAdjustment", "Manual adjustment");
 	{
-		return;
+		FCXMRTunable Row = MakeRow("Panel.AdjustHint", Adjustment, LOCTEXT("AdjustHow", "Move the vehicle with"), ECXMRTunableKind::Readout);
+		Row.Text = [] { return LOCTEXT("AdjustHint", "NumPad, or the tuning window"); };
+		AddRow(Rows, MoveTemp(Row));
+	}
+	{
+		FCXMRTunable Row = MakeRow("Panel.SaveOffset", Adjustment, LOCTEXT("SaveOffset", "Save adjustment into the marker layout"), ECXMRTunableKind::Action);
+		Row.Invoke = Action([](UCXMRSubsystem& S) { S.RequestSaveMarkerOffset(); });
+		AddRow(Rows, MoveTemp(Row));
+	}
+	{
+		FCXMRTunable Row = MakeRow("Panel.ResetOffset", Adjustment, LOCTEXT("ResetOffset", "Discard unsaved adjustment"), ECXMRTunableKind::Action);
+		Row.Invoke = Action([](UCXMRSubsystem& S) { S.RequestResetMarkerOffset(); });
+		AddRow(Rows, MoveTemp(Row));
 	}
 
-	// Only touch the text when the value actually moved. This runs every frame in VR, and each
-	// SetText is a string build plus a Slate invalidation.
-	const FVector  Location = CXMR->GetMarkerLocationOffset();
-	const FRotator Rotation = CXMR->GetMarkerRotationOffset();
-	if (bOffsetReadoutValid && Location.Equals(ShownOffsetLocation) && Rotation.Equals(ShownOffsetRotation))
-	{
-		return;
-	}
-	ShownOffsetLocation  = Location;
-	ShownOffsetRotation  = Rotation;
-	bOffsetReadoutValid  = true;
-
-	if (Txt_OffsetX)   { Txt_OffsetX->SetText(FText::FromString(FString::Printf(TEXT("%.1f cm"),  Location.X))); }
-	if (Txt_OffsetY)   { Txt_OffsetY->SetText(FText::FromString(FString::Printf(TEXT("%.1f cm"),  Location.Y))); }
-	if (Txt_OffsetZ)   { Txt_OffsetZ->SetText(FText::FromString(FString::Printf(TEXT("%.1f cm"),  Location.Z))); }
-	if (Txt_OffsetYaw) { Txt_OffsetYaw->SetText(FText::FromString(FString::Printf(TEXT("%.1f deg"), Rotation.Yaw))); }
+	return CXMRPanelUI::MakeRowList(Rows);
 }
 
-void UCXMRControlPanelWidget::NativeDestruct()
+// ---- Viewer: what is being reviewed ----
+
+TSharedRef<SWidget> UCXMRControlPanelWidget::BuildViewerPage()
 {
-	if (Subsystem)
+	const TWeakObjectPtr<UCXMRControlPanelWidget> Weak(this);
+	auto CXMR = [Weak]() -> UCXMRSubsystem* { return Weak.IsValid() ? Weak->GetCXMR() : nullptr; };
+
+	FRows Rows;
+	const FText Vehicle = LOCTEXT("CatVehicle", "Vehicle");
 	{
-		Subsystem->OnMixedRealityChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnVRBackgroundChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnDepthTestChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnEnvironmentDepthEstimationChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnMaskingChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnMarkerTrackingChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnHandVisualizationChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnDepthTestRangeChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleBoolChanged);
-		Subsystem->OnViewOffsetChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleFloatChanged);
-		Subsystem->OnVehicleStatusChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
-		Subsystem->OnManikinChanged.RemoveDynamic(this, &UCXMRControlPanelWidget::HandleStatusChanged);
+		FCXMRTunable Row = MakeRow("Panel.Vehicle", Vehicle, LOCTEXT("VehicleName", "Vehicle"), ECXMRTunableKind::Stepper);
+		Row.Text = [CXMR]
+		{
+			const UCXMRSubsystem* S = CXMR();
+			return S ? NameAndPosition(S->GetVehicleName(), S->GetVehicleIndex(), S->GetVehicleCount()) : FText::GetEmpty();
+		};
+		Row.Step = [CXMR](float Direction)
+		{
+			if (UCXMRSubsystem* S = CXMR())
+			{
+				S->RequestViewerAction(Direction > 0.0f ? ECXMRViewerAction::NextVehicle : ECXMRViewerAction::PreviousVehicle);
+			}
+		};
+		AddRow(Rows, MoveTemp(Row));
+	}
+	{
+		FCXMRTunable Row = MakeRow("Panel.Trim", Vehicle, LOCTEXT("TrimName", "Trim"), ECXMRTunableKind::Stepper);
+		Row.Text = [CXMR]
+		{
+			const UCXMRSubsystem* S = CXMR();
+			return S ? NameAndPosition(S->GetTrimName(), S->GetTrimIndex(), S->GetTrimCount()) : FText::GetEmpty();
+		};
+		Row.Step = [CXMR](float Direction)
+		{
+			if (UCXMRSubsystem* S = CXMR())
+			{
+				S->RequestViewerAction(Direction > 0.0f ? ECXMRViewerAction::NextTrim : ECXMRViewerAction::PreviousTrim);
+			}
+		};
+		AddRow(Rows, MoveTemp(Row));
+	}
+	{
+		FCXMRTunable Row = MakeRow("Panel.CMF", Vehicle, LOCTEXT("CMF", "CMF"), ECXMRTunableKind::Readout);
+		Row.Text = [CXMR] { const UCXMRSubsystem* S = CXMR(); return S ? FText::AsNumber(S->GetCMFIndex()) : FText::GetEmpty(); };
+		AddRow(Rows, MoveTemp(Row));
+	}
+	{
+		// The loader only cycles CMF forwards, so this is one button rather than a [-] [+] pair with a dead [-].
+		FCXMRTunable Row = MakeRow("Panel.NextCMF", Vehicle, LOCTEXT("NextCMF", "Next CMF"), ECXMRTunableKind::Action);
+		Row.Invoke = [CXMR] { if (UCXMRSubsystem* S = CXMR()) { S->RequestViewerAction(ECXMRViewerAction::NextCMF); } };
+		AddRow(Rows, MoveTemp(Row));
 	}
 
-	Super::NativeDestruct();
+	const FText Human = LOCTEXT("CatHuman", "Human factors");
+	{
+		FCXMRTunable Row = MakeRow("Panel.Manikin", Human, LOCTEXT("Manikin", "Manikin"), ECXMRTunableKind::Stepper);
+		Row.Text = [CXMR]
+		{
+			const UCXMRSubsystem* S = CXMR();
+			return S ? NameAndPosition(S->GetManikinName(), S->GetManikinIndex(), S->GetManikinCount()) : FText::GetEmpty();
+		};
+		Row.Step = [CXMR](float Direction) { if (UCXMRSubsystem* S = CXMR()) { S->RequestErgonomicsStep(Direction > 0.0f ? 1 : -1); } };
+		AddRow(Rows, MoveTemp(Row));
+	}
+
+	return CXMRPanelUI::MakeRowList(Rows);
 }
 
-void UCXMRControlPanelWidget::HandleBoolChanged(bool)   { RefreshVisuals(); }
-void UCXMRControlPanelWidget::HandleFloatChanged(float) { RefreshVisuals(); }
-void UCXMRControlPanelWidget::HandleStatusChanged()     { RefreshVisuals(); }
-
-// --- Visuals ---
-
-void UCXMRControlPanelWidget::ApplyToggle(UTextBlock* Text, bool bOn)
-{
-	if (!Text)
-	{
-		return;
-	}
-	Text->SetText(bOn ? NSLOCTEXT("CXMR", "On", "ON") : NSLOCTEXT("CXMR", "Off", "OFF"));
-	Text->SetColorAndOpacity(FSlateColor(bOn ? OnColor : OffColor));
-}
-
-void UCXMRControlPanelWidget::RefreshVisuals_Implementation()
-{
-	// Toggle states
-	ApplyToggle(Txt_MR_State,           IsMROn());
-	ApplyToggle(Txt_VRBackground_State, IsVRBackgroundVisible());
-	ApplyToggle(Txt_DepthTest_State,    IsDepthTestOn());
-	ApplyToggle(Txt_EnvDepth_State,     IsEnvDepthOn());
-	ApplyToggle(Txt_Masking_State,      IsMaskingOn());
-	ApplyToggle(Txt_Markers_State,      IsMarkersOn());
-	ApplyToggle(Txt_Hands_State,        IsHandsOn());
-	ApplyToggle(Txt_DepthRange_State,   IsDepthRangeOn());
-
-	// View offset is NOT on/off — it picks which viewpoint the frame renders from (0 = eye, 1 = camera).
-	// Showing ON/OFF here reads as "feature enabled", which is wrong: OFF is a valid, deliberate mode.
-	if (Txt_ViewOffset_State)
-	{
-		const bool bCamera = GetViewOffset() > 0.5f;
-		Txt_ViewOffset_State->SetText(FText::FromString(bCamera ? TEXT("CAMERA") : TEXT("EYE")));
-		Txt_ViewOffset_State->SetColorAndOpacity(FSlateColor(NeutralColor));
-	}
-
-	// Session readouts. Empty means "nothing loaded" — show a dash, otherwise the cycling row renders as
-	// bare < > arrows with a void between them and looks broken rather than empty.
-	// ASCII only: the default font has no glyph for em-dash/arrows and draws an empty box instead.
-	auto OrDash = [](const FText& In) { return In.IsEmpty() ? FText::FromString(TEXT("-")) : In; };
-
-	if (Txt_VehicleName) { Txt_VehicleName->SetText(OrDash(GetVehicleName())); }
-	if (Txt_VehiclePos)  { Txt_VehiclePos->SetText(OrDash(GetVehiclePositionLabel())); }
-	if (Txt_TrimName)    { Txt_TrimName->SetText(OrDash(GetTrimName())); }
-	if (Txt_TrimPos)     { Txt_TrimPos->SetText(OrDash(GetTrimPositionLabel())); }
-	if (Txt_CMF)         { Txt_CMF->SetText(FText::AsNumber(GetCMFIndex())); }
-	if (Txt_DepthRange)  { Txt_DepthRange->SetText(GetDepthRangeLabel()); }
-	if (Txt_ManikinName) { Txt_ManikinName->SetText(OrDash(GetManikinName())); }
-	if (Txt_ManikinPos)  { Txt_ManikinPos->SetText(OrDash(GetManikinPositionLabel())); }
-
-	// Grey out rows the headset does not support.
-	if (Btn_MR)      { Btn_MR->SetIsEnabled(IsMRSupported()); }
-	if (Btn_Markers) { Btn_Markers->SetIsEnabled(IsMarkersSupported()); }
-}
-
-// --- Buttons ---
-void UCXMRControlPanelWidget::ToggleMR()         { if (Subsystem) { Subsystem->ToggleMixedReality(); } }
-void UCXMRControlPanelWidget::ToggleVRBackground() { if (Subsystem) { Subsystem->ToggleVRBackground(); } }
-void UCXMRControlPanelWidget::ToggleViewOffset() { if (Subsystem) { Subsystem->ToggleViewOffset(); } }
-void UCXMRControlPanelWidget::ToggleDepthTest()  { if (Subsystem) { Subsystem->ToggleDepthTest(); } }
-void UCXMRControlPanelWidget::ToggleEnvDepth()   { if (Subsystem) { Subsystem->ToggleEnvironmentDepthEstimation(); } }
-void UCXMRControlPanelWidget::ToggleMasking()    { if (Subsystem) { Subsystem->ToggleMasking(); } }
-void UCXMRControlPanelWidget::ToggleMarkers()    { if (Subsystem) { Subsystem->ToggleMarkerTracking(); } }
-void UCXMRControlPanelWidget::ToggleHands()      { if (Subsystem) { Subsystem->ToggleHandVisualization(); } }
-
-void UCXMRControlPanelWidget::RequestRecalibrate()   { if (Subsystem) { Subsystem->RequestRecalibrate(); } }
-void UCXMRControlPanelWidget::RequestPlaceVehicle()  { if (Subsystem) { Subsystem->RequestPlaceInFront(); } }
-
-// Viewer cycling — relayed to the loader via the subsystem, so the panel needs no loader reference.
-void UCXMRControlPanelWidget::NextVehicle()     { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::NextVehicle); } }
-void UCXMRControlPanelWidget::PreviousVehicle() { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::PreviousVehicle); } }
-void UCXMRControlPanelWidget::NextTrim()        { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::NextTrim); } }
-void UCXMRControlPanelWidget::PreviousTrim()    { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::PreviousTrim); } }
-void UCXMRControlPanelWidget::NextCMF()         { if (Subsystem) { Subsystem->RequestViewerAction(ECXMRViewerAction::NextCMF); } }
-
-void UCXMRControlPanelWidget::ToggleDepthRange() { if (Subsystem) { Subsystem->ToggleDepthTestRange(); } }
-
-// Ergonomics uses its own step relay rather than ECXMRViewerAction — same rendezvous, different verb.
-void UCXMRControlPanelWidget::NextManikin()     { if (Subsystem) { Subsystem->RequestErgonomicsStep(1); } }
-void UCXMRControlPanelWidget::PreviousManikin() { if (Subsystem) { Subsystem->RequestErgonomicsStep(-1); } }
-
-// --- Getters ---
-bool  UCXMRControlPanelWidget::IsMROn() const          { return Subsystem && Subsystem->IsMixedRealityOn(); }
-bool  UCXMRControlPanelWidget::IsVRBackgroundVisible() const { return Subsystem && Subsystem->IsVRBackgroundVisible(); }
-bool  UCXMRControlPanelWidget::IsDepthTestOn() const   { return Subsystem && Subsystem->IsDepthTestOn(); }
-bool  UCXMRControlPanelWidget::IsEnvDepthOn() const    { return Subsystem && Subsystem->IsEnvironmentDepthEstimationOn(); }
-bool  UCXMRControlPanelWidget::IsMaskingOn() const     { return Subsystem && Subsystem->IsMaskingOn(); }
-bool  UCXMRControlPanelWidget::IsMarkersOn() const     { return Subsystem && Subsystem->IsMarkerTrackingOn(); }
-bool  UCXMRControlPanelWidget::IsHandsOn() const       { return Subsystem && Subsystem->IsHandVisualizationOn(); }
-float UCXMRControlPanelWidget::GetViewOffset() const   { return Subsystem ? Subsystem->GetViewOffset() : 0.0f; }
-
-bool UCXMRControlPanelWidget::IsMRSupported() const      { return Subsystem && Subsystem->IsMixedRealitySupported(); }
-bool UCXMRControlPanelWidget::IsMarkersSupported() const { return Subsystem && Subsystem->IsMarkerTrackingSupported(); }
-
-// --- Vehicle state ---
-FText UCXMRControlPanelWidget::GetVehicleName() const { return Subsystem ? Subsystem->GetVehicleName() : FText::GetEmpty(); }
-FText UCXMRControlPanelWidget::GetTrimName() const    { return Subsystem ? Subsystem->GetTrimName() : FText::GetEmpty(); }
-int32 UCXMRControlPanelWidget::GetCMFIndex() const    { return Subsystem ? Subsystem->GetCMFIndex() : 0; }
-
-// A "2 / 3" readout only makes sense with something to count — an empty label reads as "not applicable".
-FText UCXMRControlPanelWidget::GetVehiclePositionLabel() const
-{
-	if (!Subsystem || Subsystem->GetVehicleCount() <= 0)
-	{
-		return FText::GetEmpty();
-	}
-	return FText::FromString(FString::Printf(TEXT("%d / %d"),
-		Subsystem->GetVehicleIndex() + 1, Subsystem->GetVehicleCount()));
-}
-
-FText UCXMRControlPanelWidget::GetTrimPositionLabel() const
-{
-	if (!Subsystem || Subsystem->GetTrimCount() <= 0)
-	{
-		return FText::GetEmpty();
-	}
-	return FText::FromString(FString::Printf(TEXT("%d / %d"),
-		Subsystem->GetTrimIndex() + 1, Subsystem->GetTrimCount()));
-}
-
-// --- Depth range ---
-
-bool UCXMRControlPanelWidget::IsDepthRangeOn() const { return Subsystem && Subsystem->IsDepthTestRangeOn(); }
-
-FText UCXMRControlPanelWidget::GetDepthRangeLabel() const
-{
-	if (!Subsystem)
-	{
-		return FText::GetEmpty();
-	}
-	// "unbounded" is the honest word for what the compositor actually gets when the range is off
-	// (farZ = HUGE_VALF) — and it is the state that makes the room flicker, so it is worth naming.
-	// ASCII only: the default font draws a box for anything else.
-	if (!Subsystem->IsDepthTestRangeOn())
-	{
-		return NSLOCTEXT("CXMR", "DepthRangeUnbounded", "unbounded");
-	}
-	return FText::FromString(FString::Printf(TEXT("%.2f - %.2f m"),
-		Subsystem->GetDepthTestRangeNearZ(), Subsystem->GetDepthTestRangeFarZ()));
-}
-
-// --- Ergonomics ---
-
-FText UCXMRControlPanelWidget::GetManikinName() const { return Subsystem ? Subsystem->GetManikinName() : FText::GetEmpty(); }
-
-FText UCXMRControlPanelWidget::GetManikinPositionLabel() const
-{
-	if (!Subsystem || Subsystem->GetManikinCount() <= 0)
-	{
-		return FText::GetEmpty();
-	}
-	return FText::FromString(FString::Printf(TEXT("%d / %d"),
-		Subsystem->GetManikinIndex() + 1, Subsystem->GetManikinCount()));
-}
+#undef LOCTEXT_NAMESPACE

@@ -40,7 +40,7 @@ public:
 	bool bOpenOnBeginPlay = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Desktop Panel")
-	FVector2D WindowSize = FVector2D(560.f, 900.f);
+	FVector2D WindowSize = FVector2D(480.f, 640.f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Desktop Panel")
 	FText WindowTitle;

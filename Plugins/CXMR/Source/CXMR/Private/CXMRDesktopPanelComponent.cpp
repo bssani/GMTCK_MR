@@ -19,13 +19,8 @@ UCXMRDesktopPanelComponent::UCXMRDesktopPanelComponent()
 
 	// Same reason the pawn resolves its panel class in C++: a Blueprint class default silently
 	// reverts to null when PIE reinstances the Blueprint, and a panel that fails to appear looks
-	// like the feature was never built. /CXMR/ content referencing itself, so portability holds.
-	static ConstructorHelpers::FClassFinder<UCXMRControlPanelWidget>
-		PanelClassFinder(TEXT("/CXMR/Core/UI/WBP_CXMRControlPanel"));
-	if (PanelClassFinder.Succeeded())
-	{
-		PanelClass = PanelClassFinder.Class;
-	}
+	// like the feature was never built. The panel is a C++ widget, so there is no asset to find.
+	PanelClass = UCXMRControlPanelWidget::StaticClass();
 }
 
 void UCXMRDesktopPanelComponent::BeginPlay()

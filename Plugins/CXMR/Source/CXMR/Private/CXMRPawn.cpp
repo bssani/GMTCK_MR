@@ -58,7 +58,7 @@ ACXMRPawn::ACXMRPawn()
 	ControlPanel = CreateDefaultSubobject<UWidgetComponent>(TEXT("ControlPanel"));
 	ControlPanel->SetupAttachment(LeftController);
 	ControlPanel->SetWidgetSpace(EWidgetSpace::World);
-	ControlPanel->SetDrawAtDesiredSize(false);   // the WBP is taller than its designer preview; let DrawSize rule
+	ControlPanel->SetDrawAtDesiredSize(false);   // PanelDrawSize rules; the panel pages scroll inside it
 	ControlPanel->SetPivot(FVector2D(0.5f, 0.5f));
 	ControlPanel->SetTwoSided(true);             // the hand turns; a one-sided quad vanishes at the wrong angle
 	ControlPanel->SetTickWhenOffscreen(false);
@@ -81,15 +81,10 @@ ACXMRPawn::ACXMRPawn()
 
 	// Defaults resolved here, in C++, on purpose. Setting these as Blueprint class defaults does NOT
 	// survive: PIE reinstances the Blueprint and rebuilds its CDO, and the value silently reverts to
-	// null (measured — the same PIE session had the class one run and None the next). Both assets ship
-	// inside /CXMR/, so this is plugin content referencing itself, not a dependency on project content.
-	// A project can still override either property on its own BP subclass.
-	static ConstructorHelpers::FClassFinder<UCXMRControlPanelWidget>
-		PanelClassFinder(TEXT("/CXMR/Core/UI/WBP_CXMRControlPanel"));
-	if (PanelClassFinder.Succeeded())
-	{
-		ControlPanelClass = PanelClassFinder.Class;
-	}
+	// null (measured — the same PIE session had the class one run and None the next). The panel is a C++
+	// widget with no widget blueprint behind it; the click action ships inside /CXMR/, so this is plugin
+	// content referencing itself. A project can still override either property on its own BP subclass.
+	ControlPanelClass = UCXMRControlPanelWidget::StaticClass();
 
 	static ConstructorHelpers::FObjectFinder<UInputAction>
 		ClickActionFinder(TEXT("/CXMR/Core/Input/Actions/IA_CXMR_PanelClick"));

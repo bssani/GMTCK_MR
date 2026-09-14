@@ -49,7 +49,8 @@ struct CXMR_API FCXMRTunable
 	TFunction<void(float)> Set;             // Bool, Float, Choice
 	TFunction<void(float)> Step;            // Stepper: direction +1 / -1
 	TFunction<void()> Invoke;               // Action
-	TFunction<FText()> Text;                // Readout
+	TFunction<FText()> Text;                // Readout; a Stepper shows it beside its buttons
+	TFunction<bool()> IsEnabled;            // optional: the row greys out while false
 
 	/** A row lives only as long as its owner — its lambdas normally capture the owner. */
 	TWeakObjectPtr<const UObject> Owner;
@@ -79,6 +80,9 @@ public:
 
 	/** Back to the row's default, and the saved value is forgotten. */
 	bool ResetToDefault(FName Id);
+
+	/** False while the row's IsEnabled says so (windows grey it out). Unknown ids count as enabled. */
+	bool IsTunableEnabled(FName Id) const;
 
 	/** Fires when rows are added or removed, so an open window can rebuild. */
 	FCXMROnTunablesChanged OnTunablesChanged;

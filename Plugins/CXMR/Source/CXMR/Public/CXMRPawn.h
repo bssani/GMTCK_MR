@@ -70,7 +70,7 @@ public:
 	/** Right-hand ray that hovers/clicks the panel. Presses come from PanelClickAction. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|UI") TObjectPtr<UWidgetInteractionComponent> PanelPointer;
 
-	/** Assign WBP_CXMRControlPanel in the BP subclass — C++ carries no content reference. */
+	/** Widget on the hand. Defaults to the C++ control panel; a project may swap in its own subclass. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "CXMR|UI") TSubclassOf<UCXMRControlPanelWidget> ControlPanelClass;
 
 	/** Trigger / pinch that presses whatever the pointer is over. Unassigned = pointer hovers only. */
