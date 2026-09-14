@@ -51,5 +51,8 @@ private:
 	/** Custom-Depth render flags for mask geometry (§4-1). */
 	void ApplyMaskRenderFlags();
 
+	/** VROnly: drop out of the main view while still feeding lighting (sky light, reflections, shadows). */
+	void ApplyVROnlyVisibility(bool bVisible);
+
 	UPROPERTY(Transient) TObjectPtr<UCXMRSubsystem> Subsystem;
 };

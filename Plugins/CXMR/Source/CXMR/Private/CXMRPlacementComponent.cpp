@@ -203,6 +203,22 @@ void UCXMRPlacementComponent::HandleMarkerPose(int32 MarkerId, const FVector& Po
 	RecomputeCalibration();
 }
 
+/** Same position, rotation reduced to heading. The heading comes from whichever horizontal axis survives:
+ *  a marker lying flat can point its X straight up, where FRotator::Yaw means nothing. */
+static FTransform LevelTransform(const FTransform& In)
+{
+	const FQuat Rotation = In.GetRotation();
+	FVector Heading = Rotation.GetForwardVector();
+	Heading.Z = 0.0;
+	if (!Heading.Normalize())
+	{
+		FVector Right = Rotation.GetRightVector();
+		Right.Z = 0.0;
+		Heading = Right.GetSafeNormal() ^ FVector::UpVector;   // right x up = forward
+	}
+	return FTransform(FRotationMatrix::MakeFromX(Heading).ToQuat(), In.GetLocation(), In.GetScale3D());
+}
+
 void UCXMRPlacementComponent::RecomputeCalibration()
 {
 	AActor* Root = ResolveVehicleRoot();
@@ -227,6 +243,12 @@ void UCXMRPlacementComponent::RecomputeCalibration()
 		{
 			// VehicleWorld = Inverse(LocalOffset) * MarkerWorld (UE compose A*B = apply A then B).
 			VehicleWorld = Entry.LocalOffset.Inverse() * First.Value;
+			if (bKeepLevel)
+			{
+				// Match the multi-marker solve, which is always level. Otherwise the car takes the tilt of
+				// whatever surface the marker sits on, and jumps when a second marker arrives.
+				VehicleWorld = LevelTransform(VehicleWorld);
+			}
 			bHavePose = true;
 		}
 	}
@@ -680,7 +702,70 @@ void UCXMRPlacementComponent::RebaseToCurrentTransform()
 
 void UCXMRPlacementComponent::HandleAdjustOffsetRequest(FVector DeltaLocation, FRotator DeltaRotation)
 {
-	AdjustMarkerOffset(DeltaLocation, DeltaRotation);
+	// The request carries the key layout's signs: the left key of each NumPad pair is positive (7 / 1 / 4 / 0).
+	// In the viewer's frame those keys mean away / left / turn left / up, so Y and yaw flip into
+	// NudgeVehicle's convention (Y+ right, yaw+ clockwise from above).
+	NudgeVehicle(FVector(DeltaLocation.X, -DeltaLocation.Y, DeltaLocation.Z), -DeltaRotation.Yaw);
+}
+
+FVector UCXMRPlacementComponent::ResolveNudgePivot(const FTransform& Vehicle, const FVector& ViewerLocation) const
+{
+	switch (NudgePivot)
+	{
+	case ECXMRNudgePivot::Markers:
+		if (DetectedCalib.Num() > 0)
+		{
+			FVector Sum = FVector::ZeroVector;
+			for (const TPair<int32, FTransform>& Pair : DetectedCalib)
+			{
+				Sum += Pair.Value.GetLocation();
+			}
+			return Sum / DetectedCalib.Num();
+		}
+		return ViewerLocation;   // nothing seen yet
+	case ECXMRNudgePivot::Viewer:
+		return ViewerLocation;
+	default:
+		return Vehicle.GetLocation();
+	}
+}
+
+void UCXMRPlacementComponent::NudgeVehicle(FVector ViewerDelta, float YawDelta)
+{
+	AActor* Root = ResolveVehicleRoot();
+	APlayerCameraManager* CamMgr = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0);
+	if (!Root || !CamMgr)
+	{
+		return;
+	}
+	if (!bHaveBasePose)
+	{
+		BaseVehicleTransform = Root->GetActorTransform();
+		bHaveBasePose = true;
+	}
+
+	// The viewer's level frame: forward is where the head points, flattened; up is the world's. The keys used
+	// to move along the vehicle's own axes — backwards, because the offset was defined on the marker side — so
+	// the same key went a different way depending on how the car happened to sit.
+	const FRotator Heading(0.0f, CamMgr->GetCameraRotation().Yaw, 0.0f);
+	const FVector WorldDelta = Heading.RotateVector(ViewerDelta);
+
+	const FTransform Current = Root->GetActorTransform();
+	const FVector Pivot = ResolveNudgePivot(Current, CamMgr->GetCameraLocation());
+
+	// Turn about the pivot, then slide: T(-P) * R * T(P + delta), applied after the current pose.
+	const FTransform Nudge = FTransform(-Pivot) * FTransform(FRotator(0.0f, YawDelta, 0.0f)) * FTransform(Pivot + WorldDelta);
+	const FTransform Desired = Current * Nudge;
+
+	// Store the result as the vehicle-frame offset the rest of this component already speaks
+	// (ApplyPlacement: Vehicle = Adjust^-1 * Base  =>  Adjust = Base * Desired^-1), so saving the offset
+	// and learning the marker layout keep working unchanged.
+	const FTransform Adjust = BaseVehicleTransform * Desired.Inverse();
+	TempMarkerLocationOffset = Adjust.GetLocation();
+	TempMarkerRotationOffset = Adjust.Rotator();
+
+	PublishOffset();
+	RecomputeCalibration();
 }
 
 void UCXMRPlacementComponent::HandleSaveOffsetRequest()  { SaveMarkerOffsetToProfile(); }

@@ -3,7 +3,10 @@
 #include "CXMRSceneObjectComponent.h"
 #include "CXMRSubsystem.h"
 
+#include "Components/ExponentialHeightFogComponent.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/SkyAtmosphereComponent.h"
+#include "Components/VolumetricCloudComponent.h"
 #include "GameFramework/Actor.h"
 #include "Engine/GameInstance.h"
 
@@ -50,10 +53,7 @@ void UCXMRSceneObjectComponent::EndPlay(const EEndPlayReason::Type Reason)
 
 void UCXMRSceneObjectComponent::HandleVRBackgroundChanged(bool bVisible)
 {
-	if (AActor* Owner = GetOwner())
-	{
-		Owner->SetActorHiddenInGame(!bVisible);
-	}
+	ApplyVROnlyVisibility(bVisible);
 }
 
 void UCXMRSceneObjectComponent::ApplyRole()
@@ -68,12 +68,51 @@ void UCXMRSceneObjectComponent::ApplyRole()
 	{
 	case ECXMRSceneRole::VROnly:
 		// Visible unless the subsystem says the virtual room is currently hidden.
-		Owner->SetActorHiddenInGame(Subsystem ? !Subsystem->IsVRBackgroundVisible() : false);
+		ApplyVROnlyVisibility(Subsystem ? Subsystem->IsVRBackgroundVisible() : true);
 		break;
 
 	case ECXMRSceneRole::MaskMesh:
 		ApplyMaskRenderFlags();
 		break;
+	}
+}
+
+void UCXMRSceneObjectComponent::ApplyVROnlyVisibility(bool bVisible)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return;
+	}
+
+	// Take the virtual room out of the MAIN VIEW only. This used to hide the whole actor, which also took it
+	// out of every lighting input: a real-time sky light re-captured a scene with no sky, ambient fell to
+	// zero, and every mesh went dark the moment MR came on. With main pass off the sky, fog, clouds and room
+	// still feed the sky light, reflections and shadows, but draw no pixels of their own — those pixels stay
+	// empty, and empty is what lets passthrough show.
+	// (Varjo's sample gets away with hiding because its lighting is baked and its sky light never re-captures.)
+	TInlineComponentArray<UActorComponent*> Components(Owner);
+	for (UActorComponent* Component : Components)
+	{
+		if (USkyAtmosphereComponent* Sky = Cast<USkyAtmosphereComponent>(Component))
+		{
+			Sky->SetRenderInMainPass(bVisible);
+		}
+		else if (UExponentialHeightFogComponent* Fog = Cast<UExponentialHeightFogComponent>(Component))
+		{
+			Fog->SetRenderInMainPass(bVisible);
+		}
+		else if (UVolumetricCloudComponent* Cloud = Cast<UVolumetricCloudComponent>(Component))
+		{
+			Cloud->SetRenderInMainPass(bVisible);
+		}
+		else if (UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Component))
+		{
+			Primitive->SetRenderInMainPass(bVisible);
+			// Depth as well: an unseen floor still writing depth would occlude real objects in Varjo's depth
+			// test and hand PP_MR a SceneDepth the mask would have to beat.
+			Primitive->SetRenderInDepthPass(bVisible);
+		}
 	}
 }
 

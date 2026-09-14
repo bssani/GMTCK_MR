@@ -24,7 +24,8 @@
 - ✅ 기대: 실제 방이 보이기 시작
 - ⚠️ **가상 하늘·바닥이 남아 실제 세계를 가리면** `B`(VR Background)를 눌러 끈다.
   `SkyAtmosphere` / `ExponentialHeightFog` / `VolumetricCloud` / `SM_SkySphere` / `Floor`에
-  `CXMRSceneObjectComponent(VROnly)`가 붙어 있어 한 번에 숨는다.
+  `CXMRSceneObjectComponent(VROnly)`가 붙어 있어 한 번에 화면에서 빠진다. 조명·반사에는 계속 남으므로 MR에서도
+  가상 물체 밝기가 VR과 같아야 한다(2026-09-14 수정 — 전에는 액터를 숨겨 스카이라이트가 꺼지면서 어두워졌다).
 - ❌ **패널의 Mixed Reality가 OFF에서 안 움직이면** = CVar를 못 찾은 것. 로그에
   `LogCXMR: Warning: Mixed reality toggle ignored` 가 찍힌다. (상태를 거짓으로 바꾸지 않도록 만든 동작)
 
