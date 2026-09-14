@@ -91,21 +91,19 @@ depth 때문에 가상 물체가 심하게 깜빡였다.
 
 ## 3. 마커 — 캘리브레이션의 토대
 
-### 🔴 0단계 — `V`를 먼저 누른다
+### 🔴 0단계 — 마커 추적이 켜졌는지 본다
 
-**마커 추적은 세션 시작 시 꺼져 있다.** `V`를 누르기 전에는 마커 이벤트가 단 한 건도 오지 않는다.
-이 단계가 이 문서에 빠져 있어서 "감지 자체가 안 된다"로 오진하기 쉬웠다. 컨트롤 창의 Marker tracking이 체크
-되는지 본다. 안 켜지면 로그에 `LogCXMR: Warning: Marker tracking could not be enabled`이 찍힌다.
+**2026-09-15부터 MarkerAnchor 차량은 시작할 때 마커 추적을 자동으로 켠다**(XR 세션이 올라올 때까지 최대 20초 재시도).
+로그에 `LogCXMRPlacement: Marker tracking started for calibration.`이 찍히고 컨트롤 창의 Marker tracking이 체크된다.
+20초 안에 못 켜면 `Marker tracking could not be started within 20 s` 경고가 찍힌다 → 헤드셋이 올라온 뒤 `V`를 누른다.
 
 **그 다음 `CXMR.DebugMarkers 1`을 켜고 실물 마커를 시야에 넣는다.**
 
 1. **감지 자체**: 마커 pose가 그려지는가? 로그에 `LogCXMRDebug: DETECTED id=N`이 찍힌다.
-2. 🔴 **그 `N`을 읽는다.** 프로파일(`DA_MarkerProfile_TestCar`)은 **ID 0**으로 authoring돼 있는데,
-   **0은 Varjo 플러그인이 "무효 ID" 센티넬로 쓰는 값**이다(`VarjoMarkersPlugin.cpp:150, :162` —
-   timeout·tracking mode 설정을 거부한다). 실물 마커는 0을 보고하지 않으므로 **프로파일이 그대로면
-   차량은 영원히 안 움직인다.** 로그에 `LogCXMRPlacement: Warning: ... contains id 0`이 찍힌다.
-   → 에디터에서 `DA_MarkerProfile_TestCar`의 `Marker Id`를 **실측한 `N`으로 바꾼다.**
-3. **정렬**: 오프셋이 0이므로 **차량 원점이 마커 위에 정확히 얹혀야 한다.**
+2. **학습**: 차를 넘버패드·튜닝 창으로 실물에 맞추고, 마커가 모두 보일 때 튜닝 창 **Learn marker layout**.
+   로그에 `Learned marker layout ... N added`. 프로파일에 번호를 넣을 필요는 없다(무효 id 0은 무시된다)
+3. **복원** ★ 가장 중요: 앱을 껐다 켠다 → 마커가 보이면 차가 **학습한 자리에** 놓이고, 1.5초 뒤 튜닝 창에 `calibrated`.
+   마커를 하나만 보이게 해도 같은 자리여야 한다. 조금 옮긴 뒤 **Save adjustment** → 다시 껐다 켜서 옮긴 자리로 오는지 본다
 4. **드리프트**: 몇 분 두고 차량이 밀리는지 관찰. 반사면이 주 악화 요인.
 5. **재정렬**: `R` 키. 마커 추적을 껐다 켜서 Detected를 다시 유도한다.
 

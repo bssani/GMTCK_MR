@@ -6,6 +6,8 @@
 #include "CXMRTuningSubsystem.h"
 
 #include "Engine/GameInstance.h"
+#include "Engine/World.h"
+#include "TimerManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Pawn.h"
@@ -115,6 +117,12 @@ void UCXMRPlacementComponent::BeginPlay()
 	EnsureCalibrationLoaded();
 
 	RegisterTunables();
+
+	// A saved layout only helps while markers are tracked, and tracking starts off.
+	if (Mode == ECXMRPlacementMode::MarkerAnchor && bStartMarkerTrackingOnBeginPlay)
+	{
+		TryStartMarkerTracking();
+	}
 }
 
 void UCXMRPlacementComponent::EndPlay(const EEndPlayReason::Type Reason)
@@ -132,6 +140,11 @@ void UCXMRPlacementComponent::EndPlay(const EEndPlayReason::Type Reason)
 
 	// Hand the data asset back exactly as it shipped. Field calibration lives in Saved/CXMR, so PIE
 	// must not leave the asset dirty with values that were only ever meant for one physical setup.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearAllTimersForObject(this);
+	}
+
 	RestoreAuthoredOffsets();
 
 	const UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
@@ -160,10 +173,17 @@ void UCXMRPlacementComponent::HandleMarkerPose(int32 MarkerId, const FVector& Po
 		return;
 	}
 
+	// Remember every marker, listed or not, at its latest pose. Learn records the layout from these — which is how a
+	// site whose marker ids were never typed into the profile gets calibrated at all.
+	if (MarkerId != 0)
+	{
+		SeenMarkers.Add(MarkerId, FTransform(Rotation, Position, FVector::OneVector));
+	}
+
 	FCXMRMarkerEntry Entry;
 	if (!MarkerProfile->FindEntry(MarkerId, Entry) || Entry.Role != ECXMRMarkerRole::Calibration)
 	{
-		return; // not a calibration marker (DynamicObject handled by a future component)
+		return; // not in the layout yet (Learn adds it); DynamicObject markers belong to another component
 	}
 
 	// Per-marker config — only valid AFTER detection (plugin caveat), and only worth doing once.
@@ -281,14 +301,63 @@ void UCXMRPlacementComponent::RecomputeCalibration()
 	// Freeze once enough markers have contributed. The freeze itself is LOCAL — bCalibrated makes
 	// HandleMarkerDetected stop re-placing. Killing the headset's marker tracking is global and would
 	// take DynamicObject markers (doors, props) down with it, so it is opt-in and off by default.
-	if (DetectedCalib.Num() >= MinMarkersToCalibrate)
+	if (DetectedCalib.Num() >= MinMarkersToCalibrate && !bCalibrated)
 	{
-		bCalibrated = true;
-		if (bStopMarkerTrackingWhenCalibrated && Subsystem)
+		UWorld* World = GetWorld();
+		if (CalibrationSettleSeconds <= 0.0f || !World)
 		{
-			Subsystem->SetMarkerTracking(false);
+			FinishCalibration();
+		}
+		else if (!World->GetTimerManager().IsTimerActive(SettleTimer))
+		{
+			// Keep taking marker updates for a moment before freezing: a first sighting is a marker's noisiest sample.
+			World->GetTimerManager().SetTimer(SettleTimer, this, &UCXMRPlacementComponent::FinishCalibration, CalibrationSettleSeconds, false);
 		}
 	}
+}
+
+void UCXMRPlacementComponent::FinishCalibration()
+{
+	if (bCalibrated || DetectedCalib.Num() < MinMarkersToCalibrate)
+	{
+		return;
+	}
+	bCalibrated = true;
+	UE_LOG(LogCXMRPlacement, Log, TEXT("Calibrated from %d marker(s)%s."), DetectedCalib.Num(),
+		bFreezeAfterCalibration ? TEXT(" - placement frozen until Recalibrate") : TEXT(""));
+	if (bStopMarkerTrackingWhenCalibrated && Subsystem)
+	{
+		Subsystem->SetMarkerTracking(false);
+	}
+}
+
+void UCXMRPlacementComponent::TryStartMarkerTracking()
+{
+	if (!Subsystem || Subsystem->IsMarkerTrackingOn())
+	{
+		return;
+	}
+
+	// Support is only reported once the XR session is up, which can be seconds after BeginPlay. Asking earlier makes
+	// the plugin refuse and log a warning every time, so wait quietly instead.
+	if (Subsystem->IsMarkerTrackingSupported() && Subsystem->SetMarkerTracking(true))
+	{
+		UE_LOG(LogCXMRPlacement, Log, TEXT("Marker tracking started for calibration."));
+		return;
+	}
+
+	const int32 MaxAttempts = 40;   // every 0.5 s -> 20 s
+	if (++TrackingStartAttempts < MaxAttempts)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimer(TrackingStartTimer, this, &UCXMRPlacementComponent::TryStartMarkerTracking, 0.5f, false);
+		}
+		return;
+	}
+	UE_LOG(LogCXMRPlacement, Warning,
+		TEXT("Marker tracking could not be started within 20 s (no headset session, or markers unsupported). "
+		     "Press V once the headset is running."));
 }
 
 bool UCXMRPlacementComponent::ComputeMultiMarkerTransform(FTransform& Out) const
@@ -341,6 +410,11 @@ void UCXMRPlacementComponent::Recalibrate()
 {
 	bCalibrated = false;
 	DetectedCalib.Reset();
+	SeenMarkers.Reset();
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SettleTimer);
+	}
 
 	// Cycle tracking so the plugin re-fires Detected (its marker map is only reset on disable).
 	if (Subsystem)
@@ -455,6 +529,10 @@ void UCXMRPlacementComponent::RestoreAuthoredOffsets()
 	{
 		return;
 	}
+
+	// Markers Learn or a saved file added at runtime were never part of the asset.
+	Profile->Markers.RemoveAll([this](const FCXMRMarkerEntry& Entry) { return !AuthoredOffsets.Contains(Entry.MarkerId); });
+
 	for (FCXMRMarkerEntry& Entry : Profile->Markers)
 	{
 		if (const FTransform* Authored = AuthoredOffsets.Find(Entry.MarkerId))
@@ -484,13 +562,12 @@ static FString StartupBackupPath(const FString& LivePath)
 void UCXMRPlacementComponent::LearnMarkerLayout()
 {
 	AActor* Root = ResolveVehicleRoot();
-	if (!Root || !MarkerProfile || DetectedCalib.Num() == 0)
+	if (!Root || !MarkerProfile || SeenMarkers.Num() == 0)
 	{
 		UE_LOG(LogCXMRPlacement, Warning,
-			TEXT("Cannot learn marker layout: need a vehicle, a profile and at least one detected marker "
-			     "(vehicle=%s profile=%s detected=%d)."),
-			Root ? TEXT("ok") : TEXT("MISSING"), MarkerProfile ? TEXT("ok") : TEXT("MISSING"),
-			DetectedCalib.Num());
+			TEXT("Cannot learn marker layout: need a vehicle, a profile and at least one marker in view "
+			     "(vehicle=%s profile=%s markers seen=%d)."),
+			Root ? TEXT("ok") : TEXT("MISSING"), MarkerProfile ? TEXT("ok") : TEXT("MISSING"), SeenMarkers.Num());
 		return;
 	}
 
@@ -498,22 +575,51 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 	// just lined it up with the physical model by eye.
 	const FTransform VehicleWorld = Root->GetActorTransform();
 
-	int32 Learned = 0;
-	for (const TPair<int32, FTransform>& Detected : DetectedCalib)
+	int32 Updated = 0;
+	int32 Added = 0;
+	for (const TPair<int32, FTransform>& Seen : SeenMarkers)
 	{
-		if (FCXMRMarkerEntry* Entry = MarkerProfile->GetEntryMutable(Detected.Key))
+		// LocalOffset * VehicleWorld == MarkerWorld, which is what GetRelativeTransform solves.
+		const FTransform Local = Seen.Value.GetRelativeTransform(VehicleWorld);
+		if (FCXMRMarkerEntry* Entry = MarkerProfile->GetEntryMutable(Seen.Key))
 		{
-			// LocalOffset * VehicleWorld == MarkerWorld, which is what GetRelativeTransform solves.
-			Entry->LocalOffset = Detected.Value.GetRelativeTransform(VehicleWorld);
-			++Learned;
+			if (Entry->Role != ECXMRMarkerRole::Calibration)
+			{
+				continue;   // a marker driving a door or a prop is not part of the vehicle's layout
+			}
+			Entry->LocalOffset = Local;
+			++Updated;
+		}
+		else
+		{
+			// Not listed: add it. The layout lives in the saved file, so the profile need not know a site's marker
+			// ids in advance. These used to be ignored, and Learn then learned nothing at all.
+			FCXMRMarkerEntry NewEntry;
+			NewEntry.MarkerId = Seen.Key;
+			NewEntry.Role = ECXMRMarkerRole::Calibration;
+			NewEntry.LocalOffset = Local;
+			NewEntry.Label = FName(*FString::Printf(TEXT("Learned_%d"), Seen.Key));
+			MarkerProfile->Markers.Add(NewEntry);
+			++Added;
+		}
+		DetectedCalib.Add(Seen.Key, Seen.Value);   // learned markers take part in placement straight away
+	}
+
+	// Listed markers that were not in view keep offsets from an earlier setup; if that setup differs they pull the fit
+	// the next time they are seen, so name them.
+	for (const FCXMRMarkerEntry& Entry : MarkerProfile->Markers)
+	{
+		if (Entry.Role == ECXMRMarkerRole::Calibration && Entry.MarkerId != 0 && !SeenMarkers.Contains(Entry.MarkerId))
+		{
+			UE_LOG(LogCXMRPlacement, Warning,
+				TEXT("Marker %d is in the layout but was not in view while learning: its offset is from an earlier setup."),
+				Entry.MarkerId);
 		}
 	}
 
-	if (Learned == 0)
+	if (Updated + Added == 0)
 	{
-		UE_LOG(LogCXMRPlacement, Warning,
-			TEXT("Marker layout not learned: none of the %d detected markers is listed in profile '%s'."),
-			DetectedCalib.Num(), *MarkerProfile->GetName());
+		UE_LOG(LogCXMRPlacement, Warning, TEXT("Marker layout not learned: no calibration marker in view."));
 		return;
 	}
 
@@ -524,7 +630,7 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 	bHaveBasePose = true;
 	PublishOffset();
 
-	UE_LOG(LogCXMRPlacement, Log, TEXT("Learned layout of %d marker(s) from the current vehicle pose."), Learned);
+	UE_LOG(LogCXMRPlacement, Log, TEXT("Learned marker layout from the current vehicle pose: %d updated, %d added."), Updated, Added);
 
 	// Re-place from what we just learned. If the maths is right the vehicle does not move; if it
 	// jumps, the layout is wrong and the operator sees it immediately instead of hours later.
@@ -650,13 +756,21 @@ bool UCXMRPlacementComponent::LoadCalibrationFromDisk()
 			continue;
 		}
 
-		FCXMRMarkerEntry* Entry = MarkerProfile->GetEntryMutable(static_cast<int32>(Id));
+		const int32 MarkerIdValue = static_cast<int32>(Id);
+		FCXMRMarkerEntry* Entry = MarkerProfile->GetEntryMutable(MarkerIdValue);
 		if (!Entry)
 		{
-			UE_LOG(LogCXMRPlacement, Warning,
-				TEXT("Saved calibration mentions marker %d, which profile '%s' does not list. Skipped."),
-				static_cast<int32>(Id), *MarkerProfile->GetName());
-			continue;
+			// Learned on site: the profile never listed it. Put it back into the layout.
+			FCXMRMarkerEntry NewEntry;
+			NewEntry.MarkerId = MarkerIdValue;
+			NewEntry.Role = ECXMRMarkerRole::Calibration;
+			FString Label;
+			if ((*Obj)->TryGetStringField(TEXT("label"), Label) && !Label.IsEmpty() && Label != TEXT("None"))
+			{
+				NewEntry.Label = FName(*Label);
+			}
+			MarkerProfile->Markers.Add(NewEntry);
+			Entry = &MarkerProfile->Markers.Last();
 		}
 
 		const FVector Loc(
@@ -770,7 +884,14 @@ void UCXMRPlacementComponent::RegisterTunables()
 				return FText::GetEmpty();
 			}
 			const FVector L = Root->GetActorLocation();
-			return FText::FromString(FString::Printf(TEXT("X %.1f  Y %.1f  Z %.1f  Yaw %.1f"), L.X, L.Y, L.Z, Root->GetActorRotation().Yaw));
+			const FRotator R = Root->GetActorRotation();
+			FString Text = FString::Printf(TEXT("X %.1f  Y %.1f  Z %.1f  Yaw %.1f"), L.X, L.Y, L.Z, R.Yaw);
+			if (FMath::Abs(R.Pitch) > 0.5f || FMath::Abs(R.Roll) > 0.5f)
+			{
+				// Yaw alone hid an upside-down test car for weeks.
+				Text += FString::Printf(TEXT("  TILTED P %.0f R %.0f"), R.Pitch, R.Roll);
+			}
+			return FText::FromString(Text);
 		};
 		Tuning->Register(MoveTemp(T));
 	}
@@ -778,7 +899,9 @@ void UCXMRPlacementComponent::RegisterTunables()
 		FCXMRTunable T = Make("Vehicle.Markers", NSLOCTEXT("CXMRPlacement", "Markers", "Calibration markers"), ECXMRTunableKind::Readout);
 		T.Text = [this]
 		{
-			return FText::FromString(FString::Printf(TEXT("%d seen, %s"), DetectedCalib.Num(), bCalibrated ? TEXT("placed") : TEXT("not placed")));
+			const bool bSettling = GetWorld() && GetWorld()->GetTimerManager().IsTimerActive(SettleTimer);
+			return FText::FromString(FString::Printf(TEXT("%d in view, %d used - %s"), SeenMarkers.Num(), DetectedCalib.Num(),
+				bCalibrated ? TEXT("calibrated") : (bSettling ? TEXT("settling") : TEXT("not calibrated"))));
 		};
 		Tuning->Register(MoveTemp(T));
 	}
@@ -936,9 +1059,10 @@ void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator
 
 void UCXMRPlacementComponent::SaveMarkerOffsetToProfile()
 {
-	if (!MarkerProfile || DetectedCalib.Num() == 0)
+	AActor* Root = ResolveVehicleRoot();
+	if (!Root || !MarkerProfile || DetectedCalib.Num() == 0)
 	{
-		UE_LOG(LogCXMRPlacement, Warning, TEXT("Cannot save marker offset: no profile or no detected markers"));
+		UE_LOG(LogCXMRPlacement, Warning, TEXT("Cannot save marker offset: no vehicle, no profile, or no layout marker in view"));
 		return;
 	}
 
@@ -948,41 +1072,44 @@ void UCXMRPlacementComponent::SaveMarkerOffsetToProfile()
 		return;
 	}
 
-	// Every detected marker moves by the same amount. The multi-marker solve fits the vehicle to ALL
-	// of their local positions, so baking the offset into just one would skew the fit instead of
-	// shifting the vehicle. L' = L * Adjust reproduces the pose the offset is currently showing.
+	// What is on screen is what the next session has to reproduce.
+	//  * Markers in view are recorded against that pose directly. Shifting their old offsets by the adjustment is only
+	//    exact when the solve reproduces the markers exactly; a single marker on a tilted surface is levelled, so the
+	//    saved car came back somewhere else.
+	//  * Markers out of view get the same rigid shift, so the layout stays one piece. Updating only the markers in view
+	//    mixed new offsets with old ones and skewed the fit whenever the next session saw a different set.
+	const FTransform Shown = Root->GetActorTransform();
 	const FTransform Adjust(TempMarkerRotationOffset, TempMarkerLocationOffset);
-	int32 SavedCount = 0;
-	for (const TPair<int32, FTransform>& Detected : DetectedCalib)
+	int32 FromView = 0;
+	int32 Shifted = 0;
+	for (FCXMRMarkerEntry& Entry : MarkerProfile->Markers)
 	{
-		if (FCXMRMarkerEntry* EntryPtr = MarkerProfile->GetEntryMutable(Detected.Key))
+		if (Entry.Role != ECXMRMarkerRole::Calibration || Entry.MarkerId == 0)
 		{
-			EntryPtr->LocalOffset = EntryPtr->LocalOffset * Adjust;
-			++SavedCount;
+			continue;
+		}
+		if (const FTransform* InView = DetectedCalib.Find(Entry.MarkerId))
+		{
+			Entry.LocalOffset = InView->GetRelativeTransform(Shown);
+			++FromView;
 		}
 		else
 		{
-			UE_LOG(LogCXMRPlacement, Warning, TEXT("Cannot find marker %d in profile"), Detected.Key);
+			Entry.LocalOffset = Entry.LocalOffset * Adjust;
+			++Shifted;
 		}
 	}
 
-	if (SavedCount == 0)
-	{
-		UE_LOG(LogCXMRPlacement, Warning, TEXT("Marker offset not saved: no detected marker is in the profile"));
-		return;
-	}
-
 	UE_LOG(LogCXMRPlacement, Log,
-		TEXT("Marker offset saved onto %d marker(s): Loc=(%.1f, %.1f, %.1f) cm, Yaw=%.1f deg"),
-		SavedCount, TempMarkerLocationOffset.X, TempMarkerLocationOffset.Y, TempMarkerLocationOffset.Z,
+		TEXT("Adjustment saved into the marker layout: %d marker(s) from view, %d shifted. Loc=(%.1f, %.1f, %.1f) cm, Yaw=%.1f deg"),
+		FromView, Shifted, TempMarkerLocationOffset.X, TempMarkerLocationOffset.Y, TempMarkerLocationOffset.Z,
 		TempMarkerRotationOffset.Yaw);
 
-	// Persist to Saved/CXMR. MarkPackageDirty only means anything in the editor — a cooked build
-	// cannot write its own assets, so without the file the calibration dies with the process.
-	MarkerProfile->MarkPackageDirty();
+	// Saved/CXMR is where calibration survives: a cooked build cannot write its assets, and in the editor the asset is
+	// handed back unmodified when play ends (so it is no longer marked dirty here).
 	SaveCalibrationToDisk();
 
-	// Clear temporary adjustments — the pose is now baked into the profile, so re-applying would double it.
+	// The pose is now baked into the layout; clearing the temporary offset leaves the vehicle where it is.
 	ResetMarkerOffset();
 }
 

@@ -14,6 +14,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "CXMRTypes.h"
+#include "Engine/TimerHandle.h"
 #include "CXMRPlacementComponent.generated.h"
 
 class UCXMRSubsystem;
@@ -63,6 +64,14 @@ public:
 	 *  DynamicObject markers (doors, props, cups) along with the calibration ones. Only enable it for
 	 *  programs that track nothing but calibration markers. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") bool bStopMarkerTrackingWhenCalibrated = false;
+
+	/** Marker Anchor: turn the headset's marker tracking on at start, retrying until the XR session is up. Tracking
+	 *  starts off, so without this a restarted session sat uncalibrated — the saved layout unused — until V. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") bool bStartMarkerTrackingOnBeginPlay = true;
+
+	/** Once enough markers are seen, keep refining from their updates for this long, then freeze. A marker's first
+	 *  sighting is its noisiest sample, and freezing on it locked that noise into the placement. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ClampMin = "0.0")) float CalibrationSettleSeconds = 1.5f;
 
 	/** Markers needed before freezing. 1 = single marker. 2+ = baseline yaw from marker POSITIONS + floor
 	 *  assumption (roll/pitch=0), robust against single-marker angle noise. A single marker still gives a
@@ -128,7 +137,8 @@ public:
 	// authored LocalOffsets mean nothing. These turn that around: place the vehicle by eye, then
 	// record where the markers are RELATIVE to it. From then on seeing a marker restores that pose.
 
-	/** Record every detected marker's pose relative to the vehicle as it stands right now. */
+	/** Record every marker in view relative to the vehicle as it stands right now, and save. Markers the profile does
+	 *  not list are added to the layout (and the saved file), so a site needs no marker ids typed in beforehand. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void LearnMarkerLayout();
 
 	/** Write the current marker layout to Saved/CXMR. A cooked build cannot save its data assets,
@@ -181,8 +191,21 @@ private:
 	/** World point NudgeVehicle turns the vehicle around, per NudgePivot. */
 	FVector ResolveNudgePivot(const FTransform& Vehicle, const FVector& ViewerLocation) const;
 
-	/** Detected Calibration markers this session: id -> marker world transform. */
+	/** Markers of the layout used for placement this session: id -> marker world transform. */
 	TMap<int32, FTransform> DetectedCalib;
+
+	/** Every marker seen this session, listed in the profile or not, at its latest pose. Learn records from these. */
+	TMap<int32, FTransform> SeenMarkers;
+
+	FTimerHandle SettleTimer;
+	FTimerHandle TrackingStartTimer;
+	int32 TrackingStartAttempts = 0;
+
+	/** End of the settle window: freeze (and optionally stop tracking). */
+	void FinishCalibration();
+
+	/** Turns marker tracking on once the session supports it; retries for a while, then says so. */
+	void TryStartMarkerTracking();
 
 	/** Temporary offset adjustment (cm + deg) for fine-tuning marker calibration. */
 	FVector TempMarkerLocationOffset = FVector::ZeroVector;
