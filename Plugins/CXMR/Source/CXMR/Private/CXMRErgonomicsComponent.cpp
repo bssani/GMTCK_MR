@@ -41,6 +41,10 @@ void UCXMRErgonomicsComponent::BeginPlay()
 	{
 		Subsystem->OnErgonomicsStepRequested.AddDynamic(this, &UCXMRErgonomicsComponent::HandleErgonomicsStep);
 	}
+
+	// The loader on the same actor may have loaded the vehicle before this ran, and its refresh call found no
+	// subsystem to report to — the panel then showed "-" until the first press. Report now; it moves nothing.
+	RefreshForNewVehicle();
 }
 
 void UCXMRErgonomicsComponent::EndPlay(const EEndPlayReason::Type Reason)

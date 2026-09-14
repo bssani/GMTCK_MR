@@ -186,6 +186,8 @@ void UCXMRSubsystem::SetMixedReality(bool bEnable)
 	bMixedRealityOn = bEnable;
 	OnMixedRealityChanged.Broadcast(bMixedRealityOn);
 
+	SyncViewOffsetWithMode();
+
 	// The virtual room follows the blend mode.
 	//
 	// These were independent toggles until the first XR-4 session, on the reasoning that hiding the
@@ -231,6 +233,27 @@ void UCXMRSubsystem::SetViewOffset(float Offset)
 	if (UVarjoOpenXRFunctionLibrary::SetViewOffset(Offset))
 	{
 		ViewOffset = Offset;
+		bViewOffsetChosen = true;
+		OnViewOffsetChanged.Broadcast(ViewOffset);
+	}
+}
+
+void UCXMRSubsystem::SyncViewOffsetWithMode()
+{
+	if (bViewOffsetChosen)
+	{
+		// Someone picked a render position; switching MR must not quietly swap it for the new mode's default.
+		UVarjoOpenXRFunctionLibrary::SetViewOffset(ViewOffset);
+		return;
+	}
+
+	// Nothing picked yet: the runtime renders from the cameras in MR and from the eyes in VR (the plugin's own
+	// GetViewOffset assumes the same). Mirror that so the panel shows what the headset is actually doing —
+	// it used to say "cameras" from the start while a VR session rendered from the eyes.
+	const float RuntimeDefault = bMixedRealityOn ? 1.0f : 0.0f;
+	if (!FMath::IsNearlyEqual(ViewOffset, RuntimeDefault))
+	{
+		ViewOffset = RuntimeDefault;
 		OnViewOffsetChanged.Broadcast(ViewOffset);
 	}
 }

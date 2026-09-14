@@ -55,7 +55,7 @@ test가 **컴포지터 레이어**에서 처리되어 알파 합성 경로를 �
 
 | 키 | 기능 | 확인 |
 |---|---|---|
-| `K` | View Offset | 컨트롤 창 `Render from` 버튼이 `Cameras` ↔ `Eyes`로 바뀐다(튜닝 창 View offset 1 ↔ 0). 근거리 물체를 볼 때 정렬감 차이 |
+| `K` | View Offset | 컨트롤 창 `Render from` 버튼이 `Cameras` ↔ `Eyes`로 바뀐다(튜닝 창 View offset 1 ↔ 0). 근거리 물체를 볼 때 정렬감 차이. 시작은 VR `Eyes` → MR 켜면 `Cameras`(헤드셋 기본). `K`로 한 번 고르면 MR 전환 뒤에도 유지되는지 본다 |
 | `T` | Depth Test | 손을 눈앞에 대면 가상 물체보다 앞에 보이는지 |
 | `U` | Env Depth | depth estimation 활성. **`T`가 먼저 켜져 있어야 한다** |
 | `Y` | Depth Test **Range** on/off | 컨트롤 창 Range가 `0.00 - 0.75 m` ↔ `unbounded` |
