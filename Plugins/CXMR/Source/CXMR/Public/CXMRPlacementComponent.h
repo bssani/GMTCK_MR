@@ -19,6 +19,19 @@
 class UCXMRSubsystem;
 class UCXMRMarkerProfile;
 
+/** What manual yaw adjustments rotate the vehicle around. */
+UENUM(BlueprintType)
+enum class ECXMRNudgePivot : uint8
+{
+	/** Centre of the calibration markers seen this session (the viewer if none yet). Whatever was lined up
+	 *  next to the markers stays put while the rest of the car swings into place. */
+	Markers,
+	/** The viewer's head. The car turns around the person sitting in it. */
+	Viewer,
+	/** The vehicle actor's own origin — often far from anything visible for CAD-origin vehicles. */
+	VehicleOrigin
+};
+
 UCLASS(ClassGroup = (CXMR), meta = (BlueprintSpawnableComponent), DisplayName = "CXMR Placement")
 class CXMR_API UCXMRPlacementComponent : public UActorComponent
 {
@@ -51,10 +64,19 @@ public:
 	 *  programs that track nothing but calibration markers. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") bool bStopMarkerTrackingWhenCalibrated = false;
 
-	/** Markers needed before freezing. 1 = single-marker (uses marker orientation). 2+ = baseline yaw
-	 *  from marker POSITIONS + floor assumption (roll/pitch=0), robust against single-marker angle noise.
-	 *  A single marker still gives a provisional placement until more arrive. */
+	/** Markers needed before freezing. 1 = single marker. 2+ = baseline yaw from marker POSITIONS + floor
+	 *  assumption (roll/pitch=0), robust against single-marker angle noise. A single marker still gives a
+	 *  provisional placement until more arrive. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ClampMin = "1")) int32 MinMarkersToCalibrate = 2;
+
+	/** Keep the vehicle level on the single-marker path as well. The multi-marker solve always assumes a
+	 *  level floor; letting one marker's own tilt through laid the car at whatever angle the marker was
+	 *  stuck on, put the adjust keys on tilted axes, and made the pose jump when a second marker switched
+	 *  the solve to the level one. Turn off only for a vehicle that really sits tilted. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") bool bKeepLevel = true;
+
+	/** What the manual yaw adjustment rotates the vehicle around. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") ECXMRNudgePivot NudgePivot = ECXMRNudgePivot::Markers;
 
 	/** Pawn Relative: distance in front of the pawn (cm). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ClampMin = "0.0")) float PawnRelativeDistance = 350.0f;
@@ -72,7 +94,16 @@ public:
 	/** Pawn Relative: place the vehicle in front of the local player, on the floor, facing them. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void PlaceInFrontOfPawn();
 
-	/** Adjust marker offset (temporary). X/Y/Z cm + rotation deg. */
+	/**
+	 * Move the vehicle in the VIEWER's frame, whichever way the car faces: X away from the viewer (head
+	 * direction flattened), Y to the viewer's right, Z world up; yaw about world up around NudgePivot,
+	 * positive = clockwise seen from above. The result is kept as the offset, so saving and learning work
+	 * exactly as before.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void NudgeVehicle(FVector ViewerDelta, float YawDelta);
+
+	/** Adjust the offset in the VEHICLE's own frame (temporary). X/Y/Z cm + rotation deg. Kept for scripts;
+	 *  the adjust keys go through NudgeVehicle. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void AdjustMarkerOffset(FVector DeltaLocation, FRotator DeltaRotation);
 
 	/** Save adjusted offset to the marker profile (permanent). */
@@ -137,6 +168,9 @@ private:
 	void RecomputeCalibration();
 	/** Rigid fit (yaw about Z + translation, roll/pitch = 0) from >=2 marker positions. */
 	bool ComputeMultiMarkerTransform(FTransform& Out) const;
+
+	/** World point NudgeVehicle turns the vehicle around, per NudgePivot. */
+	FVector ResolveNudgePivot(const FTransform& Vehicle, const FVector& ViewerLocation) const;
 
 	/** Detected Calibration markers this session: id -> marker world transform. */
 	TMap<int32, FTransform> DetectedCalib;
