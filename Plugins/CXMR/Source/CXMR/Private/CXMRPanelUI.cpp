@@ -16,12 +16,12 @@
 
 namespace
 {
-	bool HasRange(ECXMRTunableKind Kind)
+	bool IsRangedKind(ECXMRTunableKind Kind)
 	{
 		return Kind == ECXMRTunableKind::Bool || Kind == ECXMRTunableKind::Float || Kind == ECXMRTunableKind::Choice;
 	}
 
-	float RangeMax(const FCXMRTunable& Tunable)
+	float RangeTopFor(const FCXMRTunable& Tunable)
 	{
 		if (Tunable.Kind == ECXMRTunableKind::Bool)
 		{
@@ -64,9 +64,9 @@ CXMRPanelUI::FRowBinding CXMRPanelUI::BindDirect(const FCXMRTunable& Tunable)
 	Binding.Get = Tunable.Get;
 	if (Tunable.Set)
 	{
-		const bool bClamp = HasRange(Tunable.Kind);
+		const bool bClamp = IsRangedKind(Tunable.Kind);
 		const float Min = bClamp ? (Tunable.Kind == ECXMRTunableKind::Float ? Tunable.Min : 0.0f) : 0.0f;
-		const float Max = RangeMax(Tunable);
+		const float Max = RangeTopFor(Tunable);
 		Binding.Apply = [Set = Tunable.Set, bClamp, Min, Max](float Value, bool)
 		{
 			Set(bClamp ? FMath::Clamp(Value, Min, Max) : Value);

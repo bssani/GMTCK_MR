@@ -14,12 +14,12 @@ DEFINE_LOG_CATEGORY_STATIC(LogCXMRTuning, Log, All);
 
 namespace
 {
-	bool IsLive(const FCXMRTunable& Tunable)
+	bool IsTunableLive(const FCXMRTunable& Tunable)
 	{
 		return Tunable.Owner.IsExplicitlyNull() || Tunable.Owner.IsValid();
 	}
 
-	bool HasRange(ECXMRTunableKind Kind)
+	bool IsClampedKind(ECXMRTunableKind Kind)
 	{
 		return Kind == ECXMRTunableKind::Bool || Kind == ECXMRTunableKind::Float || Kind == ECXMRTunableKind::Choice;
 	}
@@ -39,7 +39,7 @@ bool UCXMRTuningSubsystem::Register(FCXMRTunable Tunable)
 	}
 
 	// A component destroyed without EndPlay leaves rows behind; drop them before checking for duplicates.
-	Tunables.RemoveAll([](const FCXMRTunable& Existing) { return !IsLive(Existing); });
+	Tunables.RemoveAll([](const FCXMRTunable& Existing) { return !IsTunableLive(Existing); });
 
 	if (const FCXMRTunable* Existing = Find(Tunable.Id))
 	{
@@ -78,7 +78,7 @@ void UCXMRTuningSubsystem::UnregisterOwner(const UObject* Owner)
 {
 	const int32 Removed = Tunables.RemoveAll([Owner](const FCXMRTunable& Tunable)
 	{
-		return Tunable.Owner.Get() == Owner || !IsLive(Tunable);
+		return Tunable.Owner.Get() == Owner || !IsTunableLive(Tunable);
 	});
 	if (Removed > 0)
 	{
@@ -91,7 +91,7 @@ TArray<const FCXMRTunable*> UCXMRTuningSubsystem::GetTunables() const
 	TArray<const FCXMRTunable*> Live;
 	for (const FCXMRTunable& Tunable : Tunables)
 	{
-		if (IsLive(Tunable))
+		if (IsTunableLive(Tunable))
 		{
 			Live.Add(&Tunable);
 		}
@@ -103,7 +103,7 @@ const FCXMRTunable* UCXMRTuningSubsystem::Find(FName Id) const
 {
 	for (const FCXMRTunable& Tunable : Tunables)
 	{
-		if (Tunable.Id == Id && IsLive(Tunable))
+		if (Tunable.Id == Id && IsTunableLive(Tunable))
 		{
 			return &Tunable;
 		}
@@ -119,7 +119,7 @@ bool UCXMRTuningSubsystem::ApplyValue(FName Id, float Value, bool bSave)
 		return false;
 	}
 
-	const float Applied = HasRange(Tunable->Kind) ? FMath::Clamp(Value, Tunable->Min, Tunable->Max) : Value;
+	const float Applied = IsClampedKind(Tunable->Kind) ? FMath::Clamp(Value, Tunable->Min, Tunable->Max) : Value;
 	Tunable->Set(Applied);
 
 	if (bSave && Tunable->bPersist)
