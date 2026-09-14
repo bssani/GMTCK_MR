@@ -35,7 +35,7 @@ GameMode(`BP_CXMRGameMode`)가 `BP_CXMRPawn`을 자동 스폰한다. 레벨에 p
 | `M` | Mixed Reality (패스스루) on/off |
 | `B` | VR 배경(하늘·바닥·안개) 보이기/숨기기 |
 | `N` | Masking — 마스크 메시 모양대로 실제 세계 뚫기 |
-| `K` | View Offset — `EYE`(눈 위치) ↔ `CAMERA`(패스스루 카메라 위치) |
+| `K` | View Offset — 눈 위치 ↔ 패스스루 카메라 위치. **시작 값은 헤드셋 기본을 따른다(VR = 눈, MR = 카메라).** `K`나 튜닝 창으로 한 번 고르면 MR을 켜고 꺼도 그 값을 유지한다 |
 | `T` | Depth Test |
 | `U` | Environment Depth Estimation |
 | `Y` | **Depth Test Range on/off** (§2-1) |

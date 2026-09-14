@@ -247,7 +247,15 @@ private:
 	UPROPERTY(Transient) int32 ManikinCount = 0;
 
 	// --- LOCAL / CLIENT (never replicate — per-headset preference) ---
-	UPROPERTY(Transient) float ViewOffset = 1.0f;
+	// Starts at the runtime's own default for VR (eyes). Until someone picks a value it follows the runtime's
+	// default for the current mode; once picked it is re-applied on every MR switch. See SyncViewOffsetWithMode.
+	UPROPERTY(Transient) float ViewOffset = 0.0f;
+	UPROPERTY(Transient) bool bViewOffsetChosen = false;
+
+	/** Keeps ViewOffset truthful across MR switches. Varjo renders from the cameras in MR and from the eyes in
+	 *  VR unless the app sets a position, so an unchosen value mirrors that; a chosen one is pushed again so the
+	 *  switch cannot quietly replace it. */
+	void SyncViewOffsetWithMode();
 
 	/** Pushes the cached range to the plugin. Called on change AND whenever the depth test is enabled,
 	 *  because the plugin resets its whole state struct on session creation (DepthPlugin.cpp
