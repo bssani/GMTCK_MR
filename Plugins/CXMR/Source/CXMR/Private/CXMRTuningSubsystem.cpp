@@ -146,6 +146,12 @@ bool UCXMRTuningSubsystem::ResetToDefault(FName Id)
 	return bApplied;
 }
 
+bool UCXMRTuningSubsystem::IsTunableEnabled(FName Id) const
+{
+	const FCXMRTunable* Tunable = Find(Id);
+	return !Tunable || !Tunable->IsEnabled || Tunable->IsEnabled();
+}
+
 TArray<FName> UCXMRTuningSubsystem::GetTunableIds() const
 {
 	TArray<FName> Ids;

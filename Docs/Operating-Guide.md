@@ -63,7 +63,7 @@ GameMode(`BP_CXMRGameMode`)가 `BP_CXMRPawn`을 자동 스폰한다. 레벨에 p
 **회전 중심**은 `VehicleRoot → Placement → Nudge Pivot`이다. 기본 `Markers`는 보이는 캘리브레이션 마커들의 중심이라,
 마커 옆에서 먼저 맞춰 둔 부분이 돌려도 제자리에 남는다. `Viewer`(내 머리), `VehicleOrigin`(차 원점)도 고를 수 있다.
 
-⚠️ 패널의 X/Y/Z/Yaw 표시값은 **내부 보정값(차 기준)**이라 키 방향과 부호가 일치하지 않는다.
+컨트롤 패널 Calibration 탭과 튜닝 창은 **차의 월드 위치**를 보여 준다(예전 패널의 X/Y/Z/Yaw는 차 기준 내부값이라 키 방향과 부호가 맞지 않았다).
 
 ⚠️ **NumLock이 꺼져 있으면 하나도 안 먹는다.** 꺼진 상태에서는 NumPad 7이 Home, 9가 PageUp으로
 전달되어 매핑이 통째로 빗나간다. 아무 반응이 없으면 NumLock부터 확인한다.
@@ -353,10 +353,7 @@ Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 **조작**: `VarjoInput → Cycle Manikin Action`에 Axis1D IA를 지정하면 스틱 flick으로 순환한다
 (트림/차량 순환과 같은 히스테리시스).
 
-⚠️ **패널에는 착좌 버튼이 없다.** C++ 쪽 바인딩(`Btn_NextManikin` / `Btn_PrevManikin` /
-`Txt_ManikinName` / `Txt_ManikinPos`)은 준비돼 있지만 **WBP에 해당 위젯이 없어서**
-`BindWidgetOptional`로 조용히 null이 된다. 즉 지금은 **컨트롤러로만** 쓸 수 있다.
-쓰려면 WBP에 행을 추가해야 한다.
+컨트롤 패널 **Viewer 탭 → Human factors → Manikin `[-][+]`**으로도 순환한다(2026-09-15부터. 예전 WBP 패널에는 이 행이 없었다).
 
 ⚠️ **차량 프로파일에 ergonomics 애셋이 연결돼 있어야 동작한다.** 안 걸려 있으면
 `ResolveProfile()`이 null을 반환해 눌러도 조용히 아무 일도 일어나지 않는다.
@@ -385,8 +382,8 @@ Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 | `Panel Offset` | (8, 0, 4) | 왼손 컨트롤러 기준 위치(cm) |
 | `Panel Rotation` | pitch −25, yaw 180 | 기울기. yaw 180이 착용자 쪽을 향하게 한다 |
 | `Panel Scale` | 0.03 | cm/픽셀. 432×520px → 약 13×16cm |
-| `Panel Draw Size` | 432×520 | WBP 콘텐츠 크기와 **일치해야** 잘리지 않는다 |
-| `Control Panel Class` | WBP_CXMRControlPanel | 다른 패널로 교체 가능 |
+| `Panel Draw Size` | 432×520 | 손 패널 해상도(픽셀). 내용이 더 길면 스크롤된다 |
+| `Control Panel Class` | CXMR Control Panel (C++) | 다른 패널로 교체 가능 |
 
 **패널이 안 보이면** 너무 가까워 근접 클리핑(10cm)에 잘린 것이다 — `Panel Offset`의 X를 늘린다.
 
@@ -398,7 +395,7 @@ Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 CXR에서 헤드셋을 쓴 사람은 clay를 보러 온 결정권자지 조작자가 아니다. **세션은 옆에서 다른
 사람이 돌린다.** 손목 패널을 레이저로 찌르게 하는 대신 마우스로 조작하라는 것이 이 창의 목적이다.
 
-- **손 패널과 같은 WBP를 쓴다.** 둘 다 서브시스템만 읽고 쓰므로 **상태가 저절로 동기화**된다 —
+- **손 패널과 같은 패널 위젯(C++)을 쓴다.** 둘 다 서브시스템만 읽고 쓰므로 **상태가 저절로 동기화**된다 —
   손 패널을 켜 두었다면 창에서 MR을 켤 때 손목 패널 표시도 같이 바뀐다
 - **HMD·컨트롤러 입력은 창 포커스와 무관하다**(OpenXR 런타임에서 직접 온다). 진행자가 창을
   클릭해도 착용자는 계속 컨트롤러를 쓸 수 있다
@@ -409,9 +406,9 @@ CXR에서 헤드셋을 쓴 사람은 clay를 보러 온 결정권자지 조작�
 
 | 프로퍼티 | 기본값 | 의미 |
 |---|---|---|
-| `Panel Class` | WBP_CXMRControlPanel | 창에 띄울 위젯 |
+| `Panel Class` | CXMR Control Panel (C++) | 창에 띄울 위젯 |
 | `Open On Begin Play` | true | 시작하자마자 열기 |
-| `Window Size` | 560 × 900 | 창 크기(픽셀) |
+| `Window Size` | 480 × 640 | 창 크기(픽셀) |
 | `Window Title` | CXMR Control | 제목 표시줄 |
 
 BP에서 `Open Window` / `Close Window` / `Toggle Window`를 부를 수 있다.
@@ -480,22 +477,24 @@ Tuning->UnregisterOwner(this);
 
 BP·Python에서는 `Set Tunable Value` / `Get Tunable Value` / `Invoke Tunable` / `Get Tunable Text`로 같은 항목을 다룬다.
 
-### 탭 구조
+### 컨트롤 패널 모양과 탭 구조
 
-한 열로 다 늘어놓으면 33cm가 되어 헤드셋에서 읽기 어려웠다. 지금은 **탭 3개**로 나뉘어 있다.
+**컨트롤 패널은 튜닝 창과 같은 모양이다**(2026-09-15). 둘 다 `CXMRPanelUI`가 그린다 — 어두운 바탕, 파란 분류 제목,
+왼쪽에 이름 · 오른쪽에 체크박스나 버튼. 데스크톱 컨트롤 창과 손 패널이 같은 패널을 쓴다.
+
+**위젯 블루프린트(`WBP_CXMRControlPanel`)는 더 이상 쓰지 않는다.** 패널은 C++(`UCXMRControlPanelWidget`)이 직접 만든다.
+예전에는 WBP의 위젯 이름으로 C++과 연결돼 있어서, 이름이 바뀌거나 위젯이 사라지면 행이 조용히 동작을 멈췄다.
 
 | 탭 | 내용 |
 |---|---|
-| **DISPLAY** | MR / VR Background / View Offset / Depth Test / Env Depth / Depth Range / Masking / Markers / Hands |
-| **CALIB** | Recalibrate·Place Vehicle + **MARKER OFFSET**(X/Y/Z/Yaw 값 + Save·Reset) |
-| **VIEWER** | 차량 / 트림 / CMF 순환 |
+| **Display** | Mixed reality: MR · VR 배경 · Render from(눈/카메라) · 마스킹 / Depth: Depth test · 환경 depth · 범위 제한 · 현재 범위 / Tracking: 마커 추적 · 손 스켈레톤 |
+| **Calibration** | 차 위치(월드) · 보인 마커 수 · 마커 다시 읽기 · 내 앞에 배치 / 수동 조정: 저장 · 조정 취소 (이동 자체는 넘버패드나 튜닝 창) |
+| **Viewer** | 차량 `[-][+]` · 트림 `[-][+]` · CMF · 다음 CMF / Human factors: 매니킨 `[-][+]` |
 
-현재 탭만 밝게, 나머지는 흐리게 표시된다(`Active Tab Color` / `Inactive Tab Color`).
-**행을 추가하면 `Panel Draw Size` Y도 같이 키워야 한다** — `SetDrawAtDesiredSize(false)`라
-DrawSize가 절대 기준이고, 넘치는 만큼 아래가 잘린다. `EditAnywhere`이므로 재빌드는 필요 없다.
-
-MARKER OFFSET의 X/Y/Z/Yaw 값은 `NativeTick`이 서브시스템에서 읽어 갱신한다. 조정 중에 실시간으로
-움직이는 게 정상이다.
+- 체크박스는 기능의 실제 상태를 매 프레임 읽는다. 키보드·컨트롤러로 바꿔도 바로 반영된다
+- 헤드셋이 지원하지 않는 항목(MR, 마커 추적)은 회색으로 비활성화된다
+- 예전 CALIB 탭의 X/Y/Z/Yaw는 차 기준 내부값이라 키 방향과 부호가 맞지 않았다. 대신 **차의 월드 위치**를 보여 준다
+- 내용이 `Panel Draw Size`보다 길면 잘리지 않고 스크롤된다
 
 ---
 
@@ -526,7 +525,7 @@ MARKER OFFSET의 X/Y/Z/Yaw 값은 `NativeTick`이 서브시스템에서 읽어 �
 | **MR을 켜도 패스스루가 안 뜨고 검정 화면이다** | 알파가 0이어야 실세계가 보인다. PPV의 `PP_MR`이 마스크 바깥까지 불투명하게 칠하고 있는지 의심 — PPV blendables에서 `PP_MR`을 빼고 재현되는지 본다 |
 | 마커를 인식해도 차가 안 움직인다 | 마커 ID가 프로파일에 없다 / Role이 `Calibration`이 아니다 / 이미 freeze됐다(`R`로 재캘리브) |
 | **로그에 `contains id 0` 경고** | 프로파일이 ID 0으로 authoring돼 있다. 0은 Varjo가 무효값으로 거부한다 — 실물에 인쇄된 번호를 넣는다 (§3) |
-| 착좌 순환이 반응 없다 | 패널 `< 착좌 >` 버튼을 쓰거나 `Cycle Manikin Action`에 IA를 지정한다 (§6) |
+| 착좌 순환이 반응 없다 | 패널 Viewer 탭의 Manikin `[-][+]`을 쓰거나 `Cycle Manikin Action`에 IA를 지정한다. 차량 프로파일에 ergonomics 애셋이 있어야 한다 (§6) |
 | 차가 마커에서 어긋난 곳에 놓인다 | `Local Offset`이 틀렸다 (§3) |
 | MR을 켜도 실제 세계가 안 보인다 | 배경 오브젝트에 VROnly가 없다 → `B`로 확인 |
 | 패널의 Mixed Reality가 안 켜진다 | CVar를 못 찾은 것. 로그에 `LogCXMR: Warning: Mixed reality toggle ignored` |
@@ -538,7 +537,7 @@ MARKER OFFSET의 X/Y/Z/Yaw 값은 `NativeTick`이 서브시스템에서 읽어 �
 | 재시작하면 캘리브레이션이 사라진다 | `Saved/CXMR/MarkerCalib_*.json`이 있는지 확인. 없으면 저장이 안 된 것 — `CXMR.SaveCalibration`을 치면 경로가 로그에 찍힌다 (§3-1) |
 | `CXMR.LearnMarkers`가 아무것도 안 한다 | 마커가 하나도 안 잡혔거나, 잡힌 마커가 프로파일에 없다. 로그에 이유가 찍힌다 |
 | 문을 열었더니 차가 튄다 | 문에 마커가 붙어 있다. 움직이는 부품에는 붙이면 안 된다 (§3-1) |
-| 패널 아래쪽이 잘린다 | `Panel Draw Size` Y를 키운다 (§7). 재빌드 불필요 |
+| 손 패널이 한눈에 안 들어온다 | 잘리지 않고 스크롤된다. 한 번에 다 보이게 하려면 `Panel Draw Size` Y를 키우고 `Panel Scale`을 줄인다 (§7). 재빌드 불필요 |
 
 **로그 카테고리**: `LogCXMR`(서브시스템) `LogCXMRHands`(손) `LogCXMRDebug`(마커)
 `LogCXMRErgo`(착좌) `LogCXMRPawn`(패널) `LogCXMRPlacement`(배치·캘리브) `LogCXMRMask`(마스킹)

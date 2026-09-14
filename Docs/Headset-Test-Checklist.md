@@ -19,14 +19,14 @@
 
 ## 1. MR 패스스루 — 가장 먼저
 
-**`M` 키** (또는 패널의 Mixed Reality 버튼).
+**`M` 키** (또는 컨트롤 창 Display 탭의 Mixed reality 체크박스).
 
 - ✅ 기대: 실제 방이 보이기 시작
 - ⚠️ **가상 하늘·바닥이 남아 실제 세계를 가리면** `B`(VR Background)를 눌러 끈다.
   `SkyAtmosphere` / `ExponentialHeightFog` / `VolumetricCloud` / `SM_SkySphere` / `Floor`에
   `CXMRSceneObjectComponent(VROnly)`가 붙어 있어 한 번에 화면에서 빠진다. 조명·반사에는 계속 남으므로 MR에서도
   가상 물체 밝기가 VR과 같아야 한다(2026-09-14 수정 — 전에는 액터를 숨겨 스카이라이트가 꺼지면서 어두워졌다).
-- ❌ **패널의 Mixed Reality가 OFF에서 안 움직이면** = CVar를 못 찾은 것. 로그에
+- ❌ **컨트롤 창의 Mixed reality 체크가 안 켜지면** = CVar를 못 찾은 것. 로그에
   `LogCXMR: Warning: Mixed reality toggle ignored` 가 찍힌다. (상태를 거짓으로 바꾸지 않도록 만든 동작)
 
 ### 🔴 `B`를 껐는데 검정 화면이면 — 알파 문제 (미해결)
@@ -55,10 +55,10 @@ test가 **컴포지터 레이어**에서 처리되어 알파 합성 경로를 �
 
 | 키 | 기능 | 확인 |
 |---|---|---|
-| `K` | View Offset | 패널 표시가 `CAMERA` ↔ `EYE`로 바뀐다. 근거리 물체를 볼 때 정렬감 차이 |
+| `K` | View Offset | 컨트롤 창 `Render from` 버튼이 `Cameras` ↔ `Eyes`로 바뀐다(튜닝 창 View offset 1 ↔ 0). 근거리 물체를 볼 때 정렬감 차이 |
 | `T` | Depth Test | 손을 눈앞에 대면 가상 물체보다 앞에 보이는지 |
 | `U` | Env Depth | depth estimation 활성. **`T`가 먼저 켜져 있어야 한다** |
-| `Y` | Depth Test **Range** on/off | 패널에 `0.00 - 0.75 m` ↔ `unbounded` |
+| `Y` | Depth Test **Range** on/off | 컨트롤 창 Range가 `0.00 - 0.75 m` ↔ `unbounded` |
 | `←`/`→` | NearZ 감소/증가 | 누르고 있으면 연속 변화 |
 | `↓`/`↑` | FarZ 감소/증가 | 〃 |
 
@@ -94,7 +94,7 @@ depth 때문에 가상 물체가 심하게 깜빡였다.
 ### 🔴 0단계 — `V`를 먼저 누른다
 
 **마커 추적은 세션 시작 시 꺼져 있다.** `V`를 누르기 전에는 마커 이벤트가 단 한 건도 오지 않는다.
-이 단계가 이 문서에 빠져 있어서 "감지 자체가 안 된다"로 오진하기 쉬웠다. 패널의 Markers가 ON이
+이 단계가 이 문서에 빠져 있어서 "감지 자체가 안 된다"로 오진하기 쉬웠다. 컨트롤 창의 Marker tracking이 체크
 되는지 본다. 안 켜지면 로그에 `LogCXMR: Warning: Marker tracking could not be enabled`이 찍힌다.
 
 **그 다음 `CXMR.DebugMarkers 1`을 켜고 실물 마커를 시야에 넣는다.**
@@ -152,6 +152,8 @@ CustomDepth에만 그려진다).
 - ⚠️ **`PanelOffset(8,0,4)` / `PanelRotation(pitch -25, yaw 180)` / `PanelScale 0.03`은 추정값이다.**
   손에 대해 어디에 걸리는지 보고 `BP_CXMRPawn`에서 조정 — **리빌드 불필요**.
 - 안 보이면: 너무 가까워 근접 클리핑에 잘렸을 수 있다(`PanelOffset` X를 늘린다).
+- 모양은 데스크톱 컨트롤 창과 같다(2026-09-15부터 C++ 패널, 튜닝 창과 같은 디자인). 체크박스·버튼을 레이저로 누른다.
+  내용이 길면 스크롤된다 — 헤드셋에서 스크롤이 불편하면 `Panel Draw Size` Y를 키우고 `Panel Scale`을 줄인다
 
 ## 6. Viewer — 차량/트림/CMF
 
@@ -159,7 +161,7 @@ CustomDepth에만 그려진다).
 |---|---|
 | 오른쪽 스틱 좌우 | 트림 순환 (Base ↔ Sport — 위 큐브 모양이 바뀜) |
 | 오른쪽 스틱 상하 | 차량 순환 (Test Car A ↔ B) |
-| 패널 `Next CMF` | 재질 변경 (Plain ↔ Grid) |
+| 컨트롤 창 Viewer 탭 `Next CMF` | 재질 변경 (Plain ↔ Grid) |
 | 왼쪽 스틱 좌우 / `A`·`B` | 턴테이블 회전 |
 
 ⚠️ **턴테이블은 `Placement.Mode = PawnRelative`일 때만 동작한다.** 지금은 마커 테스트를 위해
@@ -170,13 +172,13 @@ CustomDepth에만 그려진다).
 
 ## 7. Human Factors — eye 스냅
 
-**조작: 패널의 `< 착좌 >` 버튼.** (스틱으로 하려면 `VarjoInput → Cycle Manikin Action`에
+**조작: 컨트롤 창 Viewer 탭 → Human factors → Manikin `[-][+]`.** (스틱으로 하려면 `VarjoInput → Cycle Manikin Action`에
 Axis1D IA를 지정한다 — 애셋이 아직 없다.)
 
 ⚠️ **이 절은 지금까지 검증이 불가능했다.** 컴포넌트는 완전히 구현돼 구독까지 하고 있었지만
 `RequestErgonomicsStep`을 부르는 곳이 **하나도 없어서** 발동 자체가 안 됐다. 이 문서가
 "MR + MarkerAnchor면 아무것도 안 움직이는 게 정상"이라고 적어둔 탓에, 안 움직이는 것이
-정상인지 미배선인지 구분할 수도 없었다. 이제 패널 버튼이 기본 경로다.
+정상인지 미배선인지 구분할 수도 없었다. 이제 컨트롤 창의 Manikin 버튼이 기본 경로다.
 
 `DA_Ergonomics_TestCar`에 5th / 50th / 95th 세 위치가 눈높이만 다르게 들어 있다(105 / 120 / 135cm).
 

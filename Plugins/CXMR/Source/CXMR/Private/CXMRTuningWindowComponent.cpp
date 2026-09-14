@@ -1,6 +1,7 @@
 // Copyright GMTCK CX.
 
 #include "CXMRTuningWindowComponent.h"
+#include "CXMRPanelUI.h"
 #include "CXMRSubsystem.h"
 #include "CXMRTuningSubsystem.h"
 #include "CXMRVarjoInputComponent.h"
@@ -14,14 +15,6 @@
 #include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/App.h"
-#include "Styling/CoreStyle.h"
-#include "Widgets/Input/SButton.h"
-#include "Widgets/Input/SCheckBox.h"
-#include "Widgets/Input/SSpinBox.h"
-#include "Widgets/Layout/SBorder.h"
-#include "Widgets/Layout/SBox.h"
-#include "Widgets/Layout/SScrollBox.h"
-#include "Widgets/SBoxPanel.h"
 #include "Widgets/SWindow.h"
 #include "Widgets/Text/STextBlock.h"
 
@@ -45,8 +38,6 @@ static FAutoConsoleCommandWithWorld GCXMRTuningWindow(
 
 namespace
 {
-	using FWeakTuning = TWeakObjectPtr<UCXMRTuningSubsystem>;
-
 	float AsValue(bool bOn) { return bOn ? 1.0f : 0.0f; }
 
 	/** The level-wide post-process volume the exposure row writes to. */
@@ -63,144 +54,6 @@ namespace
 			}
 		}
 		return nullptr;
-	}
-
-	TSharedRef<SWidget> MakeRow(const FWeakTuning& Weak, const FCXMRTunable& Tunable)
-	{
-		const FName Id = Tunable.Id;
-		TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
-
-		if (Tunable.Kind == ECXMRTunableKind::Action)
-		{
-			Row->AddSlot().FillWidth(1.0f)
-			[
-				SNew(SButton)
-				.HAlign(HAlign_Center)
-				.Text(Tunable.Label)
-				.OnClicked_Lambda([Weak, Id]
-				{
-					if (Weak.IsValid()) { Weak->InvokeTunable(Id); }
-					return FReply::Handled();
-				})
-			];
-			return Row;
-		}
-
-		Row->AddSlot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(0.0f, 0.0f, 8.0f, 0.0f)
-		[
-			SNew(STextBlock).Text(Tunable.Label)
-		];
-
-		switch (Tunable.Kind)
-		{
-		case ECXMRTunableKind::Bool:
-			Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
-			[
-				SNew(SCheckBox)
-				.IsChecked_Lambda([Weak, Id]
-				{
-					return (Weak.IsValid() && Weak->GetTunableValue(Id) > 0.5f) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
-				})
-				.OnCheckStateChanged_Lambda([Weak, Id](ECheckBoxState State)
-				{
-					if (Weak.IsValid()) { Weak->ApplyValue(Id, State == ECheckBoxState::Checked ? 1.0f : 0.0f, true); }
-				})
-			];
-			break;
-
-		case ECXMRTunableKind::Float:
-			Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
-			[
-				SNew(SBox).WidthOverride(150.0f)
-				[
-					SNew(SSpinBox<float>)
-					.MinValue(Tunable.Min).MaxValue(Tunable.Max)
-					.MinSliderValue(Tunable.Min).MaxSliderValue(Tunable.Max)
-					.Delta(Tunable.Delta)
-					.Value_Lambda([Weak, Id] { return Weak.IsValid() ? Weak->GetTunableValue(Id) : 0.0f; })
-					// Applied live while dragging, saved once the drag or the typed edit ends.
-					.OnValueChanged_Lambda([Weak, Id](float Value) { if (Weak.IsValid()) { Weak->ApplyValue(Id, Value, false); } })
-					.OnValueCommitted_Lambda([Weak, Id](float Value, ETextCommit::Type) { if (Weak.IsValid()) { Weak->ApplyValue(Id, Value, true); } })
-					.OnEndSliderMovement_Lambda([Weak, Id](float Value) { if (Weak.IsValid()) { Weak->ApplyValue(Id, Value, true); } })
-				]
-			];
-			Row->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(6.0f, 0.0f, 0.0f, 0.0f)
-			[
-				SNew(SBox).WidthOverride(52.0f) [ SNew(STextBlock).Text(Tunable.Unit) ]
-			];
-			break;
-
-		case ECXMRTunableKind::Choice:
-		{
-			const TArray<FText> Options = Tunable.Options;
-			Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
-			[
-				SNew(SBox).WidthOverride(150.0f)
-				[
-					SNew(SButton)
-					.HAlign(HAlign_Center)
-					.Text_Lambda([Weak, Id, Options]
-					{
-						const int32 Index = Weak.IsValid() ? FMath::RoundToInt(Weak->GetTunableValue(Id)) : 0;
-						return Options.IsValidIndex(Index) ? Options[Index] : FText::GetEmpty();
-					})
-					.OnClicked_Lambda([Weak, Id, Count = Options.Num()]
-					{
-						if (Weak.IsValid() && Count > 0)
-						{
-							const int32 Index = FMath::RoundToInt(Weak->GetTunableValue(Id));
-							Weak->ApplyValue(Id, static_cast<float>((Index + 1) % Count), true);
-						}
-						return FReply::Handled();
-					})
-				]
-			];
-			break;
-		}
-
-		case ECXMRTunableKind::Stepper:
-			Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
-			[
-				SNew(SBox).WidthOverride(44.0f)
-				[
-					SNew(SButton).HAlign(HAlign_Center).Text(LOCTEXT("Minus", "-"))
-					.OnClicked_Lambda([Weak, Id] { if (Weak.IsValid()) { Weak->InvokeTunable(Id, -1.0f); } return FReply::Handled(); })
-				]
-			];
-			Row->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(4.0f, 0.0f, 0.0f, 0.0f)
-			[
-				SNew(SBox).WidthOverride(44.0f)
-				[
-					SNew(SButton).HAlign(HAlign_Center).Text(LOCTEXT("Plus", "+"))
-					.OnClicked_Lambda([Weak, Id] { if (Weak.IsValid()) { Weak->InvokeTunable(Id, 1.0f); } return FReply::Handled(); })
-				]
-			];
-			break;
-
-		case ECXMRTunableKind::Readout:
-			Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
-			[
-				SNew(STextBlock)
-				.ColorAndOpacity(FLinearColor(0.75f, 0.85f, 0.75f))
-				.Text_Lambda([Weak, Id] { return Weak.IsValid() ? FText::FromString(Weak->GetTunableText(Id)) : FText::GetEmpty(); })
-			];
-			break;
-
-		default:
-			break;
-		}
-
-		if (Tunable.bPersist)
-		{
-			Row->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(6.0f, 0.0f, 0.0f, 0.0f)
-			[
-				SNew(SButton)
-				.Text(LOCTEXT("Default", "Default"))
-				.ToolTipText(LOCTEXT("DefaultTip", "Back to the default value, and forget the saved one"))
-				.OnClicked_Lambda([Weak, Id] { if (Weak.IsValid()) { Weak->ResetToDefault(Id); } return FReply::Handled(); })
-			];
-		}
-		return Row;
 	}
 }
 
@@ -385,51 +238,20 @@ bool UCXMRTuningWindowComponent::IsWindowOpen() const
 
 TSharedRef<SWidget> UCXMRTuningWindowComponent::BuildPanel() const
 {
-	const FWeakTuning Weak(GetTuning());
-	TSharedRef<SVerticalBox> List = SNew(SVerticalBox);
-
-	if (UCXMRTuningSubsystem* Tuning = Weak.Get())
+	UCXMRTuningSubsystem* Tuning = GetTuning();
+	if (!Tuning)
 	{
-		const TArray<const FCXMRTunable*> Rows = Tuning->GetTunables();
-
-		// Group by category in order of first appearance — features register as their actors begin play, so rows of
-		// one category can arrive between rows of another.
-		TArray<FString> Categories;
-		for (const FCXMRTunable* Row : Rows)
-		{
-			Categories.AddUnique(Row->Category.ToString());
-		}
-
-		for (const FString& Category : Categories)
-		{
-			List->AddSlot().AutoHeight().Padding(10.0f, 14.0f, 10.0f, 4.0f)
-			[
-				SNew(STextBlock)
-				.Text(FText::FromString(Category))
-				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
-				.ColorAndOpacity(FLinearColor(0.55f, 0.75f, 1.0f))
-			];
-			for (const FCXMRTunable* Row : Rows)
-			{
-				if (Row->Category.ToString() == Category)
-				{
-					List->AddSlot().AutoHeight().Padding(10.0f, 2.0f)[ MakeRow(Weak, *Row) ];
-				}
-			}
-		}
-	}
-	else
-	{
-		List->AddSlot().AutoHeight().Padding(10.0f)[ SNew(STextBlock).Text(LOCTEXT("NoRegistry", "Tuning registry is not available.")) ];
+		return CXMRPanelUI::MakeBackground(SNew(STextBlock).Text(LOCTEXT("NoRegistry", "Tuning registry is not available.")));
 	}
 
-	return SNew(SBorder)
-		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-		.BorderBackgroundColor(FLinearColor(0.035f, 0.037f, 0.042f))
-		.Padding(4.0f)
-		[
-			SNew(SScrollBox) + SScrollBox::Slot()[ List ]
-		];
+	// Every row goes through the registry by id, so a row whose owner has left reads as empty instead of calling
+	// into a destroyed component.
+	TArray<CXMRPanelUI::FRowSpec> Rows;
+	for (const FCXMRTunable* Tunable : Tuning->GetTunables())
+	{
+		Rows.Add({ *Tunable, CXMRPanelUI::BindToRegistry(Tuning, *Tunable) });
+	}
+	return CXMRPanelUI::MakeBackground(CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeRowList(Rows)));
 }
 
 void UCXMRTuningWindowComponent::RebuildContent()
