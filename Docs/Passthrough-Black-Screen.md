@@ -23,7 +23,7 @@
 **→ 조치는 §3의 A안.** 나머지 세 용의자(scene color format / TSR 알파 / 알파 전파)는
 이 건의 원인이 아니다. 다만 A안을 적용한 뒤에도 증상이 남으면 그때 아래 절차로 돌아온다.
 
-**✅ A안 적용됨 (2026-09-13)**: 상세는 [Editor-Followup.md](Editor-Followup.md) §1에 있다. PP_MR이 엉뚱한
+**✅ A안 적용됨 (2026-09-13), 알파 방향 정정 (2026-09-14)**: 상세는 [Editor-Followup.md](Editor-Followup.md) §1에 있다. PP_MR이 엉뚱한
 콜렉션(`/Game/VarjoContent/...`)을 보던 회귀도 같이 고쳤고, PostProcessVolume의 PP_MR 가중치도 1로 되돌렸다.
 XR-4에서 `M`+`B`가 여전히 검으면 §2의 C → B → D 순서로 확인한다.
 
@@ -153,14 +153,15 @@ ShowFlag.PostProcessing 0
 |---|---|---|
 | **C** | `Config/DefaultEngine.ini`에 `r.SceneColorFormat=3` | 코드 쪽에서 처리 가능 |
 | **B** | `r.TSR.AlphaChannel=1`, 안 되면 `r.AntiAliasingMethod=2` | 〃 |
-| **A** | `PP_MR`에서 구멍 바깥은 입력 알파를 그대로 통과시키도록 수정 | **에디터 필요** |
+| **A** | `PP_MR`에서 구멍 바깥은 **1 − 입력 알파**를 쓰도록 수정 (그대로 통과시키면 반대가 된다) | **에디터 필요** |
 | **D** | config 로드 경로 수정 | 코드 쪽 |
 
 ### A인 경우의 머티리얼 수정
 
 `/CXMR/Core/Materials/PP_MR`:
 - 구멍(`CustomDepth < SceneDepth` **이고** `MRMask`=1) → Opacity 0 (지금과 동일)
-- **그 외** → 상수 1.0 대신 `SceneTexture:PostProcessInput0`의 **알파를 그대로 통과**
+- **그 외** → 상수 1.0 대신 **1 − `SceneTexture:PostProcessInput0` 알파**. ⚠️ 언리얼 내부 알파는 0 = 불투명이라
+  뒤집어야 한다. 그대로 통과시키면 VR이 반투명해지고 MR은 검은 화면이 된다(2026-09-14 실기)
 
 ⚠️ `PP_MR`은 `/CXMR/` 공용 콘텐츠다 — 고치면 모든 프로그램에 영향이 간다.
 ⚠️ 수정 후 **`N`(마스킹) 회귀 확인 필수** — 마스크 큐브 구멍은 계속 뚫려야 한다.
