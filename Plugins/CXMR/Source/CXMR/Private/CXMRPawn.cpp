@@ -67,8 +67,8 @@ ACXMRPawn::ACXMRPawn()
 	// Off unless chosen: a second camera renders the whole scene again.
 	Spectator = CreateDefaultSubobject<UCXMRSpectatorComponent>(TEXT("Spectator"));
 
-	// Drawn only while CXMR.VirtualHands is set. A virtual console hides the real hand in MR; this is the
-	// hand that stays visible against it.
+	// On while mixed reality is on (CXMR.HandCutOut). A virtual console hides the real hand in MR; this cuts the hand's
+	// shape out of it so the camera image of the hand shows.
 	VirtualHands = CreateDefaultSubobject<UCXMRVirtualHandComponent>(TEXT("VirtualHands"));
 
 	// --- Control panel: world-space quad on the left hand ---

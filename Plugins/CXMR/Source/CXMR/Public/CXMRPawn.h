@@ -57,7 +57,7 @@ public:
 	/** Headset verification instrument. Draws the tracked hand skeleton; toggled with H. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRHandDebugComponent> HandDebug;
 
-	/** Tracked hands as solid virtual geometry holding a plug, so they show against virtual surfaces. CXMR.VirtualHands. */
+	/** Cuts the tracked hands and the held plug out of the virtual scene in MR so the real hands show; estimates the plug tip for USB ports. CXMR.HandCutOut. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Hands") TObjectPtr<UCXMRVirtualHandComponent> VirtualHands;
 
 	/** Headset verification instrument. Draws where the wearer looks; toggled with G. */

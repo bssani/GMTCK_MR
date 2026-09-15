@@ -7,6 +7,7 @@
 #include "Camera/CameraComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/GameInstance.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -15,24 +16,30 @@
 #include "HAL/IConsoleManager.h"
 #include "HeadMountedDisplayTypes.h"
 #include "IHandTracker.h"
-#include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCXMRVirtualHands, Log, All);
 
-static TAutoConsoleVariable<int32> CVarVirtualHands(
-	TEXT("CXMR.VirtualHands"),
-	0,
-	TEXT("Draw the tracked hands. 0 = off, 1 = solid virtual hands, one holding a virtual USB plug,\n")
-	TEXT("2 = cut-out: a hand-shaped hole in the virtual scene shows the real hands and plug (mixed reality; switches masking on).\n")
-	TEXT("With 1, leave depth test (T/U) off while comparing, or the real hand shows through as well."),
+static TAutoConsoleVariable<int32> CVarHandCutOut(
+	TEXT("CXMR.HandCutOut"),
+	1,
+	TEXT("Cut the tracked hands and the held plug out of the virtual scene while mixed reality is on, so the real hands\n")
+	TEXT("show in front of virtual surfaces (switches masking on). 0 = off: show the hands with depth test (T/U) instead."),
 	ECVF_Default);
 
-static TAutoConsoleVariable<int32> CVarVirtualHandsPreview(
-	TEXT("CXMR.VirtualHands.Preview"),
+static TAutoConsoleVariable<int32> CVarHandCutOutPreview(
+	TEXT("CXMR.HandCutOut.Preview"),
 	0,
-	TEXT("Draw a canned pair of hands in front of the camera instead of reading the tracker.\n")
-	TEXT("For checking the geometry in PIE without a headset. Solid, or cut-out while CXMR.VirtualHands is 2."),
+	TEXT("Cut out a canned pair of hands in front of the camera instead of reading the tracker, even outside mixed reality.\n")
+	TEXT("For checking the shape in PIE without a headset: the hands show as black holes over virtual objects."),
+	ECVF_Default);
+
+static TAutoConsoleVariable<int32> CVarPlugTipDebug(
+	TEXT("CXMR.PlugTipDebug"),
+	0,
+	TEXT("Draw the plug tip USB ports judge: a line that starts at the estimated tip and runs on in the plug's direction.\n")
+	TEXT("Tune the pawn's VirtualHands > Plug Offset until the line starts at the real plug's tip. Turn the cut-out off\n")
+	TEXT("(CXMR.HandCutOut 0) meanwhile: where the line passes behind the fingers, the hand's hole hides it."),
 	ECVF_Default);
 
 namespace
@@ -71,7 +78,7 @@ namespace
 		{ EHandKeypoint::Wrist, EHandKeypoint::MiddleMetacarpal },
 		{ EHandKeypoint::Wrist, EHandKeypoint::RingMetacarpal },
 		{ EHandKeypoint::Wrist, EHandKeypoint::LittleMetacarpal },
-		// Knuckle line, so the back of the hand reads as one surface rather than five sticks.
+		// Knuckle line, so the back of the hand is one surface rather than five sticks.
 		{ EHandKeypoint::IndexProximal,  EHandKeypoint::MiddleProximal },
 		{ EHandKeypoint::MiddleProximal, EHandKeypoint::RingProximal },
 		{ EHandKeypoint::RingProximal,   EHandKeypoint::LittleProximal },
@@ -180,11 +187,9 @@ UCXMRVirtualHandComponent::UCXMRVirtualHandComponent()
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereFinder(TEXT("/Engine/BasicShapes/Sphere"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderFinder(TEXT("/Engine/BasicShapes/Cylinder"));
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube"));
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> MaterialFinder(TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
-	if (SphereFinder.Succeeded())   { SphereMesh    = SphereFinder.Object; }
-	if (CylinderFinder.Succeeded()) { CylinderMesh  = CylinderFinder.Object; }
-	if (CubeFinder.Succeeded())     { CubeMesh      = CubeFinder.Object; }
-	if (MaterialFinder.Succeeded()) { ShapeMaterial = MaterialFinder.Object; }
+	if (SphereFinder.Succeeded())   { SphereMesh   = SphereFinder.Object; }
+	if (CylinderFinder.Succeeded()) { CylinderMesh = CylinderFinder.Object; }
+	if (CubeFinder.Succeeded())     { CubeMesh     = CubeFinder.Object; }
 }
 
 IHandTracker* UCXMRVirtualHandComponent::GetHandTracker() const
@@ -198,14 +203,21 @@ IHandTracker* UCXMRVirtualHandComponent::GetHandTracker() const
 	return &Features.GetModularFeature<IHandTracker>(Feature);
 }
 
+UCXMRSubsystem* UCXMRVirtualHandComponent::GetCXMR() const
+{
+	const UWorld* World = GetWorld();
+	const UGameInstance* GI = World ? World->GetGameInstance() : nullptr;
+	return GI ? GI->GetSubsystem<UCXMRSubsystem>() : nullptr;
+}
+
 void UCXMRVirtualHandComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (!SphereMesh || !CylinderMesh || !CubeMesh || !ShapeMaterial)
+	if (!SphereMesh || !CylinderMesh || !CubeMesh)
 	{
-		// Say it now: a hand that silently never draws looks exactly like a tracker that never sees one.
-		UE_LOG(LogCXMRVirtualHands, Warning, TEXT("Virtual hands are missing a mesh or the material and will not draw."));
+		// Say it now: a hand that silently never shows looks exactly like a tracker that never sees one.
+		UE_LOG(LogCXMRVirtualHands, Warning, TEXT("Hand cut-out is missing a mesh and will not cut anything."));
 		return;
 	}
 
@@ -218,18 +230,18 @@ void UCXMRVirtualHandComponent::BeginPlay()
 	PlugTip     = NewObject<UStaticMeshComponent>(Owner, TEXT("VirtualHand_PlugTip"));
 	PlugCable   = NewObject<UStaticMeshComponent>(Owner, TEXT("VirtualHand_PlugCable"));
 
-	ConfigureShape(LeftJoints,  SphereMesh,   SkinColor);
-	ConfigureShape(LeftBones,   CylinderMesh, SkinColor);
-	ConfigureShape(RightJoints, SphereMesh,   SkinColor);
-	ConfigureShape(RightBones,  CylinderMesh, SkinColor);
-	ConfigureShape(PlugBody,    CubeMesh,     PlugColor);
-	ConfigureShape(PlugTip,     CubeMesh,     TipColor);
-	ConfigureShape(PlugCable,   CylinderMesh, PlugColor);
+	ConfigureShape(LeftJoints,  SphereMesh);
+	ConfigureShape(LeftBones,   CylinderMesh);
+	ConfigureShape(RightJoints, SphereMesh);
+	ConfigureShape(RightBones,  CylinderMesh);
+	ConfigureShape(PlugBody,    CubeMesh);
+	ConfigureShape(PlugTip,     CubeMesh);
+	ConfigureShape(PlugCable,   CylinderMesh);
 }
 
 void UCXMRVirtualHandComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
-	UpdateCutOutMasking(false);
+	UpdateCutOutMasking(false, false);
 
 	for (UStaticMeshComponent* Part : GetParts())
 	{
@@ -246,18 +258,24 @@ TArray<UStaticMeshComponent*, TInlineAllocator<7>> UCXMRVirtualHandComponent::Ge
 	return Parts;
 }
 
-void UCXMRVirtualHandComponent::ConfigureShape(UStaticMeshComponent* Component, UStaticMesh* Mesh, const FLinearColor& Color)
+void UCXMRVirtualHandComponent::ConfigureShape(UStaticMeshComponent* Component, UStaticMesh* Mesh)
 {
 	Component->SetStaticMesh(Mesh);
-
-	UMaterialInstanceDynamic* Material = UMaterialInstanceDynamic::Create(ShapeMaterial, Component);
-	Material->SetVectorParameterValue(TEXT("Color"), Color);
-	Component->SetMaterial(0, Material);
 
 	Component->SetMobility(EComponentMobility::Movable);
 	Component->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Component->SetCanEverAffectNavigation(false);
 	Component->SetCastShadow(false);
+
+	// A mask, never a visible mesh: written into Custom Depth, which PP_MR reads as "open a hole here", and absent from
+	// every other pass — the same flags a Mask scene object gets (CXMRSceneObjectComponent::ApplyMaskRenderFlags).
+	Component->SetRenderCustomDepth(true);
+	Component->SetRenderInMainPass(false);
+	Component->SetRenderInDepthPass(false);
+	Component->SetVisibleInRayTracing(false);
+	Component->SetReceivesDecals(false);
+	Component->bVisibleInReflectionCaptures  = false;
+	Component->bVisibleInRealTimeSkyCaptures = false;
 
 	// Poses arrive in world space. Absolute transforms on an identity component make instance space equal
 	// world space, so the pawn moving underneath never drags the hands along a second time.
@@ -273,25 +291,7 @@ void UCXMRVirtualHandComponent::ConfigureShape(UStaticMeshComponent* Component, 
 	Component->SetVisibility(false);
 }
 
-void UCXMRVirtualHandComponent::ApplyRenderMode(bool bCutOut)
-{
-	bCutOutRendering = bCutOut;
-
-	for (UStaticMeshComponent* Part : GetParts())
-	{
-		// Cut-out: written into Custom Depth only, which PP_MR reads as "open a hole here" — the same flags a Mask scene
-		// object gets (CXMRSceneObjectComponent::ApplyMaskRenderFlags). Solid: an ordinary mesh again.
-		Part->SetRenderCustomDepth(bCutOut);
-		Part->SetRenderInMainPass(!bCutOut);
-		Part->SetRenderInDepthPass(!bCutOut);
-		Part->SetVisibleInRayTracing(!bCutOut);
-		Part->bVisibleInReflectionCaptures  = !bCutOut;
-		Part->bVisibleInRealTimeSkyCaptures = !bCutOut;
-		Part->MarkRenderStateDirty();
-	}
-}
-
-void UCXMRVirtualHandComponent::UpdateCutOutMasking(bool bActive)
+void UCXMRVirtualHandComponent::UpdateCutOutMasking(bool bActive, bool bPreview)
 {
 	if (bActive == bCutOutActive)
 	{
@@ -299,35 +299,30 @@ void UCXMRVirtualHandComponent::UpdateCutOutMasking(bool bActive)
 	}
 	bCutOutActive = bActive;
 
-	const UWorld* World = GetWorld();
-	const UGameInstance* GI = World ? World->GetGameInstance() : nullptr;
-	UCXMRSubsystem* CXMR = GI ? GI->GetSubsystem<UCXMRSubsystem>() : nullptr;
-	if (!CXMR)
-	{
-		return;
-	}
-
+	UCXMRSubsystem* CXMR = GetCXMR();
 	if (bActive)
 	{
 		// PP_MR cuts nothing while masking is off, and a cut-out that silently shows no hand reads as a broken tracker.
 		// A masking state the operator already chose is left alone.
-		if (!CXMR->IsMaskingOn())
+		if (CXMR && !CXMR->IsMaskingOn())
 		{
 			CXMR->SetMasking(true);
 			bTurnedMaskingOn = true;
 		}
-		UE_LOG(LogCXMRVirtualHands, Log,
-			TEXT("Hand cut-out: masking %s. The real hand shows through in mixed reality (M); the forearm is not cut out."),
-			bTurnedMaskingOn ? TEXT("switched on") : TEXT("already on"));
+		UE_LOG(LogCXMRVirtualHands, Log, TEXT("Hand cut-out ON%s: real hands show through (masking %s, tracker %s). The forearm is not cut out."),
+			bPreview ? TEXT(" (canned preview pose)") : TEXT(""),
+			!CXMR ? TEXT("unavailable") : (bTurnedMaskingOn ? TEXT("switched on") : TEXT("already on")),
+			GetHandTracker() ? TEXT("present") : TEXT("MISSING"));
 	}
-	else if (bTurnedMaskingOn)
+	else
 	{
+		const bool bRestore = bTurnedMaskingOn && CXMR && CXMR->IsMaskingOn();
 		bTurnedMaskingOn = false;
-		if (CXMR->IsMaskingOn())
+		if (bRestore)
 		{
 			CXMR->SetMasking(false);
-			UE_LOG(LogCXMRVirtualHands, Log, TEXT("Hand cut-out ended: masking switched back off."));
 		}
+		UE_LOG(LogCXMRVirtualHands, Log, TEXT("Hand cut-out OFF%s"), bRestore ? TEXT(" (masking switched back off)") : TEXT(""));
 	}
 }
 
@@ -335,32 +330,17 @@ void UCXMRVirtualHandComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	const bool bPreview = CVarVirtualHandsPreview.GetValueOnGameThread() != 0;
-	const int32 Mode = CVarVirtualHands.GetValueOnGameThread();
-	const bool bOn = bPreview || Mode != 0;
-	const bool bCutOut = Mode == 2;
-
-	if (bCutOut != bCutOutRendering)
-	{
-		ApplyRenderMode(bCutOut);
-	}
-	UpdateCutOutMasking(bOn && bCutOut);
-
-	const int32 State = bOn ? (bCutOut ? 2 : 1) : 0;
-	if (State != WasState)
-	{
-		WasState = State;
-		UE_LOG(LogCXMRVirtualHands, Log, TEXT("Virtual hands %s%s, tracker %s"),
-			State == 0 ? TEXT("OFF") : (State == 1 ? TEXT("ON (solid)") : TEXT("ON (cut-out: real hands show through)")),
-			bPreview ? TEXT(" (canned preview pose)") : TEXT(""),
-			GetHandTracker() ? TEXT("present") : TEXT("MISSING"));
-	}
+	const bool bPreview = CVarHandCutOutPreview.GetValueOnGameThread() != 0;
+	const UCXMRSubsystem* CXMR = GetCXMR();
+	// Outside mixed reality there is no camera image to show, only a black hole — so the cut-out follows MR.
+	const bool bActive = bPreview || (CVarHandCutOut.GetValueOnGameThread() != 0 && CXMR && CXMR->IsMixedRealityOn());
+	UpdateCutOutMasking(bActive, bPreview);
 
 	TArray<FVector> Positions;
 	TArray<float> Radii;
 	for (EControllerHand Hand : { EControllerHand::Left, EControllerHand::Right })
 	{
-		const bool bDrawn = bOn && GetJoints(Hand, bPreview, Positions, Radii);
+		const bool bDrawn = bActive && GetJoints(Hand, bPreview, Positions, Radii);
 		SetHandVisible(Hand, bDrawn);
 		if (bDrawn)
 		{
@@ -369,7 +349,7 @@ void UCXMRVirtualHandComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 
 		if (Hand == PlugHand)
 		{
-			const bool bPlug = bDrawn && bShowPlug;
+			const bool bPlug = bDrawn && bCutOutPlug;
 			SetPlugVisible(bPlug);
 			if (bPlug)
 			{
@@ -377,6 +357,25 @@ void UCXMRVirtualHandComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 			}
 		}
 	}
+
+	if (CVarPlugTipDebug.GetValueOnGameThread() != 0)
+	{
+		DrawPlugTipDebug();
+	}
+}
+
+void UCXMRVirtualHandComponent::DrawPlugTipDebug() const
+{
+	FVector Tip;
+	FVector Direction;
+	if (!GetPlugTip(Tip, Direction))
+	{
+		return;
+	}
+	// Runs on ahead of the tip, where the plug's own cut-out cannot hide it.
+	const FVector End = Tip + Direction * 6.f;
+	DrawDebugLine(GetWorld(), Tip, End, FColor::Magenta, false, -1.f, 0, 0.15f);
+	DrawDebugSphere(GetWorld(), End, 0.4f, 8, FColor::Magenta, false, -1.f, 0, 0.1f);
 }
 
 bool UCXMRVirtualHandComponent::GetJoints(EControllerHand Hand, bool bPreview, TArray<FVector>& OutPositions, TArray<float>& OutRadii) const
@@ -410,9 +409,9 @@ bool UCXMRVirtualHandComponent::GetJoints(EControllerHand Hand, bool bPreview, T
 		return true;
 	}
 
-	// Through CXMRHands like the H skeleton: tracked hands only (a virtual hand frozen beside the console would read
-	// as a real hand that stopped moving), with the same alignment correction, so snapping the skeleton to a marker
-	// moves this hand too.
+	// Through CXMRHands like the H skeleton: tracked hands only (a cut-out frozen beside the console would show a patch
+	// of real room where the hand used to be), with the same alignment correction, so snapping the skeleton to a marker
+	// moves the cut-out too.
 	TArray<FQuat> Rotations;   // required by the API, deliberately unused — see the header
 	return CXMRHands::GetJoints(GetWorld(), Hand, OutPositions, Rotations, OutRadii);
 }
@@ -427,12 +426,11 @@ void UCXMRVirtualHandComponent::UpdateHand(EControllerHand Hand, const TArray<FV
 		return;
 	}
 
-	// The cut-out grows every part a little, so tracking error does not shave the edge off the real finger.
-	const float Pad = bCutOutRendering ? MaskPadding : 0.f;
+	// Every part grows by the padding, so tracking error does not shave the edge off the real finger.
 	auto RadiusOf = [&](int32 Index)
 	{
 		const float Reported = Radii.IsValidIndex(Index) ? Radii[Index] : 0.f;
-		return FMath::Max(Reported, MinJointRadius) * RadiusScale + Pad;
+		return FMath::Max(Reported, MinJointRadius) * RadiusScale + MaskPadding;
 	};
 
 	TArray<FTransform> JointTransforms;
@@ -441,7 +439,7 @@ void UCXMRVirtualHandComponent::UpdateHand(EControllerHand Hand, const TArray<FV
 	{
 		JointTransforms.Add(SphereAt(Positions[i], RadiusOf(i)));
 	}
-	JointTransforms.Add(PalmBetween(Positions, RadiusOf(K(EHandKeypoint::MiddleProximal)), PalmThickness + 2.f * Pad));
+	JointTransforms.Add(PalmBetween(Positions, RadiusOf(K(EHandKeypoint::MiddleProximal)), PalmThickness + 2.f * MaskPadding));
 	WriteInstances(Joints, JointTransforms);
 
 	TArray<FTransform> BoneTransforms;
@@ -471,7 +469,7 @@ bool UCXMRVirtualHandComponent::ComputeGrip(const TArray<FVector>& Positions, FT
 	Pinch -= (Pinch | Along) * Along;
 	if (!Pinch.Normalize())
 	{
-		// Tips touching, or in line with the finger: any perpendicular keeps the plug drawable.
+		// Tips touching, or in line with the finger: any perpendicular keeps the plug usable.
 		const FVector Helper = FMath::Abs(Along.Z) < 0.9f ? FVector::UpVector : FVector::ForwardVector;
 		Pinch = FVector::CrossProduct(Along, Helper).GetSafeNormal();
 	}
@@ -482,7 +480,7 @@ bool UCXMRVirtualHandComponent::ComputeGrip(const TArray<FVector>& Positions, FT
 
 bool UCXMRVirtualHandComponent::GetPlugTip(FVector& OutTipLocation, FVector& OutDirection) const
 {
-	const bool bPreview = CVarVirtualHandsPreview.GetValueOnGameThread() != 0;
+	const bool bPreview = CVarHandCutOutPreview.GetValueOnGameThread() != 0;
 
 	TArray<FVector> Positions;
 	TArray<float> Radii;
@@ -512,7 +510,7 @@ void UCXMRVirtualHandComponent::UpdatePlug(const TArray<FVector>& Positions)
 	}
 	const float BodyHalf = PlugBodySize.X * 0.5f;
 	// Padding grows the sizes only; the parts stay where the real plug is.
-	const float Pad = bCutOutRendering ? 2.f * MaskPadding : 0.f;
+	const float Pad = 2.f * MaskPadding;
 
 	PlugBody->SetWorldTransform(FTransform(FQuat::Identity, FVector::ZeroVector, (PlugBodySize + FVector(Pad)) / ShapeCm) * Grip);
 	PlugTip->SetWorldTransform(FTransform(FQuat::Identity, FVector(BodyHalf + PlugTipSize.X * 0.5f, 0., 0.), (PlugTipSize + FVector(Pad)) / ShapeCm) * Grip);
