@@ -7,8 +7,11 @@
 #include "VarjoMarkersEvent.h"  // UVarjoMarkerDelegates (static C++ multicast delegates)
 #include "HAL/IConsoleManager.h"
 
+#include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "IOpenXRHMD.h"
+#include "IXRTrackingSystem.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCXMR, Log, All);
 
@@ -26,6 +29,24 @@ namespace
 			return FString::Printf(TEXT("%d"), CVar->GetInt());
 		}
 		return TEXT("<not registered>");
+	}
+
+	/**
+	 * The Varjo plugin passes its cached session handle straight to the runtime — MixedRealityPlugin.cpp SetViewOffset,
+	 * DepthPlugin.cpp SetEnvironmentDepthEstimationEnabled, VarjoMarkersPlugin.cpp — without checking that a session
+	 * exists. Before xrBeginSession that handle is null (after a session ends, stale) and the Varjo runtime dereferences
+	 * it: the tuning window restoring a saved View offset at BeginPlay took the editor down on the headset PC (2026-09-15).
+	 * A PC without the Varjo runtime never shows it — the extension function is missing there and the plugin returns early.
+	 * Every call here that reaches the runtime asks this first.
+	 */
+	bool IsXRSessionRunning()
+	{
+		if (!GEngine || !GEngine->XRSystem.IsValid())
+		{
+			return false;
+		}
+		const IOpenXRHMD* OpenXR = GEngine->XRSystem->GetIOpenXRHMD();
+		return OpenXR && OpenXR->IsRunning();
 	}
 }
 
@@ -66,6 +87,7 @@ void UCXMRSubsystem::Deinitialize()
 	UVarjoMarkerDelegates::VarjoMarkerLost.Remove(LostHandle);
 
 	StopViewOffsetTransition();
+	StopPendingViewOffset();
 
 	Super::Deinitialize();
 }
@@ -151,7 +173,8 @@ bool UCXMRSubsystem::IsMixedRealitySupported() const
 
 bool UCXMRSubsystem::IsMarkerTrackingSupported() const
 {
-	return UVarjoOpenXRFunctionLibrary::IsVarjoMarkersSupported();
+	// The plugin's flag outlives the session it was learned in; with no session running nothing can be switched on.
+	return IsXRSessionRunning() && UVarjoOpenXRFunctionLibrary::IsVarjoMarkersSupported();
 }
 
 bool UCXMRSubsystem::IsEnvironmentDepthEstimationSupported() const
@@ -242,6 +265,12 @@ void UCXMRSubsystem::SetViewOffset(float Offset)
 	StopViewOffsetTransition();
 
 	Offset = FMath::Clamp(Offset, 0.0f, 1.0f);
+	if (!IsXRSessionRunning())
+	{
+		DeferViewOffset(Offset);
+		return;
+	}
+	StopPendingViewOffset();
 	if (UVarjoOpenXRFunctionLibrary::SetViewOffset(Offset))
 	{
 		ViewOffset = Offset;
@@ -255,7 +284,14 @@ void UCXMRSubsystem::SyncViewOffsetWithMode()
 	if (bViewOffsetChosen)
 	{
 		// Someone picked a render position; switching MR must not quietly swap it for the new mode's default.
-		UVarjoOpenXRFunctionLibrary::SetViewOffset(ViewOffset);
+		if (IsXRSessionRunning())
+		{
+			UVarjoOpenXRFunctionLibrary::SetViewOffset(ViewOffset);
+		}
+		else if (!PendingViewOffsetTicker.IsValid())
+		{
+			DeferViewOffset(ViewOffset);
+		}
 		return;
 	}
 
@@ -274,7 +310,8 @@ void UCXMRSubsystem::ToggleViewOffset()
 {
 	// 1.0 = passthrough camera position (stable in environment) <-> 0.0 = eye position (close inspection).
 	// Pressed again mid-glide, it turns back from where the glide was heading.
-	const float Heading = IsViewOffsetTransitioning() ? ViewOffsetTo : ViewOffset;
+	const float Heading = IsViewOffsetTransitioning() ? ViewOffsetTo
+		: (PendingViewOffsetTicker.IsValid() ? PendingViewOffset : ViewOffset);
 	TransitionViewOffset(Heading > 0.5f ? 0.0f : 1.0f, ViewOffsetTransitionSeconds);
 }
 
@@ -283,7 +320,8 @@ void UCXMRSubsystem::TransitionViewOffset(float Target, float Seconds)
 	Target = FMath::Clamp(Target, 0.0f, 1.0f);
 	StopViewOffsetTransition();
 
-	if (Seconds <= KINDA_SMALL_NUMBER || FMath::IsNearlyEqual(ViewOffset, Target))
+	// With no session to glide on, SetViewOffset keeps the target for when one runs.
+	if (Seconds <= KINDA_SMALL_NUMBER || FMath::IsNearlyEqual(ViewOffset, Target) || !IsXRSessionRunning())
 	{
 		SetViewOffset(Target);
 		return;
@@ -303,7 +341,7 @@ bool UCXMRSubsystem::TickViewOffsetTransition(float DeltaTime)
 	const float Alpha = FMath::Clamp(ViewOffsetElapsed / ViewOffsetDuration, 0.0f, 1.0f);
 	const float Value = FMath::Lerp(ViewOffsetFrom, ViewOffsetTo, FMath::InterpEaseInOut(0.0f, 1.0f, Alpha, 2.0f));
 
-	if (!UVarjoOpenXRFunctionLibrary::SetViewOffset(Value))
+	if (!IsXRSessionRunning() || !UVarjoOpenXRFunctionLibrary::SetViewOffset(Value))
 	{
 		// No XR session (PIE on a monitor) or the runtime refused. Stop at the last value it accepted rather than
 		// report a position the headset never reached.
@@ -331,6 +369,39 @@ void UCXMRSubsystem::StopViewOffsetTransition()
 		FTSTicker::RemoveTicker(ViewOffsetTicker);
 	}
 	ViewOffsetTicker.Reset();
+}
+
+void UCXMRSubsystem::DeferViewOffset(float Offset)
+{
+	PendingViewOffset = Offset;
+	if (!PendingViewOffsetTicker.IsValid())
+	{
+		UE_LOG(LogCXMR, Log, TEXT("View offset %.2f will be applied once the headset session is running."), Offset);
+		PendingViewOffsetTicker = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateUObject(this, &UCXMRSubsystem::TickPendingViewOffset), 0.25f);
+	}
+}
+
+bool UCXMRSubsystem::TickPendingViewOffset(float DeltaTime)
+{
+	if (!IsXRSessionRunning())
+	{
+		return true;
+	}
+	// Handle first: SetViewOffset stops a pending request, and this one is already finishing.
+	PendingViewOffsetTicker.Reset();
+	UE_LOG(LogCXMR, Log, TEXT("Headset session running: applying view offset %.2f."), PendingViewOffset);
+	SetViewOffset(PendingViewOffset);
+	return false;
+}
+
+void UCXMRSubsystem::StopPendingViewOffset()
+{
+	if (PendingViewOffsetTicker.IsValid())
+	{
+		FTSTicker::RemoveTicker(PendingViewOffsetTicker);
+	}
+	PendingViewOffsetTicker.Reset();
 }
 
 // ---------- Depth ----------
@@ -413,7 +484,15 @@ void UCXMRSubsystem::SetEnvironmentDepthEstimation(bool bEnable)
 	{
 		return;
 	}
-	UVarjoOpenXRFunctionLibrary::SetEnvironmentDepthEstimationEnabled(bEnable);
+	if (IsXRSessionRunning())
+	{
+		UVarjoOpenXRFunctionLibrary::SetEnvironmentDepthEstimationEnabled(bEnable);
+	}
+	else if (bEnable)
+	{
+		UE_LOG(LogCXMR, Warning, TEXT("Environment depth estimation needs a running headset session; left off."));
+		return;
+	}
 	bEnvDepthOn = bEnable;
 	OnEnvironmentDepthEstimationChanged.Broadcast(bEnvDepthOn);
 }
@@ -501,7 +580,7 @@ bool UCXMRSubsystem::SetMarkerTracking(bool bEnable)
 	// XR_ENSURE(...) && Enabled (VarjoMarkersPlugin.cpp:123-136). So a false here after asking for
 	// true means the headset refused, and the only honest thing to do is say so rather than let the
 	// panel sit at OFF with no explanation. Same posture as SetMixedReality below.
-	const bool bResult = UVarjoOpenXRFunctionLibrary::SetVarjoMarkersEnabled(bEnable);
+	const bool bResult = IsXRSessionRunning() && UVarjoOpenXRFunctionLibrary::SetVarjoMarkersEnabled(bEnable);
 
 	if (bEnable && !bResult)
 	{
@@ -534,14 +613,14 @@ void UCXMRSubsystem::ToggleMarkerTracking()
 
 bool UCXMRSubsystem::SetMarkerTimeout(int32 MarkerId, float Seconds)
 {
-	return UVarjoOpenXRFunctionLibrary::SetMarkerTimeout(MarkerId, Seconds);
+	return IsXRSessionRunning() && UVarjoOpenXRFunctionLibrary::SetMarkerTimeout(MarkerId, Seconds);
 }
 
 bool UCXMRSubsystem::SetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMode Mode)
 {
 	const EMarkerTrackingMode VarjoMode =
 		(Mode == ECXMRMarkerTrackingMode::Dynamic) ? EMarkerTrackingMode::Dynamic : EMarkerTrackingMode::Stationary;
-	return UVarjoOpenXRFunctionLibrary::SetMarkerTrackingMode(MarkerId, VarjoMode);
+	return IsXRSessionRunning() && UVarjoOpenXRFunctionLibrary::SetMarkerTrackingMode(MarkerId, VarjoMode);
 }
 
 bool UCXMRSubsystem::GetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMode& OutMode) const

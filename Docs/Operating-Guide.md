@@ -613,6 +613,7 @@ Varjo 예제 맵(`/Game/VRTemplate/Maps/VRTemplateMap`)에 있고 CXMR에 없던
 | `I`를 눌러도 아무것도 안 칠해진다 | 튜닝 창 Eyes → `Foveated rendering`이 `running`인지. 아니면 Quad View + Foveated Rendering 설정 (§7) |
 | 핀치해도 안 잡힌다 | 대상에 `CXMR Grabbable`이 있는지 / 루트가 Movable인지(로그 `not Movable`) / 튜닝 창 Grab의 `gap`이 2cm 아래로 내려가는지 |
 | 모니터 화면에 실제 방이 안 나온다 | 정상 — 관전 카메라에는 패스스루가 없다. Monitor를 `Headset mirror`로 |
+| **플레이를 누르자마자 에디터가 꺼진다** — 콜스택 `VarjoOpenXR` → `UVarjoOpenXRFunctionLibrary::SetViewOffset` → `CXMRTuningWindowComponent` | 09-15 수정 전 빌드의 버그다. 튜닝 창이 저장된 View offset을 헤드셋 세션이 뜨기 전에 보냈고, Varjo 런타임이 빈 세션을 읽다 죽었다. 최신을 받아 빌드한다. 빌드 전까지는 `Saved/CXMR/Tuning.json`에서 `"MR.ViewOffset"` 줄을 지운다. 지금은 세션이 뜬 뒤에 적용되고 로그에 `View offset ... will be applied once the headset session is running`이 찍힌다 |
 | 손 패널이 한눈에 안 들어온다 | 잘리지 않고 스크롤된다. 한 번에 다 보이게 하려면 `Panel Draw Size` Y를 키우고 `Panel Scale`을 줄인다 (§7). 재빌드 불필요 |
 
 **로그 카테고리**: `LogCXMR`(서브시스템) `LogCXMRHands`(손) `LogCXMRDebug`(마커)

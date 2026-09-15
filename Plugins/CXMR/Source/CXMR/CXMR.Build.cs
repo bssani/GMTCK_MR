@@ -33,6 +33,9 @@ public class CXMR : ModuleRules
 			// Gaze for the G instrument (UCXMRGazeDebugComponent). An engine module; the OpenXREyeTracker plugin that
 			// feeds it is switched on by the Varjo plugin.
 			"EyeTracker",
+			// IOpenXRHMD::IsRunning. The Varjo plugin hands its cached session handle to the runtime without checking that a
+			// session exists, so CXMR only calls through while one is running (CXMRSubsystem.cpp IsXRSessionRunning).
+			"OpenXRHMD",
 		});
 	}
 }
