@@ -219,7 +219,7 @@ void UCXMRMarkerDebugComponent::UpdateLabels(bool bVisible)
 			}
 		}
 
-		// The mode the plugin holds right now: the only way to see whether a dynamic-object profile really applied.
+		// The mode the plugin holds right now: the only way to see whether the profile's tracking mode reached the plugin.
 		ECXMRMarkerTrackingMode Mode = ECXMRMarkerTrackingMode::Stationary;
 		const bool bKnownMode = Subsystem && Subsystem->GetMarkerTrackingMode(Pair.Key, Mode);
 		const TCHAR* ModeText = !bKnownMode ? TEXT("mode ?")
