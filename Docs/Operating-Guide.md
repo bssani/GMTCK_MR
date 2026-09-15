@@ -543,8 +543,9 @@ Varjo 예제 맵(`/Game/VRTemplate/Maps/VRTemplateMap`)에 있고 CXMR에 없던
 `View offset glide`(기본 0.5초, 0 = 즉시, 저장됨). 도중에 런타임이 값을 받지 않으면 그 자리에서 멈추고 로그에
 `View offset glide stopped at`이 찍힌다 — 헤드셋이 없는 PIE에서는 항상 이렇게 멈춘다.
 
-**마커 라벨** — 모드는 플러그인이 **지금** 그 마커에 걸고 있는 값이다. DynamicObject 프로파일이 `Dynamic`을 걸었는데
-`Stationary`로 보이면 설정이 안 먹은 것이다. 헤드셋이 보고한 적 없는 마커는 `mode ?`로 나온다.
+**마커 라벨** — 모드는 플러그인이 **지금** 그 마커에 걸고 있는 값이다. 캘리브레이션 마커는 처음 보일 때 마커 프로파일
+항목의 `Tracking Mode`가 걸리므로, 라벨이 그 값과 다르면 설정이 안 먹은 것이다. 헤드셋이 보고한 적 없는 마커는 `mode ?`로 나온다.
+(움직이는 실물을 마커로 따라가게 하는 DynamicObject 기능은 아직 없다 — 그 역할의 마커에는 아무도 모드를 걸지 않는다.)
 예전 화면 글자(`DrawDebugString`)는 라벨로 바꿨다.
 
 **시선 점** — OpenXR로는 두 눈을 합친 시선 하나만 온다(눈별 방향·고정점·신뢰도 없음). Visibility 채널로 10m까지 쏜다.
