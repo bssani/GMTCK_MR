@@ -12,11 +12,17 @@
 // tracker reports and needs no bone retargeting. Joint ORIENTATIONS are never read: every frame (bones,
 // palm, plug) is derived from joint positions, so no OpenXR-to-UE axis convention can turn the plug sideways.
 //
-// Toggle: CXMR.VirtualHands 1. With no headset, CXMR.VirtualHands.Preview 1 poses a canned pair of hands in
-// front of the camera so the geometry can be checked in PIE.
+// Cut-out mode draws that same shape into Custom Depth only. PP_MR turns it into a hole in the virtual scene
+// wherever the hand is nearer than the scene, so the camera image of the REAL hand and plug shows through — with
+// a steady edge, where depth estimation tears it, and still hidden where the hand goes behind a virtual surface.
+// The edge is the tracked shape plus MaskPadding rather than the skin, and it trails a fast hand by the tracker's
+// latency. It needs mixed reality; masking is switched on for it.
 //
-// Not here on purpose: a forearm (the tracker reports no elbow — EHandKeypoint stops at the wrist), wrist
-// angle readouts, pose smoothing.
+// Toggle: CXMR.VirtualHands 1 (solid) / 2 (cut-out). With no headset, CXMR.VirtualHands.Preview 1 poses a canned
+// pair of hands in front of the camera so the geometry can be checked in PIE.
+//
+// Not here on purpose: a forearm (the tracker reports no elbow — EHandKeypoint stops at the wrist, so the cut-out
+// ends there too), wrist angle readouts, pose smoothing.
 
 #pragma once
 
@@ -64,6 +70,15 @@ public:
 	/** Thickness in cm of the ellipsoid that fills the palm between wrist and knuckles. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Virtual Hands", meta = (ClampMin = "0.5", ClampMax = "6.0"))
 	float PalmThickness = 2.6f;
+
+	// --- Cut-out (CXMR.VirtualHands 2) ---
+
+	/**
+	 * cm added around every part of the cut-out, so tracking error does not shave the edge off the real fingers.
+	 * More = a wider rim of real background around the hand.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Virtual Hands|Cut-out", meta = (ClampMin = "0.0", ClampMax = "3.0"))
+	float MaskPadding = 0.5f;
 
 	// --- Plug ---
 
@@ -121,6 +136,15 @@ private:
 	/** Shared setup for every drawn part: material, no collision or shadow, world-space transform. */
 	void ConfigureShape(UStaticMeshComponent* Component, UStaticMesh* Mesh, const FLinearColor& Color);
 
+	/** Every drawn part that exists. */
+	TArray<UStaticMeshComponent*, TInlineAllocator<7>> GetParts() const;
+
+	/** Solid hands in the main view, or Custom Depth only for the cut-out. */
+	void ApplyRenderMode(bool bCutOut);
+
+	/** Switches masking on when a cut-out starts, if it was off, and back off when the cut-out ends. */
+	void UpdateCutOutMasking(bool bActive);
+
 	UPROPERTY(Transient) TObjectPtr<UInstancedStaticMeshComponent> LeftJoints;
 	UPROPERTY(Transient) TObjectPtr<UInstancedStaticMeshComponent> LeftBones;
 	UPROPERTY(Transient) TObjectPtr<UInstancedStaticMeshComponent> RightJoints;
@@ -129,6 +153,15 @@ private:
 	UPROPERTY(Transient) TObjectPtr<UStaticMeshComponent> PlugTip;
 	UPROPERTY(Transient) TObjectPtr<UStaticMeshComponent> PlugCable;
 
-	/** Previous on/off state, so the log fires on transitions only. */
-	bool bWasOn = false;
+	/** Previous state (0 off, 1 solid, 2 cut-out), so the log fires on transitions only. */
+	int32 WasState = 0;
+
+	/** Render flags currently on the parts. */
+	bool bCutOutRendering = false;
+
+	/** A cut-out is being drawn right now. */
+	bool bCutOutActive = false;
+
+	/** Masking was off when the cut-out started and this component switched it on. */
+	bool bTurnedMaskingOn = false;
 };
