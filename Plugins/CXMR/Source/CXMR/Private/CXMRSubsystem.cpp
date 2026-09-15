@@ -65,6 +65,8 @@ void UCXMRSubsystem::Deinitialize()
 	UVarjoMarkerDelegates::VarjoMarkerMoved.Remove(MovedHandle);
 	UVarjoMarkerDelegates::VarjoMarkerLost.Remove(LostHandle);
 
+	StopViewOffsetTransition();
+
 	Super::Deinitialize();
 }
 
@@ -110,10 +112,12 @@ void UCXMRSubsystem::DumpMRState() const
 	UE_LOG(LogCXMR, Warning, TEXT("  --- CXMR feature state ---"));
 	UE_LOG(LogCXMR, Warning, TEXT("  VR background visible=%s   (hiding it is what should reveal passthrough)"),
 		bVRBackgroundVisible ? TEXT("true") : TEXT("false"));
-	UE_LOG(LogCXMR, Warning, TEXT("  masking=%s  markers=%s  hands=%s  viewOffset=%.2f"),
+	UE_LOG(LogCXMR, Warning, TEXT("  masking=%s  markers=%s  hands=%s  gaze=%s  foveationOverlay=%s  viewOffset=%.2f"),
 		bMaskingOn ? TEXT("on") : TEXT("off"),
 		bMarkerTrackingOn ? TEXT("on") : TEXT("off"),
 		bHandVisualizationOn ? TEXT("on") : TEXT("off"),
+		bGazeVisualizationOn ? TEXT("on") : TEXT("off"),
+		bFoveationVisualizationOn ? TEXT("on") : TEXT("off"),
 		ViewOffset);
 	UE_LOG(LogCXMR, Warning, TEXT("  depthTest=%s  range=%s near=%.2fm far=%.2fm  envDepth=%s"),
 		bDepthTestOn ? TEXT("on") : TEXT("off"),
@@ -158,6 +162,11 @@ bool UCXMRSubsystem::IsEnvironmentDepthEstimationSupported() const
 bool UCXMRSubsystem::IsFoveatedRenderingSupported() const
 {
 	return UVarjoOpenXRFunctionLibrary::IsFoveatedRenderingSupported();
+}
+
+bool UCXMRSubsystem::IsFoveatedRenderingEnabled() const
+{
+	return UVarjoOpenXRFunctionLibrary::IsFoveatedRenderingEnabled();
 }
 
 // ---------- Mixed Reality ----------
@@ -229,6 +238,9 @@ void UCXMRSubsystem::ToggleVRBackground()
 
 void UCXMRSubsystem::SetViewOffset(float Offset)
 {
+	// A value set directly wins over a glide still under way.
+	StopViewOffsetTransition();
+
 	Offset = FMath::Clamp(Offset, 0.0f, 1.0f);
 	if (UVarjoOpenXRFunctionLibrary::SetViewOffset(Offset))
 	{
@@ -261,7 +273,64 @@ void UCXMRSubsystem::SyncViewOffsetWithMode()
 void UCXMRSubsystem::ToggleViewOffset()
 {
 	// 1.0 = passthrough camera position (stable in environment) <-> 0.0 = eye position (close inspection).
-	SetViewOffset(ViewOffset > 0.5f ? 0.0f : 1.0f);
+	// Pressed again mid-glide, it turns back from where the glide was heading.
+	const float Heading = IsViewOffsetTransitioning() ? ViewOffsetTo : ViewOffset;
+	TransitionViewOffset(Heading > 0.5f ? 0.0f : 1.0f, ViewOffsetTransitionSeconds);
+}
+
+void UCXMRSubsystem::TransitionViewOffset(float Target, float Seconds)
+{
+	Target = FMath::Clamp(Target, 0.0f, 1.0f);
+	StopViewOffsetTransition();
+
+	if (Seconds <= KINDA_SMALL_NUMBER || FMath::IsNearlyEqual(ViewOffset, Target))
+	{
+		SetViewOffset(Target);
+		return;
+	}
+
+	ViewOffsetFrom = ViewOffset;
+	ViewOffsetTo = Target;
+	ViewOffsetElapsed = 0.0f;
+	ViewOffsetDuration = Seconds;
+	ViewOffsetTicker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UCXMRSubsystem::TickViewOffsetTransition));
+}
+
+bool UCXMRSubsystem::TickViewOffsetTransition(float DeltaTime)
+{
+	// Capped per step: after a hitch one long frame would otherwise skip most of the glide and jump after all.
+	ViewOffsetElapsed += FMath::Min(DeltaTime, 1.0f / 30.0f);
+	const float Alpha = FMath::Clamp(ViewOffsetElapsed / ViewOffsetDuration, 0.0f, 1.0f);
+	const float Value = FMath::Lerp(ViewOffsetFrom, ViewOffsetTo, FMath::InterpEaseInOut(0.0f, 1.0f, Alpha, 2.0f));
+
+	if (!UVarjoOpenXRFunctionLibrary::SetViewOffset(Value))
+	{
+		// No XR session (PIE on a monitor) or the runtime refused. Stop at the last value it accepted rather than
+		// report a position the headset never reached.
+		UE_LOG(LogCXMR, Warning, TEXT("View offset glide stopped at %.2f: the runtime did not accept %.2f."), ViewOffset, Value);
+		ViewOffsetTicker.Reset();
+		return false;
+	}
+
+	ViewOffset = Value;
+	bViewOffsetChosen = true;
+	OnViewOffsetChanged.Broadcast(ViewOffset);
+
+	if (Alpha >= 1.0f)
+	{
+		ViewOffsetTicker.Reset();
+		return false;
+	}
+	return true;
+}
+
+void UCXMRSubsystem::StopViewOffsetTransition()
+{
+	if (ViewOffsetTicker.IsValid())
+	{
+		FTSTicker::RemoveTicker(ViewOffsetTicker);
+	}
+	ViewOffsetTicker.Reset();
 }
 
 // ---------- Depth ----------
@@ -390,6 +459,40 @@ void UCXMRSubsystem::ToggleHandVisualization()
 	SetHandVisualization(!bHandVisualizationOn);
 }
 
+// ---------- Eye tracking instruments ----------
+
+void UCXMRSubsystem::SetGazeVisualization(bool bEnable)
+{
+	if (bGazeVisualizationOn == bEnable)
+	{
+		return;
+	}
+	bGazeVisualizationOn = bEnable;
+	OnGazeVisualizationChanged.Broadcast(bGazeVisualizationOn);
+}
+
+void UCXMRSubsystem::ToggleGazeVisualization()
+{
+	SetGazeVisualization(!bGazeVisualizationOn);
+}
+
+void UCXMRSubsystem::SetFoveationVisualization(bool bEnable)
+{
+	if (bFoveationVisualizationOn == bEnable)
+	{
+		return;
+	}
+	// Not refused while foveated rendering is off, unlike the Varjo example: the overlay is ours, and a key that
+	// silently does nothing is harder to diagnose than one that switches and says why nothing is tinted.
+	bFoveationVisualizationOn = bEnable;
+	OnFoveationVisualizationChanged.Broadcast(bFoveationVisualizationOn);
+}
+
+void UCXMRSubsystem::ToggleFoveationVisualization()
+{
+	SetFoveationVisualization(!bFoveationVisualizationOn);
+}
+
 // ---------- Markers ----------
 
 bool UCXMRSubsystem::SetMarkerTracking(bool bEnable)
@@ -433,13 +536,31 @@ bool UCXMRSubsystem::SetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMo
 	return UVarjoOpenXRFunctionLibrary::SetMarkerTrackingMode(MarkerId, VarjoMode);
 }
 
+bool UCXMRSubsystem::GetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMode& OutMode) const
+{
+	if (!PluginMarkerIds.Contains(MarkerId))
+	{
+		return false;
+	}
+
+	EMarkerTrackingMode VarjoMode = EMarkerTrackingMode::Stationary;
+	if (!UVarjoOpenXRFunctionLibrary::GetMarkerTrackingMode(MarkerId, VarjoMode))
+	{
+		return false;
+	}
+	OutMode = (VarjoMode == EMarkerTrackingMode::Dynamic) ? ECXMRMarkerTrackingMode::Dynamic : ECXMRMarkerTrackingMode::Stationary;
+	return true;
+}
+
 void UCXMRSubsystem::HandleMarkerDetected(int32 MarkerId, const FVector& Position, const FRotator& Rotation, const FVector2D& Size)
 {
+	PluginMarkerIds.Add(MarkerId);
 	OnMarkerDetected.Broadcast(MarkerId, Position, Rotation, Size);
 }
 
 void UCXMRSubsystem::HandleMarkerMoved(int32 MarkerId, const FVector& Position, const FRotator& Rotation, const FVector2D& Size)
 {
+	PluginMarkerIds.Add(MarkerId);
 	OnMarkerMoved.Broadcast(MarkerId, Position, Rotation, Size);
 }
 

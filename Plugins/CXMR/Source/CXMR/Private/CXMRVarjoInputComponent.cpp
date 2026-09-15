@@ -33,6 +33,20 @@ UCXMRVarjoInputComponent::UCXMRVarjoInputComponent()
 	}
 
 	static ConstructorHelpers::FObjectFinder<UInputAction>
+		GazeVisFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_GazeVisualizationToggle"));
+	if (GazeVisFinder.Succeeded())
+	{
+		GazeVisualizationToggleAction = GazeVisFinder.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction>
+		FoveationVisFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_FoveatedRenderingVisualizationToggle"));
+	if (FoveationVisFinder.Succeeded())
+	{
+		FoveationVisualizationToggleAction = FoveationVisFinder.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction>
 		RangeToggleFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_DepthTestRangeToggle"));
 	if (RangeToggleFinder.Succeeded())
 	{
@@ -108,6 +122,8 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 	if (MaskToggleAction)       { EIC->BindAction(MaskToggleAction,       ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnMaskToggle); }
 	if (MarkerToggleAction)     { EIC->BindAction(MarkerToggleAction,     ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnMarkerToggle); }
 	if (HandVisualizationToggleAction) { EIC->BindAction(HandVisualizationToggleAction, ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnHandVisualizationToggle); }
+	if (GazeVisualizationToggleAction)      { EIC->BindAction(GazeVisualizationToggleAction,      ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnGazeVisualizationToggle); }
+	if (FoveationVisualizationToggleAction) { EIC->BindAction(FoveationVisualizationToggleAction, ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnFoveationVisualizationToggle); }
 	if (RecalibrateAction)      { EIC->BindAction(RecalibrateAction,      ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnRecalibrate); }
 	if (PlaceVehicleAction)     { EIC->BindAction(PlaceVehicleAction,     ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnPlaceVehicle); }
 
@@ -166,6 +182,8 @@ void UCXMRVarjoInputComponent::OnEnvDepthToggle(const FInputActionValue&)   { if
 void UCXMRVarjoInputComponent::OnMaskToggle(const FInputActionValue&)       { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleMasking(); } }
 void UCXMRVarjoInputComponent::OnMarkerToggle(const FInputActionValue&)     { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleMarkerTracking(); } }
 void UCXMRVarjoInputComponent::OnHandVisualizationToggle(const FInputActionValue&) { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleHandVisualization(); } }
+void UCXMRVarjoInputComponent::OnGazeVisualizationToggle(const FInputActionValue&) { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleGazeVisualization(); } }
+void UCXMRVarjoInputComponent::OnFoveationVisualizationToggle(const FInputActionValue&) { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleFoveationVisualization(); } }
 void UCXMRVarjoInputComponent::OnRecalibrate(const FInputActionValue&)      { if (UCXMRSubsystem* S = GetCXMR()) { S->RequestRecalibrate(); } }
 void UCXMRVarjoInputComponent::OnPlaceVehicle(const FInputActionValue&)     { if (UCXMRSubsystem* S = GetCXMR()) { S->RequestPlaceInFront(); } }
 

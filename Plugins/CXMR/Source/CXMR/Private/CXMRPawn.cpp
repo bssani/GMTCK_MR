@@ -5,6 +5,10 @@
 #include "CXMRMaskingComponent.h"
 #include "CXMRMarkerDebugComponent.h"
 #include "CXMRHandDebugComponent.h"
+#include "CXMRGazeDebugComponent.h"
+#include "CXMRFoveationOverlayComponent.h"
+#include "CXMRHandGrabComponent.h"
+#include "CXMRSpectatorComponent.h"
 #include "CXMRControlPanelWidget.h"
 #include "CXMRDesktopPanelComponent.h"
 #include "CXMRTuningWindowComponent.h"
@@ -53,6 +57,14 @@ ACXMRPawn::ACXMRPawn()
 
 	// Same reasoning: the instrument ships in the build, drawn only while its toggle is on.
 	HandDebug = CreateDefaultSubobject<UCXMRHandDebugComponent>(TEXT("HandDebug"));
+	GazeDebug = CreateDefaultSubobject<UCXMRGazeDebugComponent>(TEXT("GazeDebug"));
+	FoveationOverlay = CreateDefaultSubobject<UCXMRFoveationOverlayComponent>(TEXT("FoveationOverlay"));
+
+	// Grabbing does nothing until the level has a CXMR Grabbable actor, so it costs a joint read per hand per frame.
+	HandGrab = CreateDefaultSubobject<UCXMRHandGrabComponent>(TEXT("HandGrab"));
+
+	// Off unless chosen: a second camera renders the whole scene again.
+	Spectator = CreateDefaultSubobject<UCXMRSpectatorComponent>(TEXT("Spectator"));
 
 	// --- Control panel: world-space quad on the left hand ---
 	ControlPanel = CreateDefaultSubobject<UWidgetComponent>(TEXT("ControlPanel"));

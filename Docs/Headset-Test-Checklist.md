@@ -13,7 +13,7 @@
 |---|---|
 | `VehicleRoot_TestCar`가 앞쪽 2.5m에 보임 | 흰 큐브 2개(바디 + 캐빈)로 된 더미 차량 |
 | 모니터에 컨트롤 창이 따로 뜸 | 손의 3D 패널은 기본으로 꺼져 있다. 필요하면 §5 |
-| 콘솔 `CXMR.DebugMarkers 1` | 마커 계측기 켜기 — §3에서 씀 |
+| 콘솔 `CXMR.DebugMarkers 1` (또는 컨트롤 창 Display → Marker axes and labels) | 마커 계측기 켜기 — §3에서 씀 |
 
 ---
 
@@ -55,7 +55,7 @@ test가 **컴포지터 레이어**에서 처리되어 알파 합성 경로를 �
 
 | 키 | 기능 | 확인 |
 |---|---|---|
-| `K` | View Offset | 컨트롤 창 `Render from` 버튼이 `Cameras` ↔ `Eyes`로 바뀐다(튜닝 창 View offset 1 ↔ 0). 근거리 물체를 볼 때 정렬감 차이. 시작은 VR `Eyes` → MR 켜면 `Cameras`(헤드셋 기본). `K`로 한 번 고르면 MR 전환 뒤에도 유지되는지 본다 |
+| `K` | View Offset | 컨트롤 창 `Render from` 버튼이 `Cameras` ↔ `Eyes`로 바뀐다(튜닝 창 View offset 1 ↔ 0). 근거리 물체를 볼 때 정렬감 차이. 시작은 VR `Eyes` → MR 켜면 `Cameras`(헤드셋 기본). `K`로 한 번 고르면 MR 전환 뒤에도 유지되는지 본다. **0.5초에 걸쳐 부드럽게 옮겨 가는지**(툭 튀지 않는지) — 로그에 `View offset glide stopped`가 찍히면 런타임이 값을 받지 않은 것 |
 | `T` | Depth Test | 손을 눈앞에 대면 가상 물체보다 앞에 보이는지 |
 | `U` | Env Depth | depth estimation 활성. **`T`가 먼저 켜져 있어야 한다** |
 | `Y` | Depth Test **Range** on/off | 컨트롤 창 Range가 `0.00 - 0.75 m` ↔ `unbounded` |
@@ -100,6 +100,7 @@ depth 때문에 가상 물체가 심하게 깜빡였다.
 **그 다음 `CXMR.DebugMarkers 1`을 켜고 실물 마커를 시야에 넣는다.**
 
 1. **감지 자체**: 마커 pose가 그려지는가? 로그에 `LogCXMRDebug: DETECTED id=N`이 찍힌다.
+   마커 위에 **`ID N  Stationary` 라벨이 헤드셋에서 읽히는가**(글자가 나를 향하는가). `mode ?`면 플러그인이 그 마커를 모른다
 2. **학습**: 차를 넘버패드·튜닝 창으로 실물에 맞추고, 마커가 모두 보일 때 튜닝 창 **Learn marker layout**.
    로그에 `Learned marker layout ... N added`. 프로파일에 번호를 넣을 필요는 없다(무효 id 0은 무시된다)
 3. **복원** ★ 가장 중요: 앱을 껐다 켠다 → 마커가 보이면 차가 **학습한 자리에** 놓이고, 1.5초 뒤 튜닝 창에 `calibrated`.
@@ -220,25 +221,52 @@ CXMR 쪽 변환은 확인했다 — 폰·카메라에 오프셋이 없고, 손 �
 
 측정 결과에 따라 다음 단계(손 poke로 패널 누르기)의 실현 가능성이 정해진다.
 
-## 아무 반응이 없는 키들 (배선 안 됨)
+## 9. 손으로 잡기 — 핀치 (2026-09-15 추가)
 
-IMC에는 매핑돼 있지만 **C++ 바인딩이 없어 눌러도 아무 일도 없다.** Varjo 예제에서 애셋만
-넘어온 것들이다. 이걸로 오진하지 말 것:
+**§8의 손 어긋남이 남아 있으면 잡는 위치도 그만큼 어긋난다.** 먼저 §8에서 보정한다.
 
-`G`(gaze) · `C`(dynamic tracking) · `I`(foveation 시각화)
+1. 튜닝 창 **Grab → Spawn a test cube in front of me** — 눈높이보다 조금 아래, 40cm 앞에 8cm 큐브가 뜬다(콘솔 `CXMR.SpawnGrabCube`)
+2. 튜닝 창 `Right hand`에 `gap N cm, open`이 나오는가. 엄지·검지를 붙였을 때 **몇 cm까지 내려가는지** 적는다
+   - 2cm 아래로 안 내려가면 `Pinch closes below`를 그 값보다 조금 크게 올린다
+3. 큐브 옆에서 집는다 → 로그 `LogCXMRGrab: Right hand grabbed ...`. 손을 따라 움직이고, 벌리면 놓이는가
+4. 물리 큐브: 콘솔 `CXMR.SpawnGrabCube 1` → 떨어진 큐브를 집어 들고 던져 본다
+5. 적어 올 것: 손을 빠르게 움직일 때 놓치는가(추적 끊김 0.25초까지는 버틴다), 한 손에서 다른 손으로 넘겨지는가
 
-~~`Y`·방향키(depth range)~~ → **이제 배선됐다.** §2 참조 — flickering의 원인이었다.
-
-## 손 인터랙션 — 아직 없는 것
-
-시각화만 붙였다. **손으로 무언가를 누르거나 잡는 기능은 없다.** 플러그인이 제공하는 것:
+손 데이터가 오는 층:
 
 | 층 | 출처 | 제공 |
 |---|---|---|
-| 관절 스켈레톤 | 엔진 `OpenXRHandTracking` | `IHandTracker::GetAllKeypointStates` (CXMR이 쓰는 것) |
+| 관절 스켈레톤 | 엔진 `OpenXRHandTracking` | `IHandTracker::GetAllKeypointStates` (CXMR이 쓰는 것 — 스켈레톤·잡기 모두) |
 | 상호작용 포즈 | `VarjoHandInteraction` | `GetHandInteractionAimPose` / `GetHandInteractionGripPose` |
 
-pinch/poke/palm은 C++ motion source로만 있고 BP 함수는 aim/grip뿐이다.
-⚠️ Varjo 문서가 시키는 `Get Motion Controller Data`는 UE 5.7에서 deprecated — 예제도 실제로는
-`Get Hand Tracking State`를 쓴다.
 ⚠️ `OpenXRHandTracking`은 엔진 기본 비활성 플러그인이라 `.uproject`에서 명시적으로 켰다.
+
+## 10. 시선 · Foveated — `G` · `I` (2026-09-15 추가)
+
+**`G` 시선 점**
+1. `G` → 로그 `LogCXMRGaze: Gaze visualization ON - eye tracker connected`. `NOT connected`면 Varjo Base의 시선 추적과 캘리브레이션을 확인
+2. 차의 한 점을 보면 그 자리에 초록 점이 오는가. 튜닝 창 Eyes → `Gaze lands`에 거리와 대상 이름
+3. 점이 보는 곳에서 **일정하게 어긋나는지**(시선 캘리브레이션) / **떨리는지** 적는다
+
+**`I` Foveated 영역**
+1. 튜닝 창 Eyes → `Foveated rendering`이 `running`인지 먼저 본다. 아니면 칠해질 것이 없다
+2. `I` → 시선 주변이 노랗게 칠해지고 **눈을 따라 움직이는가**
+3. ⚠️ MR에서 켰을 때 패스스루가 가려지는지 본다(이 후처리 머티리얼이 알파를 덮는지 확인되지 않았다). 확인하고 끈다
+
+## 11. 모니터 화면 — 관전 카메라 (2026-09-15 추가)
+
+컨트롤 창 **Monitor → Monitor shows**:
+1. `Smoothed view` → 모니터가 착용자 시점을 따라가되 흔들림이 줄고 수평이 유지되는가. 헤드셋 화면은 그대로여야 한다
+2. `Orbit vehicle` → 모니터가 차 주위를 천천히 도는가(튜닝 창 Monitor에서 거리·속도)
+3. `Headset mirror` → 원래 미러로 돌아오는가
+4. 켠 동안 헤드셋 프레임이 떨어지는지 본다(장면을 한 번 더 그린다). 떨어지면 세션 중에는 끈다
+- ⚠️ MR에서는 이 화면에 실제 방이 없다(정상 — 패스스루는 엔진에 오지 않는다)
+
+## 아무 반응이 없는 키 (배선 안 됨)
+
+IMC에는 매핑돼 있지만 C++ 바인딩이 없어 눌러도 아무 일도 없다:
+
+`C`(dynamic tracking) — 예제에서는 **모든 마커**를 Dynamic으로 바꾼다. 캘리브레이션 마커까지 예측 모드가 되어 차가 흔들리므로
+일부러 넣지 않았다. 움직이는 물체의 마커는 프로파일의 DynamicObject 역할로 개별 지정한다.
+
+~~`Y`·방향키(depth range)~~ → 배선됨(§2). ~~`G`·`I`~~ → 배선됨(§10).

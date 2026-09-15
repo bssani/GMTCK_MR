@@ -63,6 +63,11 @@ public:
 	 *  (key H) — that asset shipped with the Varjo example but had never been bound to anything. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> HandVisualizationToggleAction;
 
+	/** Gaze dot (G) and foveated-area overlay (I). Defaulted in C++ like the hand toggle: IMC_Varjo has mapped both
+	 *  keys since the Varjo example came in, and nothing was bound to them. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> GazeVisualizationToggleAction;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> FoveationVisualizationToggleAction;
+
 	// Placement actions (routed via the subsystem to the placement component).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> RecalibrateAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> PlaceVehicleAction;
@@ -123,6 +128,8 @@ private:
 	void OnMaskToggle(const FInputActionValue& Value);
 	void OnMarkerToggle(const FInputActionValue& Value);
 	void OnHandVisualizationToggle(const FInputActionValue& Value);
+	void OnGazeVisualizationToggle(const FInputActionValue& Value);
+	void OnFoveationVisualizationToggle(const FInputActionValue& Value);
 	void OnRecalibrate(const FInputActionValue& Value);
 	void OnPlaceVehicle(const FInputActionValue& Value);
 

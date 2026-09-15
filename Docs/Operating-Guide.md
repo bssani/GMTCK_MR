@@ -35,7 +35,7 @@ GameMode(`BP_CXMRGameMode`)가 `BP_CXMRPawn`을 자동 스폰한다. 레벨에 p
 | `M` | Mixed Reality (패스스루) on/off |
 | `B` | VR 배경(하늘·바닥·안개) 보이기/숨기기 |
 | `N` | Masking — 마스크 메시 모양대로 실제 세계 뚫기 |
-| `K` | View Offset — 눈 위치 ↔ 패스스루 카메라 위치. **시작 값은 헤드셋 기본을 따른다(VR = 눈, MR = 카메라).** `K`나 튜닝 창으로 한 번 고르면 MR을 켜고 꺼도 그 값을 유지한다 |
+| `K` | View Offset — 눈 위치 ↔ 패스스루 카메라 위치. **시작 값은 헤드셋 기본을 따른다(VR = 눈, MR = 카메라).** `K`나 튜닝 창으로 한 번 고르면 MR을 켜고 꺼도 그 값을 유지한다. `K`는 **0.5초에 걸쳐 부드럽게** 옮겨 간다(§7 Varjo 예제 기능) |
 | `T` | Depth Test |
 | `U` | Environment Depth Estimation |
 | `Y` | **Depth Test Range on/off** (§2-1) |
@@ -43,6 +43,8 @@ GameMode(`BP_CXMRGameMode`)가 `BP_CXMRPawn`을 자동 스폰한다. 레벨에 p
 | `↓` `↑` | **Depth Range FarZ 감소/증가** |
 | `V` | 마커 추적 on/off (MarkerAnchor 차량은 시작할 때 자동으로 켜진다) |
 | `H` | 손 추적 시각화 |
+| `G` | 시선 점 — 보고 있는 곳에 점(무언가에 닿으면 초록, 10m 안에 없으면 노랑) |
+| `I` | Foveated 영역 표시 — 고해상도로 그려지는 시선 영역을 노랗게 칠한다 |
 | `R` | 재캘리브레이션 |
 | `E` | 차량을 내 앞에 배치 |
 | `F` | 컨트롤 패널 클릭 (레이저가 가리키는 곳) |
@@ -445,11 +447,14 @@ PIE를 멈추면 자동으로 닫힌다(Slate 창은 GC 대상이 아니라 명�
 | 분류 | 항목 |
 |---|---|
 | **Vehicle placement** | 현재 차 위치(월드) · 보인 마커 수 · 한 번 누를 때 이동량(cm)·회전량(°) · 멀어짐/오른쪽/위/시계 방향 `[-][+]` · 회전 중심(마커/내 머리/차 원점) · 수평 유지 · 저장 / 마커 배치 학습 / 마커 다시 읽기 / 조정 취소 |
-| **Mixed reality** | MR · VR 배경 · 마스킹 · View Offset(0 눈 ~ 1 카메라) |
+| **Mixed reality** | MR · VR 배경 · 마스킹 · View Offset(0 눈 ~ 1 카메라, 즉시) · View offset glide(`K`·컨트롤 창 전환 시간, 초) |
 | **Depth** | Depth Test · 범위 제한 · 범위 near / far(m) · 환경 depth 추정 |
 | **Display** | 노출 보정(EV) |
 | **Input** | 넘버패드 조정 속도 |
 | **Hands** | 오른손·왼손 검지 끝 위치(머리 기준 cm) · 검지 끝 − 가장 가까운 마커 · 손 보정 앞/오른쪽/위(cm) · 마커에 맞추기 버튼 — 절차는 `Headset-Test-Checklist.md` §8 |
+| **Eyes** | 시선 점(G) · 시선이 닿은 곳(거리·대상) · Foveated 영역 표시(I) · Foveated rendering 동작 여부 |
+| **Grab** | 오른손·왼손 핀치 상태(손가락 간격 · 잡은 물체) · 핀치 닫힘/열림 거리 · 잡히는 거리 · 테스트 큐브 만들기 |
+| **Monitor** | 모니터 시야각 · 부드러움 · 회전 거리·속도 · 모니터 화면(헤드셋 미러 / 착용자 시점 / 차 주위 회전) · 현재 출력 |
 
 - **값은 매 프레임 실제 기능에서 읽어 온다.** 키보드·컨트롤러·컨트롤 창으로 바꾼 것도 바로 보인다
 - 숫자 칸은 **드래그하거나 클릭해서 입력**한다. 드래그하는 동안 바로 적용되고, 손을 떼거나 Enter를 누를 때 저장된다
@@ -461,7 +466,7 @@ PIE를 멈추면 자동으로 닫힌다(Slate 창은 GC 대상이 아니라 명�
 
 | 저장되는 것 (다음 실행에 그대로) | 저장 안 되는 것 (매 세션 새로) |
 |---|---|
-| View Offset, 범위 제한 on/off, 범위 near/far, 노출 보정, 이동량·회전량, 넘버패드 속도, 손 보정(앞/오른쪽/위) | MR·VR 배경·마스킹·Depth Test·환경 depth on/off, 회전 중심, 수평 유지 |
+| View Offset, View offset glide, 범위 제한 on/off, 범위 near/far, 노출 보정, 이동량·회전량, 넘버패드 속도, 손 보정(앞/오른쪽/위), 핀치 거리·잡히는 거리, 모니터 화면 선택·시야각·부드러움·회전 거리·속도 | MR·VR 배경·마스킹·Depth Test·환경 depth on/off, 회전 중심, 수평 유지, 시선 점·Foveated 표시 |
 
 차 위치 자체는 이 파일이 아니라 **캘리브레이션 파일**(`Saved/CXMR/MarkerCalib_*.json`, §3-1)이 담당한다.
 창의 "Save adjustment into the marker layout"은 `NumPad Enter`와 같다.
@@ -510,7 +515,7 @@ BP·Python에서는 `Set Tunable Value` / `Get Tunable Value` / `Invoke Tunable`
 
 | 탭 | 내용 |
 |---|---|
-| **Display** | Mixed reality: MR · VR 배경 · Render from(눈/카메라) · 마스킹 / Depth: Depth test · 환경 depth · 범위 제한 · 현재 범위 / Tracking: 마커 추적 · 손 스켈레톤 |
+| **Display** | Mixed reality: MR · VR 배경 · Render from(눈/카메라, 부드럽게 전환) · 마스킹 / Depth: Depth test · 환경 depth · 범위 제한 · 현재 범위 / Tracking: 마커 추적 · 손 스켈레톤 · 마커 축과 라벨 / Eyes: 시선 점 · Foveated 영역 / Monitor: 모니터 화면 |
 | **Calibration** | 차 위치(월드) · 보인 마커 수 · 마커 다시 읽기 · 내 앞에 배치 / 수동 조정: 저장 · 조정 취소 (이동 자체는 넘버패드나 튜닝 창) |
 | **Viewer** | 차량 `[-][+]` · 트림 `[-][+]` · CMF · 다음 CMF / Human factors: 매니킨 `[-][+]` |
 
@@ -518,6 +523,49 @@ BP·Python에서는 `Set Tunable Value` / `Get Tunable Value` / `Invoke Tunable`
 - 헤드셋이 지원하지 않는 항목(MR, 마커 추적)은 회색으로 비활성화된다
 - 예전 CALIB 탭의 X/Y/Z/Yaw는 차 기준 내부값이라 키 방향과 부호가 맞지 않았다. 대신 **차의 월드 위치**를 보여 준다
 - 내용이 `Panel Draw Size`보다 길면 잘리지 않고 스크롤된다
+
+### Varjo 예제에서 가져온 기능 (2026-09-15)
+
+Varjo 예제 맵(`/Game/VRTemplate/Maps/VRTemplateMap`)에 있고 CXMR에 없던 것들이다. 코드는 전부 CXMR 플러그인에 있고,
+애셋은 `/CXMR/`에만 있다(`/Game/` 참조 없음). **헤드셋 실측 전이다** — PIE에는 헤드셋이 없어 시선·foveation·손 추적·
+모니터 스펙테이터 화면 자체는 확인하지 못했다. 확인 순서는 `Headset-Test-Checklist.md` §9~§11.
+
+| 기능 | 켜는 법 | 보여 주는 것 |
+|---|---|---|
+| **View Offset 부드러운 전환** | `K`, 컨트롤 창 `Render from` | 눈 ↔ 카메라 위치를 0.5초에 걸쳐 옮긴다. 한 번에 바꾸면 가상 장면 전체가 툭 튄다 |
+| **마커 라벨** | 컨트롤 창 Display → `Marker axes and labels`, 또는 `CXMR.DebugMarkers 1` | 마커마다 `ID 12  Stationary` 글자(놓치면 빨강 `LOST`)와 반투명 판. 레벨 안 물체라 **헤드셋에서도** 마커 위에 보인다 |
+| **시선 점** | `G`, 컨트롤 창 Eyes | 보고 있는 곳에 점. 무언가에 닿으면 초록, 10m 안에 없으면 노랑 |
+| **Foveated 영역** | `I`, 컨트롤 창 Eyes | 고해상도 focus view가 덮는 영역을 노랗게 칠한다 |
+| **손으로 잡기** | `CXMR Grabbable`을 붙인 액터를 엄지·검지로 집는다 | 집는 동안 손을 따라오고 손가락을 벌리면 놓는다. 물리 물체는 잡는 동안 물리가 멈추고, 놓을 때 손의 속도를 받는다 |
+| **모니터 화면** | 컨트롤 창 Monitor, 튜닝 창 Monitor | 헤드셋 미러 대신 ① 착용자 시점을 흔들림 줄이고 수평 유지 ② 차 주위를 천천히 도는 화면 |
+
+**View Offset 전환** — `K`와 컨트롤 창 버튼은 전환, 튜닝 창 `View offset` 숫자는 즉시 바뀐다. 전환 시간은 튜닝 창
+`View offset glide`(기본 0.5초, 0 = 즉시, 저장됨). 도중에 런타임이 값을 받지 않으면 그 자리에서 멈추고 로그에
+`View offset glide stopped at`이 찍힌다 — 헤드셋이 없는 PIE에서는 항상 이렇게 멈춘다.
+
+**마커 라벨** — 모드는 플러그인이 **지금** 그 마커에 걸고 있는 값이다. DynamicObject 프로파일이 `Dynamic`을 걸었는데
+`Stationary`로 보이면 설정이 안 먹은 것이다. 헤드셋이 보고한 적 없는 마커는 `mode ?`로 나온다.
+예전 화면 글자(`DrawDebugString`)는 라벨로 바꿨다.
+
+**시선 점** — OpenXR로는 두 눈을 합친 시선 하나만 온다(눈별 방향·고정점·신뢰도 없음). Visibility 채널로 10m까지 쏜다.
+튜닝 창 `Gaze lands`가 `no eye tracker connected`면 Varjo Base의 시선 추적과 시선 캘리브레이션을 본다.
+
+**Foveated 영역** — 칠해지려면 헤드셋 지원 + Project Settings → Varjo OpenXR의 Rendering Mode `Quad View` +
+`Foveated Rendering` on + 시선 추적이 모두 필요하다. 튜닝 창 `Foveated rendering`이 `running`이 아니면 켜도 아무것도
+칠해지지 않고, 로그에 이유가 찍힌다. 머티리얼은 예제 것을 복사한 `/CXMR/Core/Materials/PP_CXMRFoveationVisualization`.
+
+**손으로 잡기** — 잡을 액터에 `CXMR Grabbable` 컴포넌트를 붙이고 루트를 **Movable**로 둔다.
+- 테스트 물체: 튜닝 창 Grab → `Spawn a test cube in front of me`, 또는 콘솔 `CXMR.SpawnGrabCube`(`1`을 붙이면 물리 큐브)
+- 엄지 끝·검지 끝 간격이 `Pinch closes below`(2cm) 아래로 가면 집고, `Pinch opens above`(3.5cm) 위로 벌어져야 놓는다.
+  두 값 사이에서는 상태를 유지하므로 경계에서 떨지 않는다
+- 집는 순간 물체 경계가 핀치 지점에서 `Reach from the pinch`(5cm) 안이어야 잡힌다. 손가락을 먼저 붙이고 물체를 쓸고 지나가면 잡히지 않는다
+- 손 보정(Hands offset, §8 체크리스트)이 그대로 적용된다. 추적이 0.25초 안에 돌아오면 놓지 않는다
+- 컨트롤러 입력은 쓰지 않는다. BP에서는 `On Grabbed` / `On Released` 이벤트, `Get Held Actor`, 추적 없이 시험하는 `Set Simulated Pinch`
+
+**모니터 화면** — 두 번째 카메라가 장면을 한 번 더 그리므로(성능 비용) 기본은 꺼짐(`Headset mirror`)이다. 고른 값은 PC별로
+저장된다. 해상도는 `BP_CXMRPawn → Spectator → Resolution`(기본 1920×1080).
+⚠️ **MR에서는 이 화면에 실제 방이 나오지 않는다.** 패스스루 영상은 헤드셋 런타임 안에서 합성되어 엔진에 오지 않는다.
+헤드셋이 없으면(PIE) 띄울 스펙테이터 화면이 없어 텍스처에만 그린다(튜닝 창 `Monitor picture`가 알려 준다).
 
 ---
 
@@ -560,13 +608,18 @@ BP·Python에서는 `Set Tunable Value` / `Get Tunable Value` / `Invoke Tunable`
 | 재시작하면 캘리브레이션이 사라진다 | `Saved/CXMR/MarkerCalib_*.json`이 있는지 확인. 없으면 저장이 안 된 것 — `CXMR.SaveCalibration`을 치면 경로가 로그에 찍힌다 (§3-1) |
 | Learn이 아무것도 안 한다 | 마커가 하나도 안 잡혔다 — 마커 추적이 켜졌는지, 튜닝 창 `Calibration markers`의 `in view` 수를 본다. 로그에 이유가 찍힌다 |
 | 문을 열었더니 차가 튄다 | 문에 마커가 붙어 있다. 움직이는 부품에는 붙이면 안 된다 (§3-1) |
+| `G`를 눌러도 점이 안 보인다 | 튜닝 창 Eyes → `Gaze lands`. `no eye tracker connected`면 Varjo Base의 시선 추적·캘리브레이션 |
+| `I`를 눌러도 아무것도 안 칠해진다 | 튜닝 창 Eyes → `Foveated rendering`이 `running`인지. 아니면 Quad View + Foveated Rendering 설정 (§7) |
+| 핀치해도 안 잡힌다 | 대상에 `CXMR Grabbable`이 있는지 / 루트가 Movable인지(로그 `not Movable`) / 튜닝 창 Grab의 `gap`이 2cm 아래로 내려가는지 |
+| 모니터 화면에 실제 방이 안 나온다 | 정상 — 관전 카메라에는 패스스루가 없다. Monitor를 `Headset mirror`로 |
 | 손 패널이 한눈에 안 들어온다 | 잘리지 않고 스크롤된다. 한 번에 다 보이게 하려면 `Panel Draw Size` Y를 키우고 `Panel Scale`을 줄인다 (§7). 재빌드 불필요 |
 
 **로그 카테고리**: `LogCXMR`(서브시스템) `LogCXMRHands`(손) `LogCXMRDebug`(마커)
 `LogCXMRErgo`(착좌) `LogCXMRPawn`(패널) `LogCXMRPlacement`(배치·캘리브) `LogCXMRMask`(마스킹)
-`LogCXMRVehicle`(차량 로더) `LogCXMRInput`(입력)
+`LogCXMRVehicle`(차량 로더) `LogCXMRInput`(입력) `LogCXMRGaze`(시선) `LogCXMRFoveation`(foveation)
+`LogCXMRGrab`(손으로 잡기) `LogCXMRSpectator`(모니터 화면)
 
-**마커 계측기**: 콘솔에 `CXMR.DebugMarkers 1` — 플러그인이 보고하는 마커 pose를 **가공 없이** 그린다.
+**마커 계측기**: 콘솔에 `CXMR.DebugMarkers 1`, 또는 컨트롤 창 Display → `Marker axes and labels` — 플러그인이 보고하는 마커 pose를 **가공 없이** 그린다.
 캘리브가 이상할 때 "마커를 못 보는 것"인지 "오프셋이 틀린 것"인지 가른다.
 
 ---

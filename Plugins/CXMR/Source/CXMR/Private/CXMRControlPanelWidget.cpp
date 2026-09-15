@@ -2,6 +2,7 @@
 
 #include "CXMRControlPanelWidget.h"
 #include "CXMRPanelUI.h"
+#include "CXMRMarkerDebugComponent.h"
 #include "CXMRSubsystem.h"
 #include "CXMRTuningSubsystem.h"
 
@@ -139,7 +140,7 @@ TSharedRef<SWidget> UCXMRControlPanelWidget::BuildDisplayPage()
 		FCXMRTunable Row = MakeRow("Panel.ViewOffset", MR, LOCTEXT("ViewOffset", "Render from"), ECXMRTunableKind::Choice);
 		Row.Options = { LOCTEXT("Eye", "Eyes"), LOCTEXT("Camera", "Cameras") };
 		Row.Get = [CXMR] { const UCXMRSubsystem* S = CXMR(); return (S && S->GetViewOffset() > 0.5f) ? 1.0f : 0.0f; };
-		Row.Set = [CXMR](float Value) { if (UCXMRSubsystem* S = CXMR()) { S->SetViewOffset(Value > 0.5f ? 1.0f : 0.0f); } };
+		Row.Set = [CXMR](float Value) { if (UCXMRSubsystem* S = CXMR()) { S->TransitionViewOffset(Value > 0.5f ? 1.0f : 0.0f, S->ViewOffsetTransitionSeconds); } };
 		AddRow(Rows, MoveTemp(Row));
 	}
 	Toggle("Panel.Masking", MR, LOCTEXT("Masking", "Masking (mask meshes cut through)"),
@@ -187,6 +188,42 @@ TSharedRef<SWidget> UCXMRControlPanelWidget::BuildDisplayPage()
 		[](const UCXMRSubsystem& S) { return S.IsHandVisualizationOn(); },
 		[](UCXMRSubsystem& S, bool bOn) { S.SetHandVisualization(bOn); },
 		nullptr);
+	{
+		// The console variable CXMR.DebugMarkers underneath, so this checkbox and the console are one switch.
+		FCXMRTunable Row = MakeRow("Panel.MarkerLabels", Tracking, LOCTEXT("MarkerLabels", "Marker axes and labels (ID, mode)"), ECXMRTunableKind::Bool);
+		Row.Get = [] { return UCXMRMarkerDebugComponent::IsMarkerDrawingOn() ? 1.0f : 0.0f; };
+		Row.Set = [](float Value) { UCXMRMarkerDebugComponent::SetMarkerDrawing(Value > 0.5f); };
+		AddRow(Rows, MoveTemp(Row));
+	}
+
+	const FText Eyes = LOCTEXT("CatEyes", "Eyes");
+	Toggle("Panel.Gaze", Eyes, LOCTEXT("Gaze", "Gaze dot"),
+		[](const UCXMRSubsystem& S) { return S.IsGazeVisualizationOn(); },
+		[](UCXMRSubsystem& S, bool bOn) { S.SetGazeVisualization(bOn); },
+		nullptr);
+	Toggle("Panel.Foveation", Eyes, LOCTEXT("Foveation", "Foveated area overlay"),
+		[](const UCXMRSubsystem& S) { return S.IsFoveationVisualizationOn(); },
+		[](UCXMRSubsystem& S, bool bOn) { S.SetFoveationVisualization(bOn); },
+		nullptr);
+
+	{
+		// The spectator camera is a pawn component, so the row goes through its tuning entry, which also saves the choice.
+		FCXMRTunable Row = MakeRow("Panel.Spectator", LOCTEXT("CatMonitor", "Monitor"), LOCTEXT("Spectator", "Monitor shows"), ECXMRTunableKind::Choice);
+		Row.Options = { LOCTEXT("SpectatorMirror", "Headset mirror"), LOCTEXT("SpectatorSmoothed", "Smoothed view"), LOCTEXT("SpectatorOrbit", "Orbit vehicle") };
+		Row.Get = [Weak]
+		{
+			const UCXMRTuningSubsystem* Tuning = Weak.IsValid() ? Weak->GetTuning() : nullptr;
+			return Tuning ? Tuning->GetTunableValue("Spectator.Mode") : 0.0f;
+		};
+		Row.Set = [Weak](float Value)
+		{
+			if (UCXMRTuningSubsystem* Tuning = Weak.IsValid() ? Weak->GetTuning() : nullptr)
+			{
+				Tuning->SetTunableValue("Spectator.Mode", Value);
+			}
+		};
+		AddRow(Rows, MoveTemp(Row));
+	}
 
 	return CXMRPanelUI::MakeRowList(Rows);
 }

@@ -30,6 +30,9 @@ public class CXMR : ModuleRules
 			// Marker calibration is written to Saved/CXMR as JSON: a cooked build cannot write back to
 			// its own data assets, and text is what makes a remote session diagnosable over the phone.
 			"Json",
+			// Gaze for the G instrument (UCXMRGazeDebugComponent). An engine module; the OpenXREyeTracker plugin that
+			// feeds it is switched on by the Varjo plugin.
+			"EyeTracker",
 		});
 	}
 }

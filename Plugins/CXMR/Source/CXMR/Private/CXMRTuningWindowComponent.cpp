@@ -151,6 +151,13 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetViewOffset(V); } };
 		Tuning->Register(MoveTemp(T));
 	}
+	{
+		FCXMRTunable T = Make("MR.ViewOffsetGlide", MR, LOCTEXT("ViewOffsetGlide", "View offset glide (K)"), ECXMRTunableKind::Float);
+		T.Unit = LOCTEXT("Seconds", "s"); T.Min = 0.0f; T.Max = 2.0f; T.Delta = 0.05f; T.Default = 0.5f; T.bPersist = true;
+		T.Get = [Weak] { return Weak.IsValid() ? Weak->ViewOffsetTransitionSeconds : 0.0f; };
+		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->ViewOffsetTransitionSeconds = V; } };
+		Tuning->Register(MoveTemp(T));
+	}
 
 	// ---- Depth ----
 	const FText Depth = LOCTEXT("CatDepth", "Depth");

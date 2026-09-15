@@ -2,8 +2,8 @@
 //
 // ACXMRPawn — CXMR base VR/MR pawn. Camera (HMD) + L/R motion controllers + the Varjo input layer.
 // Hooks input in C++ (SetupPlayerInputComponent -> VarjoInput->SetupInput), so no BP input wiring.
-// Locomotion (teleport / turntable orbit) and interaction (hand / widget / grab) are added later
-// as features on top of this base.
+// Locomotion (teleport / turntable orbit) is added later as a feature on top of this base. Bare-hand grabbing is
+// UCXMRHandGrabComponent; the headset instruments (markers, hands, gaze, foveation) and the monitor camera sit here too.
 
 #pragma once
 
@@ -17,6 +17,10 @@ class UCXMRVarjoInputComponent;
 class UCXMRMaskingComponent;
 class UCXMRMarkerDebugComponent;
 class UCXMRHandDebugComponent;
+class UCXMRGazeDebugComponent;
+class UCXMRFoveationOverlayComponent;
+class UCXMRHandGrabComponent;
+class UCXMRSpectatorComponent;
 class UCXMRControlPanelWidget;
 class UCXMRDesktopPanelComponent;
 class UCXMRTuningWindowComponent;
@@ -51,6 +55,18 @@ public:
 
 	/** Headset verification instrument. Draws the tracked hand skeleton; toggled with H. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRHandDebugComponent> HandDebug;
+
+	/** Headset verification instrument. Draws where the wearer looks; toggled with G. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRGazeDebugComponent> GazeDebug;
+
+	/** Headset verification instrument. Tints the foveated area; toggled with I. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRFoveationOverlayComponent> FoveationOverlay;
+
+	/** Pinch next to a CXMR Grabbable actor to pick it up. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Pawn") TObjectPtr<UCXMRHandGrabComponent> HandGrab;
+
+	/** What the monitor shows: the headset mirror, a smoothed view, or an orbit of the vehicle. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|UI") TObjectPtr<UCXMRSpectatorComponent> Spectator;
 
 	/** Operator's control window on the desktop monitor, beside the headset view. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|UI") TObjectPtr<UCXMRDesktopPanelComponent> DesktopPanel;
