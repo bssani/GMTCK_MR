@@ -3,7 +3,9 @@
 #include "CXMRMarkerDebugComponent.h"
 #include "CXMRSubsystem.h"
 #include "CXMRVehicleRoot.h"
+#include "CXMRHandTracking.h"
 
+#include "Components/TextRenderComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -116,9 +118,14 @@ void UCXMRMarkerDebugComponent::TickComponent(float DeltaTime, ELevelTick TickTy
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (CVarDebugMarkers.GetValueOnGameThread() != 0)
+	const bool bDraw = CVarDebugMarkers.GetValueOnGameThread() != 0;
+	if (bDraw)
 	{
 		Draw();
+	}
+	if (bDraw || bLabelsShown)
+	{
+		UpdateLabels(bDraw);
 	}
 }
 
@@ -140,15 +147,16 @@ void UCXMRMarkerDebugComponent::Draw() const
 		DrawDebugCoordinateSystem(World, M.Position, M.Rotation, AxisLength, false, -1.0f, 0, 0.5f);
 
 		const FColor Colour = M.bLost ? FColor::Red : FColor::Green;
-		DrawDebugString(World, M.Position + FVector(0, 0, AxisLength),
-			FString::Printf(TEXT("id %d%s  moves:%d"), Pair.Key, M.bLost ? TEXT(" LOST") : TEXT(""), M.MoveCount),
-			nullptr, Colour, 0.0f, true);
+		// ID and tracking mode are on the marker's label (UpdateLabels): geometry in the world, so the headset shows it
+		// at the marker, not only the monitor.
 
 		// The physical marker's footprint, so a wrong size shows up as an obviously wrong square.
 		if (M.Size.X > 0.0f)
 		{
 			const float HalfCm = M.Size.X * 50.0f;   // metres -> cm, halved
 			DrawDebugBox(World, M.Position, FVector(HalfCm, HalfCm, 0.1f), M.Rotation.Quaternion(), Colour, false, -1.0f, 0, 0.3f);
+			// Filled and see-through, so the footprint still reads from across the room.
+			DrawDebugSolidBox(World, M.Position, FVector(HalfCm, HalfCm, 0.05f), M.Rotation.Quaternion(), FColor(Colour.R, Colour.G, Colour.B, 60));
 		}
 	}
 
@@ -178,4 +186,92 @@ void UCXMRMarkerDebugComponent::DumpMarkers() const
 			M.Position.X, M.Position.Y, M.Position.Z,
 			M.Rotation.Pitch, M.Rotation.Yaw, M.Rotation.Roll, M.MoveCount, M.LastUpdateTime);
 	}
+}
+
+void UCXMRMarkerDebugComponent::UpdateLabels(bool bVisible)
+{
+	bLabelsShown = bVisible;
+
+	FTransform Head;
+	const bool bHaveHead = bVisible && CXMRHands::GetHeadTransform(GetWorld(), Head);
+
+	for (TPair<int32, FCXMRDebugMarker>& Pair : Markers)
+	{
+		FCXMRDebugMarker& M = Pair.Value;
+		UTextRenderComponent* Label = M.Label.Get();
+
+		if (!bVisible)
+		{
+			if (Label)
+			{
+				Label->SetVisibility(false);
+			}
+			continue;
+		}
+
+		if (!Label)
+		{
+			Label = CreateLabel();
+			M.Label = Label;
+			if (!Label)
+			{
+				continue;
+			}
+		}
+
+		// The mode the plugin holds right now: the only way to see whether a dynamic-object profile really applied.
+		ECXMRMarkerTrackingMode Mode = ECXMRMarkerTrackingMode::Stationary;
+		const bool bKnownMode = Subsystem && Subsystem->GetMarkerTrackingMode(Pair.Key, Mode);
+		const TCHAR* ModeText = !bKnownMode ? TEXT("mode ?")
+			: (Mode == ECXMRMarkerTrackingMode::Dynamic ? TEXT("Dynamic") : TEXT("Stationary"));
+
+		Label->SetText(FText::FromString(FString::Printf(TEXT("ID %d  %s%s"), Pair.Key, ModeText, M.bLost ? TEXT("  LOST") : TEXT(""))));
+		Label->SetTextRenderColor(M.bLost ? FColor::Red : FColor::Green);
+
+		const FVector Location = M.Position + FVector(0.0, 0.0, AxisLength + LabelSize);
+		Label->SetWorldLocation(Location);
+		if (bHaveHead)
+		{
+			// A text render component reads correctly from the side its X axis points to.
+			Label->SetWorldRotation((Head.GetLocation() - Location).Rotation());
+		}
+		Label->SetVisibility(true);
+	}
+}
+
+UTextRenderComponent* UCXMRMarkerDebugComponent::CreateLabel()
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return nullptr;
+	}
+
+	UTextRenderComponent* Label = NewObject<UTextRenderComponent>(Owner);
+	if (USceneComponent* Root = Owner->GetRootComponent())
+	{
+		Label->SetupAttachment(Root);
+	}
+	// Placed where the plugin reports the marker, not relative to the pawn.
+	Label->SetUsingAbsoluteLocation(true);
+	Label->SetUsingAbsoluteRotation(true);
+	Label->SetUsingAbsoluteScale(true);
+	Label->SetHorizontalAlignment(EHTA_Center);
+	Label->SetVerticalAlignment(EVRTA_TextBottom);
+	Label->SetWorldSize(LabelSize);
+	Label->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Label->SetCastShadow(false);
+	Label->RegisterComponent();
+	return Label;
+}
+
+void UCXMRMarkerDebugComponent::SetMarkerDrawing(bool bOn)
+{
+	// Set with console priority: a value typed at the console would otherwise outrank this and the checkbox would stick.
+	CVarDebugMarkers.AsVariable()->Set(bOn ? 1 : 0, ECVF_SetByConsole);
+}
+
+bool UCXMRMarkerDebugComponent::IsMarkerDrawingOn()
+{
+	return CVarDebugMarkers.GetValueOnGameThread() != 0;
 }

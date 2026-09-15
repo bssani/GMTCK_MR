@@ -13,6 +13,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "CXMRTypes.h"
+#include "Containers/Ticker.h"
 #include "CXMRSubsystem.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnBoolChanged, bool, bNewState);
@@ -75,10 +76,22 @@ public:
 	UPROPERTY(BlueprintReadWrite, Category = "CXMR|MR") bool bCoupleVRBackgroundToMR = true;
 
 	// ---------- Camera render position / View offset (0 = eye, 1 = passthrough camera) ----------
+	/** Instant: the tuning slider and Blueprints. Stops a glide under way. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void  SetViewOffset(float Offset);
-	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void  ToggleViewOffset(); // flips between 0 (eye) and 1 (camera)
+	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void  ToggleViewOffset(); // glides between 0 (eye) and 1 (camera)
 	UFUNCTION(BlueprintPure,     Category = "CXMR|MR") float GetViewOffset() const { return ViewOffset; }
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|MR") FCXMROnFloatChanged OnViewOffsetChanged;
+
+	/**
+	 * Moves the render position to Target over Seconds, easing in and out. Jumping between the eye and the camera
+	 * position moves the whole picture at once; the Varjo example glides instead, and so do K and the control panel.
+	 * GetViewOffset follows the glide with the values the runtime accepted; a refusal stops it where it is.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void TransitionViewOffset(float Target, float Seconds = 0.5f);
+	UFUNCTION(BlueprintPure,     Category = "CXMR|MR") bool IsViewOffsetTransitioning() const { return ViewOffsetTicker.IsValid(); }
+
+	/** Seconds K and the control panel take to glide. 0 = jump. */
+	UPROPERTY(BlueprintReadWrite, Category = "CXMR|MR") float ViewOffsetTransitionSeconds = 0.5f;
 
 	// ---------- Depth occlusion ----------
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Depth") void SetDepthTest(bool bEnable);
@@ -135,6 +148,23 @@ public:
 	UFUNCTION(BlueprintPure,     Category = "CXMR|Hands") bool IsHandVisualizationOn() const { return bHandVisualizationOn; }
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Hands") FCXMROnBoolChanged OnHandVisualizationChanged;
 
+	// ---------- Eye tracking instruments ----------
+	// Purely ours, like the hand skeleton. The gaze dot (UCXMRGazeDebugComponent) is bound to
+	// IA_Varjo_GazeVisualizationToggle (G); the foveated-area overlay (UCXMRFoveationOverlayComponent) to
+	// IA_Varjo_FoveatedRenderingVisualizationToggle (I). Both keys were mapped in IMC_Varjo and bound to nothing.
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Eyes") void SetGazeVisualization(bool bEnable);
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Eyes") void ToggleGazeVisualization();
+	UFUNCTION(BlueprintPure,     Category = "CXMR|Eyes") bool IsGazeVisualizationOn() const { return bGazeVisualizationOn; }
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Eyes") FCXMROnBoolChanged OnGazeVisualizationChanged;
+
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Foveation") void SetFoveationVisualization(bool bEnable);
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Foveation") void ToggleFoveationVisualization();
+	UFUNCTION(BlueprintPure,     Category = "CXMR|Foveation") bool IsFoveationVisualizationOn() const { return bFoveationVisualizationOn; }
+	UPROPERTY(BlueprintAssignable, Category = "CXMR|Foveation") FCXMROnBoolChanged OnFoveationVisualizationChanged;
+
+	/** True while the runtime renders a foveated focus view (supported + Quad View + the FoveatedRendering setting). */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Foveation") bool IsFoveatedRenderingEnabled() const;
+
 	// ---------- Varjo Markers ----------
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Markers") bool SetMarkerTracking(bool bEnable);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Markers") void ToggleMarkerTracking();
@@ -150,6 +180,9 @@ public:
 	// Per-marker config. CAVEAT (plugin): only succeeds AFTER the marker has been detected (call in OnMarkerDetected).
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Markers") bool SetMarkerTimeout(int32 MarkerId, float Seconds);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Markers") bool SetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMode Mode);
+
+	/** The mode the plugin holds for a marker right now. False for a marker the plugin has not reported. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Markers") bool GetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMode& OutMode) const;
 
 	// ---------- Placement request relay (input/UI -> placement component, decoupled) ----------
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void RequestRecalibrate();
@@ -227,6 +260,8 @@ private:
 	UPROPERTY(Transient) bool bMarkerTrackingOn = false;
 	UPROPERTY(Transient) bool bVRBackgroundVisible = true;
 	UPROPERTY(Transient) bool bHandVisualizationOn = false;
+	UPROPERTY(Transient) bool bGazeVisualizationOn = false;
+	UPROPERTY(Transient) bool bFoveationVisualizationOn = false;
 
 	// Depth test range. ON by default, and that default is the point: leaving it off hands the
 	// compositor farZ = HUGE_VALF (see the header comment above) and the room flickers.
@@ -257,6 +292,16 @@ private:
 	 *  switch cannot quietly replace it. */
 	void SyncViewOffsetWithMode();
 
+	/** One step of TransitionViewOffset. On the core ticker, so a glide finishes even while the game is paused. */
+	bool TickViewOffsetTransition(float DeltaTime);
+	void StopViewOffsetTransition();
+
+	FTSTicker::FDelegateHandle ViewOffsetTicker;
+	float ViewOffsetFrom = 0.0f;
+	float ViewOffsetTo = 0.0f;
+	float ViewOffsetElapsed = 0.0f;
+	float ViewOffsetDuration = 0.0f;
+
 	/** Pushes the cached range to the plugin. Called on change AND whenever the depth test is enabled,
 	 *  because the plugin resets its whole state struct on session creation (DepthPlugin.cpp
 	 *  PostCreateSession: State = {}) and would otherwise fall back to the unbounded default. */
@@ -270,6 +315,10 @@ private:
 	FDelegateHandle DetectedHandle;
 	FDelegateHandle MovedHandle;
 	FDelegateHandle LostHandle;
+
+	/** Markers the plugin itself has reported. Its tracking-mode getter logs a warning for any other id, and the
+	 *  marker labels ask every frame. */
+	TSet<int32> PluginMarkerIds;
 
 	// Mirror of the placement component's live marker offset, so the panel can read it without
 	// having to find a component that does not live on the pawn.

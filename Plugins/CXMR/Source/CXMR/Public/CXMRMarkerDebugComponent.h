@@ -12,8 +12,10 @@
 //   * marker world-space assumption  — the drawn axes must sit on the physical marker
 //   * detection lifecycle            — Detected fires once per ID per session; re-acquire is Moved
 //   * Recalibrate                    — cycling marker tracking must produce a fresh Detected
+//   * tracking mode                  — each marker's label shows Stationary / Dynamic as the plugin holds it now
 //
-// Enable with the console command `CXMR.DebugMarkers 1` — no input action or IMC wiring needed,
+// Enable with the console command `CXMR.DebugMarkers 1` or the control panel (Display > Marker axes and
+// labels) — no input action or IMC wiring needed,
 // and it works the same in PIE and in a packaged build on the headset.
 
 #pragma once
@@ -23,6 +25,7 @@
 #include "CXMRMarkerDebugComponent.generated.h"
 
 class UCXMRSubsystem;
+class UTextRenderComponent;
 
 USTRUCT()
 struct FCXMRDebugMarker
@@ -37,6 +40,9 @@ struct FCXMRDebugMarker
 	float LastUpdateTime = 0.0f;
 	int32 MoveCount      = 0;
 	bool  bLost          = false;
+
+	/** In-world ID label, made the first time the marker is drawn. Owned by the pawn. */
+	TWeakObjectPtr<UTextRenderComponent> Label;
 };
 
 UCLASS(ClassGroup = (CXMR), meta = (BlueprintSpawnableComponent), DisplayName = "CXMR Marker Debug")
@@ -52,6 +58,14 @@ public:
 
 	/** Also draw the calibrated vehicle anchor, so marker and result can be compared side by side. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Debug") bool bDrawVehicleAnchor = true;
+
+	/** Letter height of the marker labels (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Debug", meta = (ClampMin = "0.5", ClampMax = "20.0"))
+	float LabelSize = 2.5f;
+
+	/** Same switch as CXMR.DebugMarkers, for the control panel and Blueprints. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Debug") static void SetMarkerDrawing(bool bOn);
+	UFUNCTION(BlueprintPure, Category = "CXMR|Debug") static bool IsMarkerDrawingOn();
 
 	/** Dumps every marker seen this session to the log. Console: CXMR.DumpMarkers */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Debug") void DumpMarkers() const;
@@ -72,8 +86,15 @@ private:
 
 	void Draw() const;
 
+	/** Places each marker's ID and tracking-mode label facing the viewer, or hides them all. */
+	void UpdateLabels(bool bVisible);
+	UTextRenderComponent* CreateLabel();
+
 	/** Every marker ID seen this session, including lost ones — losing the history hides the bug. */
 	TMap<int32, FCXMRDebugMarker> Markers;
 
 	UPROPERTY(Transient) TObjectPtr<UCXMRSubsystem> Subsystem;
+
+	/** Whether labels were shown last frame, so switching off hides them once instead of every frame. */
+	bool bLabelsShown = false;
 };
