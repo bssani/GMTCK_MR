@@ -32,6 +32,23 @@ bool CXMRHands::IsTrackerPresent()
 	return FindTracker() != nullptr;
 }
 
+bool CXMRHands::HasReceivedHandData(EControllerHand Hand)
+{
+	IHandTracker* Tracker = FindTracker();
+	if (!Tracker)
+	{
+		return false;
+	}
+
+	// OpenXRHandTracking answers false here until the runtime has marked the hand active once (XrHandJointLocationsEXT
+	// isActive), and true from then on even while the hand is lost — exactly the difference this reports.
+	TArray<FVector> Positions;
+	TArray<FQuat> Rotations;
+	TArray<float> Radii;
+	bool bIsTracked = false;
+	return Tracker->GetAllKeypointStates(Hand, Positions, Rotations, Radii, bIsTracked);
+}
+
 FVector CXMRHands::GetOffset()
 {
 	return GHeadFrameOffset;

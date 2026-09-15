@@ -196,6 +196,10 @@ Axis1D IA를 지정한다 — 애셋이 아직 없다.)
 - 로그가 답을 말해준다:
   - `LogCXMRHands: Hand tracker present: yes/NO` — 플러그인 자체가 있는지
   - `LogCXMRHands: Warning: LEFT/RIGHT hand acquired/lost` — 실제 추적 획득·상실 시점
+  - `Hand visualization ON — ... hand data received: left no, right no` + 5초 뒤 `No hand data from the OpenXR runtime` —
+    **런타임이 손을 한 번도 보내지 않았다**(2026-09-15 테스트 PC에서 실제로 이 상태였다: 확장은 켜졌는데 acquired가 한 번도 없음).
+    앱 쪽은 할 게 없다 → Varjo Base > Settings > System > Experimental > Hand tracking(Varjo / Ultraleap)을 확인하고 플레이를 다시 시작.
+    튜닝 창 Hands의 `Right index tip`도 `no hand data from the runtime`으로 나온다(`not tracked (lost)`는 받다가 놓친 것)
 - ⚠️ **손이 얼어붙은 채 남아 보이면 그건 버그가 아니라 방지된 상황이다** — 트래커는 추적이 끊겨도
   마지막 포즈를 계속 반환한다(원점으로 튀는 걸 막으려고). CXMR은 `bIsTracked`를 확인해 그리지
   않으므로, 손이 사라지면 실제로 추적이 끊긴 것이다.

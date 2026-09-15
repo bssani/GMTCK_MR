@@ -130,9 +130,16 @@ void UCXMRHandDebugComponent::HandleVisualizationChanged(bool bOn)
 
 	if (bOn)
 	{
-		UE_LOG(LogCXMRHands, Log, TEXT("Hand visualization ON — tracker %s, state %s"),
+		VisualizationOnSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+		bWarnedNoHandData = false;
+
+		// "Extension active" only says the runtime offers hand tracking. Whether it has sent a hand is the part that
+		// decides if anything can be drawn — the old "state valid" read as the second and meant only the first.
+		UE_LOG(LogCXMRHands, Log, TEXT("Hand visualization ON — tracker %s, hand tracking extension %s, hand data received: left %s, right %s"),
 			GetHandTracker() ? TEXT("present") : TEXT("MISSING"),
-			IsHandTrackingAvailable() ? TEXT("valid") : TEXT("not valid yet"));
+			IsHandTrackingAvailable() ? TEXT("active") : TEXT("not active"),
+			CXMRHands::HasReceivedHandData(EControllerHand::Left) ? TEXT("yes") : TEXT("no"),
+			CXMRHands::HasReceivedHandData(EControllerHand::Right) ? TEXT("yes") : TEXT("no"));
 	}
 }
 
@@ -166,6 +173,22 @@ void UCXMRHandDebugComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	}
 	bLeftWasTracked  = bLeft;
 	bRightWasTracked = bRight;
+
+	// 2026-09-15 on the XR-4: the extension was active, yet the runtime never once reported a hand active, so nothing drew
+	// and nothing in the log said why. Say it once, a few seconds after H, when neither hand has ever arrived.
+	static constexpr double NoHandDataSeconds = 5.0;
+	const UWorld* World = GetWorld();
+	if (!bLeft && !bRight && !bWarnedNoHandData && World && GetHandTracker()
+		&& World->GetTimeSeconds() - VisualizationOnSeconds > NoHandDataSeconds
+		&& !CXMRHands::HasReceivedHandData(EControllerHand::Left) && !CXMRHands::HasReceivedHandData(EControllerHand::Right))
+	{
+		bWarnedNoHandData = true;
+		UE_LOG(LogCXMRHands, Warning,
+			TEXT("No hand data from the OpenXR runtime %.0f s after switching hands on: the runtime has never reported a hand as active. "
+			     "CXMR is ready and has nothing to draw. On Varjo check Varjo Base > Settings > System > Experimental > Hand tracking "
+			     "(Varjo or Ultraleap; Ultraleap also needs its tracking service), keep both hands in front of the headset, then restart play."),
+			NoHandDataSeconds);
+	}
 }
 
 bool UCXMRHandDebugComponent::DrawHand(EControllerHand Hand, const FLinearColor& Color)
@@ -283,9 +306,14 @@ FText UCXMRHandDebugComponent::DescribeTip(EControllerHand Hand) const
 	TArray<float>   Radii;
 	if (!CXMRHands::GetJoints(GetWorld(), Hand, Positions, Rotations, Radii))
 	{
-		return CXMRHands::IsTrackerPresent()
-			? NSLOCTEXT("CXMRHands", "NotTracked", "not tracked")
-			: NSLOCTEXT("CXMRHands", "NoTracker", "no hand tracker");
+		if (!CXMRHands::IsTrackerPresent())
+		{
+			return NSLOCTEXT("CXMRHands", "NoTracker", "no hand tracker");
+		}
+		// Lost after arriving, versus never arrived at all: the second is a runtime setting, not a hand out of view.
+		return CXMRHands::HasReceivedHandData(Hand)
+			? NSLOCTEXT("CXMRHands", "NotTracked", "not tracked (lost)")
+			: NSLOCTEXT("CXMRHands", "NoHandData", "no hand data from the runtime");
 	}
 
 	FTransform Head;

@@ -603,7 +603,7 @@ Varjo 예제 맵(`/Game/VRTemplate/Maps/VRTemplateMap`)에 있고 CXMR에 없던
 | 패널의 Mixed Reality가 안 켜진다 | CVar를 못 찾은 것. 로그에 `LogCXMR: Warning: Mixed reality toggle ignored` |
 | 턴테이블이 안 돈다 | `Placement → Mode`가 `MarkerAnchor`다. 실내에서는 회전을 막는 게 설계다 |
 | 손이 허공에 얼어붙어 있다 | 그럴 수 없다 — 추적이 끊기면 그리지 않는다. 보인다면 실제로 추적 중이다 |
-| `H`를 눌러도 손이 안 나온다 | `OpenXRHandTracking` 플러그인 활성 여부. 로그 `LogCXMRHands: Hand tracker present:` |
+| `H`를 눌러도 손이 안 나온다 | 로그 `LogCXMRHands: Hand tracker present: NO`면 `OpenXRHandTracking` 플러그인. `present: yes`인데 `hand data received: left no, right no`이고 5초 뒤 `No hand data from the OpenXR runtime` 경고가 뜨면 **앱이 아니라 런타임이 손을 한 번도 보내지 않은 것**이다 → Varjo Base > Settings > System > Experimental > Hand tracking(Varjo / Ultraleap, Ultraleap이면 추적 서비스도)을 확인하고 플레이를 다시 시작한다 |
 | 캘리브 후 다른 마커가 안 잡힌다 | `Stop Marker Tracking When Calibrated`가 켜져 있다 → 끈다 |
 | **넘버패드를 눌러도 차가 안 움직인다** | ① **NumLock 확인** ② 로그에 `Marker offset adjusted`가 찍히는지 본다. 안 찍히면 입력이 도달하지 않은 것이고, 찍히는데 안 움직이면 배치 계산 쪽이다 |
 | 재시작하면 캘리브레이션이 사라진다 | `Saved/CXMR/MarkerCalib_*.json`이 있는지 확인. 없으면 저장이 안 된 것 — `CXMR.SaveCalibration`을 치면 경로가 로그에 찍힌다 (§3-1) |

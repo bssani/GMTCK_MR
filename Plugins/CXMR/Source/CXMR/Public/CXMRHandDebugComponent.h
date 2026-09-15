@@ -88,4 +88,8 @@ private:
 	// Previous tracked state per hand, so the log fires on transitions only.
 	bool bLeftWasTracked  = false;
 	bool bRightWasTracked = false;
+
+	/** When the visualization was switched on, and whether the "no hand data" warning has been given since. */
+	double VisualizationOnSeconds = 0.0;
+	bool bWarnedNoHandData = false;
 };

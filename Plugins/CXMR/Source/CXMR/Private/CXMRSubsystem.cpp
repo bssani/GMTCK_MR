@@ -511,6 +511,14 @@ bool UCXMRSubsystem::SetMarkerTracking(bool bEnable)
 			IsMarkerTrackingSupported() ? TEXT("true") : TEXT("false"));
 	}
 
+	if (!bResult)
+	{
+		// Off (or refused) empties the plugin's marker table (VarjoMarkersPlugin.cpp SetVarjoMarkersEnabled: markers.Reset()),
+		// and its mode getter then warns on every call for an id it no longer holds — marker labels ask every frame, which
+		// flooded a headset session log with two warnings per frame after V / R. The ids come back with the next Detected.
+		PluginMarkerIds.Reset();
+	}
+
 	if (bMarkerTrackingOn != bResult)
 	{
 		bMarkerTrackingOn = bResult;
