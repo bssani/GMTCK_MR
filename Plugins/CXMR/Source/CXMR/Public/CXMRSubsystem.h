@@ -76,7 +76,8 @@ public:
 	UPROPERTY(BlueprintReadWrite, Category = "CXMR|MR") bool bCoupleVRBackgroundToMR = true;
 
 	// ---------- Camera render position / View offset (0 = eye, 1 = passthrough camera) ----------
-	/** Instant: the tuning slider and Blueprints. Stops a glide under way. */
+	/** Instant: the tuning slider and Blueprints. Stops a glide under way. Asked before the headset session runs, the
+	 *  value is held and sent once it does; GetViewOffset keeps reporting what the headset has until then. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void  SetViewOffset(float Offset);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|MR") void  ToggleViewOffset(); // glides between 0 (eye) and 1 (camera)
 	UFUNCTION(BlueprintPure,     Category = "CXMR|MR") float GetViewOffset() const { return ViewOffset; }
@@ -301,6 +302,15 @@ private:
 	float ViewOffsetTo = 0.0f;
 	float ViewOffsetElapsed = 0.0f;
 	float ViewOffsetDuration = 0.0f;
+
+	/** A View offset asked for while no headset session was running (the tuning window restores its saved value at
+	 *  BeginPlay, before the session begins). Sent to the runtime once a session runs. */
+	void DeferViewOffset(float Offset);
+	bool TickPendingViewOffset(float DeltaTime);
+	void StopPendingViewOffset();
+
+	FTSTicker::FDelegateHandle PendingViewOffsetTicker;
+	float PendingViewOffset = 0.0f;
 
 	/** Pushes the cached range to the plugin. Called on change AND whenever the depth test is enabled,
 	 *  because the plugin resets its whole state struct on session creation (DepthPlugin.cpp
