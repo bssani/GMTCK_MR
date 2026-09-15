@@ -33,4 +33,9 @@ namespace CXMRHands
 
 	/** True when a hand tracker plugin is present at all (not whether a hand is in view). */
 	CXMR_API bool IsTrackerPresent();
+
+	/** True once the runtime has sent this hand's joints at least once this session, even if the hand is lost now.
+	 *  False with a tracker present means the runtime has never reported the hand active — a runtime or headset
+	 *  setting, not something the app can fix. */
+	CXMR_API bool HasReceivedHandData(EControllerHand Hand);
 }
