@@ -9,6 +9,10 @@
 // The plug comes from the pawn's UCXMRVirtualHandComponent::GetPlugTip — the same grip math that draws the
 // plug — so what lights up matches what the wearer sees. That also works with the virtual hands hidden.
 //
+// The marker is a four-bar frame around the opening by default. Set IndicatorMesh to show a mesh of your own
+// instead (a USB connector from the CAD, say): it keeps its own materials while idle and turns AlignedColor when
+// the plug lines up.
+//
 // Hand tracking is not millimetre-accurate, so the defaults are loose on purpose. Green means "lined up at this
 // port", not "fully inserted": the CAD has no receptacle and nothing here measures insertion.
 
@@ -60,21 +64,39 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") FLinearColor IdleColor    = FLinearColor(0.35f, 0.35f, 0.38f, 1.0f);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") FLinearColor AlignedColor = FLinearColor(0.10f, 0.95f, 0.25f, 1.0f);
 
-	/** Off = the frame appears only while aligned, leaving the CAD untouched the rest of the time. */
+	/** Off = the marker appears only while aligned, leaving the CAD untouched the rest of the time. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") bool bShowWhenIdle = true;
+
+	/**
+	 * A mesh of your own for the marker, shown instead of the four-bar frame — one piece, any shape. Empty = the frame.
+	 * Detection does not use it: the port is still this actor's location and arrow.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") TObjectPtr<UStaticMesh> IndicatorMesh;
+
+	/**
+	 * Where IndicatorMesh sits relative to this actor (X out of the port). A mesh exported from CAD often has its
+	 * origin far from the part — move it back onto the opening here.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") FTransform IndicatorOffset = FTransform::Identity;
+
+	/** On = the mesh keeps its own materials until the plug lines up. Off = it shows IdleColor like the frame. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") bool bKeepMeshMaterialsWhenIdle = true;
 
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") bool IsAligned() const { return bAligned; }
 
+	/** Applies FrameSize, IndicatorMesh, IndicatorOffset and the colours again after changing them during play. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Port") void RefreshMarker();
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Assets") TObjectPtr<UStaticMesh> BarMesh;
 
-	/** Needs a vector parameter named "Color" — the engine's BasicShapeMaterial has one. */
+	/** Needs a vector parameter named "Color" — the engine's BasicShapeMaterial has one. Also paints IndicatorMesh. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Assets") TObjectPtr<UMaterialInterface> BarMaterial;
 
 protected:
 	virtual void BeginPlay() override;
 
 private:
-	/** Places the four bars around the opening from FrameSize and FrameThickness. */
+	/** Places the four bars around the opening from FrameSize and FrameThickness, and IndicatorMesh if set. */
 	void LayoutFrame();
 	void ApplyState();
 	UCXMRVirtualHandComponent* FindHands();
@@ -88,6 +110,9 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> BarBottom;
 	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> BarLeft;
 	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> BarRight;
+
+	/** Shows IndicatorMesh. Hidden while it is empty. */
+	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> Indicator;
 
 	UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> FrameMaterial;
 

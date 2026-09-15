@@ -35,19 +35,20 @@ ACXMRUsbPortTarget::ACXMRUsbPortTarget()
 	OutOfPort->ArrowSize = 0.1f;
 	OutOfPort->SetHiddenInGame(true);
 
-	auto MakeBar = [this](const TCHAR* Name)
+	auto MakeShape = [this](const TCHAR* Name)
 	{
-		UStaticMeshComponent* Bar = CreateDefaultSubobject<UStaticMeshComponent>(Name);
-		Bar->SetupAttachment(PortRoot);
-		Bar->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		Bar->SetCastShadow(false);
-		Bar->SetCanEverAffectNavigation(false);
-		return Bar;
+		UStaticMeshComponent* Shape = CreateDefaultSubobject<UStaticMeshComponent>(Name);
+		Shape->SetupAttachment(PortRoot);
+		Shape->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Shape->SetCastShadow(false);
+		Shape->SetCanEverAffectNavigation(false);
+		return Shape;
 	};
-	BarTop    = MakeBar(TEXT("BarTop"));
-	BarBottom = MakeBar(TEXT("BarBottom"));
-	BarLeft   = MakeBar(TEXT("BarLeft"));
-	BarRight  = MakeBar(TEXT("BarRight"));
+	BarTop    = MakeShape(TEXT("BarTop"));
+	BarBottom = MakeShape(TEXT("BarBottom"));
+	BarLeft   = MakeShape(TEXT("BarLeft"));
+	BarRight  = MakeShape(TEXT("BarRight"));
+	Indicator = MakeShape(TEXT("Indicator"));
 
 	// Engine content, not project content — the plugin stays portable.
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube"));
@@ -59,12 +60,14 @@ ACXMRUsbPortTarget::ACXMRUsbPortTarget()
 void ACXMRUsbPortTarget::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
-	// Here as well as at play, so the frame follows FrameSize while it is being fitted to the CAD opening.
+	// Here as well as at play, so the marker follows FrameSize / IndicatorOffset while it is being fitted to the CAD opening.
 	LayoutFrame();
 }
 
 void ACXMRUsbPortTarget::LayoutFrame()
 {
+	const bool bCustomMesh = IndicatorMesh != nullptr;
+
 	const float T = FrameThickness;
 	const float HalfW = FrameSize.X * 0.5f;
 	const float HalfH = FrameSize.Y * 0.5f;
@@ -88,6 +91,14 @@ void ACXMRUsbPortTarget::LayoutFrame()
 		Item.Bar->SetMaterial(0, FrameMaterial ? static_cast<UMaterialInterface*>(FrameMaterial) : BarMaterial.Get());
 		Item.Bar->SetRelativeLocation(Item.Location);
 		Item.Bar->SetRelativeScale3D(Item.Size / CubeCm);
+		Item.Bar->SetVisibility(!bCustomMesh);
+	}
+
+	if (Indicator)
+	{
+		Indicator->SetStaticMesh(IndicatorMesh);
+		Indicator->SetRelativeTransform(IndicatorOffset);
+		Indicator->SetVisibility(bCustomMesh);
 	}
 }
 
@@ -104,6 +115,12 @@ void ACXMRUsbPortTarget::BeginPlay()
 	{
 		FrameMaterial = UMaterialInstanceDynamic::Create(BarMaterial, this);
 	}
+	LayoutFrame();
+	ApplyState();
+}
+
+void ACXMRUsbPortTarget::RefreshMarker()
+{
 	LayoutFrame();
 	ApplyState();
 }
@@ -165,11 +182,28 @@ void ACXMRUsbPortTarget::ApplyState()
 	}
 
 	const bool bVisible = bAligned || bShowWhenIdle;
+	const bool bCustomMesh = IndicatorMesh != nullptr;
+
 	for (UStaticMeshComponent* Bar : { BarTop.Get(), BarBottom.Get(), BarLeft.Get(), BarRight.Get() })
 	{
 		if (Bar)
 		{
-			Bar->SetVisibility(bVisible);
+			Bar->SetVisibility(bVisible && !bCustomMesh);
+		}
+	}
+
+	if (Indicator)
+	{
+		Indicator->SetVisibility(bVisible && bCustomMesh);
+		if (bCustomMesh)
+		{
+			// Idle keeps the mesh's own look; aligned paints every slot. A null override hands a slot back to the mesh.
+			const bool bOwnMaterials = !bAligned && bKeepMeshMaterialsWhenIdle;
+			UMaterialInterface* Paint = FrameMaterial ? static_cast<UMaterialInterface*>(FrameMaterial) : BarMaterial.Get();
+			for (int32 Slot = 0; Slot < Indicator->GetNumMaterials(); ++Slot)
+			{
+				Indicator->SetMaterial(Slot, bOwnMaterials ? nullptr : Paint);
+			}
 		}
 	}
 }
