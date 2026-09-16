@@ -122,6 +122,10 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void NudgeVehicle(FVector ViewerDelta, float YawDelta);
 
+	/** Put the vehicle at this world pose, kept as the manual offset like a nudge — so Save adjustment and Learn work
+	 *  on it unchanged. Used by alignments that compute a whole pose at once (touched box corners). */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void MoveVehicleTo(FTransform VehicleWorld);
+
 	/** Adjust the offset in the VEHICLE's own frame (temporary). X/Y/Z cm + rotation deg. Kept for scripts;
 	 *  the adjust keys go through NudgeVehicle. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void AdjustMarkerOffset(FVector DeltaLocation, FRotator DeltaRotation);
