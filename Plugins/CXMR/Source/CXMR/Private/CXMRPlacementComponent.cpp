@@ -4,6 +4,7 @@
 #include "CXMRSubsystem.h"
 #include "CXMRMarkerProfile.h"
 #include "CXMRTuningSubsystem.h"
+#include "CXMRLevelFit.h"
 
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -414,10 +415,12 @@ void UCXMRPlacementComponent::TryStartMarkerTracking()
 
 bool UCXMRPlacementComponent::ComputeMultiMarkerTransform(FTransform& Out, float& OutResidual) const
 {
-	// Correspondences: p = marker position in vehicle-local space, q = measured world position.
-	// Solve yaw (about Z) + translation, roll/pitch = 0 (vehicle sits level on the floor).
-	// Uses marker POSITIONS only — the baseline between markers gives a far more stable yaw than
-	// any single marker's own (noisy) orientation.
+	// Correspondences: marker position in vehicle-local space vs measured world position. Uses marker POSITIONS only —
+	// the baseline between markers gives a far more stable yaw than any single marker's own (noisy) orientation.
+	//
+	// OutResidual: how far the measured markers end up from the saved layout, RMS cm. A layout learned in one session
+	// and markers measured in another disagree by exactly this much — and that disagreement is what moves the car
+	// between sessions, so it is worth a number on screen rather than a surprise the next morning.
 	TArray<FVector> P, Q;
 	for (const TPair<int32, FTransform>& Pair : DetectedCalib)
 	{
@@ -428,44 +431,7 @@ bool UCXMRPlacementComponent::ComputeMultiMarkerTransform(FTransform& Out, float
 			Q.Add(Pair.Value.GetLocation());
 		}
 	}
-	if (P.Num() < 2)
-	{
-		return false;
-	}
-
-	FVector PBar = FVector::ZeroVector;
-	FVector QBar = FVector::ZeroVector;
-	for (int32 i = 0; i < P.Num(); ++i) { PBar += P[i]; QBar += Q[i]; }
-	PBar /= P.Num();
-	QBar /= P.Num();
-
-	// Optimal yaw about Z (least squares): yaw = atan2( sum cross_xy, sum dot_xy ).
-	double DotSum = 0.0;
-	double CrossSum = 0.0;
-	for (int32 i = 0; i < P.Num(); ++i)
-	{
-		const FVector dp = P[i] - PBar;
-		const FVector dq = Q[i] - QBar;
-		DotSum   += dp.X * dq.X + dp.Y * dq.Y;
-		CrossSum += dp.X * dq.Y - dp.Y * dq.X;
-	}
-
-	const float YawDeg = FMath::RadiansToDegrees(static_cast<float>(FMath::Atan2(CrossSum, DotSum)));
-	const FRotator Rot(0.0f, YawDeg, 0.0f);
-	const FVector Trans = QBar - Rot.RotateVector(PBar);
-
-	// How far the measured markers end up from the saved layout, RMS cm. A layout learned in one session and markers
-	// measured in another disagree by exactly this much — and that disagreement is what moves the car between sessions,
-	// so it is worth a number on screen rather than a surprise the next morning.
-	double SquaredError = 0.0;
-	for (int32 i = 0; i < P.Num(); ++i)
-	{
-		SquaredError += FVector::DistSquared(Rot.RotateVector(P[i]) + Trans, Q[i]);
-	}
-	OutResidual = static_cast<float>(FMath::Sqrt(SquaredError / P.Num()));
-
-	Out = FTransform(Rot, Trans, FVector::OneVector);
-	return true;
+	return CXMRLevelFit::Solve(P, Q, Out, OutResidual, 0.0);
 }
 
 void UCXMRPlacementComponent::Recalibrate()
@@ -1097,12 +1063,27 @@ void UCXMRPlacementComponent::NudgeVehicle(FVector ViewerDelta, float YawDelta)
 
 	// Turn about the pivot, then slide: T(-P) * R * T(P + delta), applied after the current pose.
 	const FTransform Nudge = FTransform(-Pivot) * FTransform(FRotator(0.0f, YawDelta, 0.0f)) * FTransform(Pivot + WorldDelta);
-	const FTransform Desired = Current * Nudge;
+	MoveVehicleTo(Current * Nudge);
+}
+
+void UCXMRPlacementComponent::MoveVehicleTo(FTransform VehicleWorld)
+{
+	AActor* Root = ResolveVehicleRoot();
+	if (!Root)
+	{
+		return;
+	}
+	if (!bHaveBasePose)
+	{
+		BaseVehicleTransform = Root->GetActorTransform();
+		bHaveBasePose = true;
+	}
+	VehicleWorld.SetScale3D(FVector::OneVector);
 
 	// Store the result as the vehicle-frame offset the rest of this component already speaks
 	// (ApplyPlacement: Vehicle = Adjust^-1 * Base  =>  Adjust = Base * Desired^-1), so saving the offset
 	// and learning the marker layout keep working unchanged.
-	const FTransform Adjust = BaseVehicleTransform * Desired.Inverse();
+	const FTransform Adjust = BaseVehicleTransform * VehicleWorld.Inverse();
 	TempMarkerLocationOffset = Adjust.GetLocation();
 	TempMarkerRotationOffset = Adjust.Rotator();
 
