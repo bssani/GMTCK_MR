@@ -101,6 +101,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ClampMin = "0.0"))
 	float MarkerUpdateThreshold = 0.5f;
 
+	/** Average every marker sample taken while calibrating, rather than placing from the latest one. One frame of
+	 *  marker pose carries a few millimetres of noise, and whichever frame happened to arrive last decided where the
+	 *  car stood — differently every session, which is what made a carefully aligned car come back somewhere else. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") bool bAverageMarkerSamples = true;
+
 	UPROPERTY(BlueprintReadOnly, Category = "CXMR|Placement") bool bCalibrated = false;
 
 	/** Re-run calibration: clears the flag and cycles marker tracking so Detected fires again. */
@@ -182,8 +187,36 @@ private:
 
 	/** Recompute + apply the vehicle transform from the accumulated calibration markers. */
 	void RecomputeCalibration();
-	/** Rigid fit (yaw about Z + translation, roll/pitch = 0) from >=2 marker positions. */
-	bool ComputeMultiMarkerTransform(FTransform& Out) const;
+	/** Rigid fit (yaw about Z + translation, roll/pitch = 0) from >=2 marker positions.
+	 *  OutResidual = RMS distance in cm between the measured markers and the saved layout after the fit. */
+	bool ComputeMultiMarkerTransform(FTransform& Out, float& OutResidual) const;
+
+	/** One marker's samples for this calibration. Positions are averaged directly; the orientation is averaged as
+	 *  axis vectors, because averaging angles wraps around. */
+	struct FMarkerSamples
+	{
+		FVector PositionSum = FVector::ZeroVector;
+		FVector ForwardSum  = FVector::ZeroVector;
+		FVector UpSum       = FVector::ZeroVector;
+		double  SquaredSum  = 0.0;
+		int32   Count       = 0;
+		/** Spread of the samples around their own mean, cm — how steady the tracking was. */
+		float   Scatter     = 0.0f;
+
+		FTransform Mean() const;
+	};
+
+	/** Samples per marker, cleared by Recalibrate. */
+	TMap<int32, FMarkerSamples> MarkerSamples;
+
+	/** Adds one sample and returns that marker's averaged pose. */
+	FTransform AccumulateSample(int32 MarkerId, const FVector& Position, const FRotator& Rotation);
+
+	/** The worst marker scatter this calibration, cm. */
+	float WorstScatter() const;
+
+	/** RMS fit error to the saved layout, cm. Negative until a multi-marker fit has run. */
+	float LayoutFitError = -1.0f;
 
 	/** Adds this component's rows (steps, nudges, pivot, save / learn) to the tuning window. */
 	void RegisterTunables();
