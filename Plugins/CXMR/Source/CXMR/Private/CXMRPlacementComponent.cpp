@@ -173,11 +173,16 @@ void UCXMRPlacementComponent::HandleMarkerPose(int32 MarkerId, const FVector& Po
 		return;
 	}
 
-	// Remember every marker, listed or not, at its latest pose. Learn records the layout from these — which is how a
-	// site whose marker ids were never typed into the profile gets calibrated at all.
+	// Remember every marker, listed or not. Learn records the layout from these — which is how a site whose marker
+	// ids were never typed into the profile gets calibrated at all. While calibrating this is the AVERAGE of the
+	// samples so far, so a layout is never learned from one noisy frame either.
+	const bool bAveraging = bAverageMarkerSamples && !bCalibrated;
+	const FTransform Pose = bAveraging
+		? AccumulateSample(MarkerId, Position, Rotation)
+		: FTransform(Rotation, Position, FVector::OneVector);
 	if (MarkerId != 0)
 	{
-		SeenMarkers.Add(MarkerId, FTransform(Rotation, Position, FVector::OneVector));
+		SeenMarkers.Add(MarkerId, Pose);
 	}
 
 	FCXMRMarkerEntry Entry;
@@ -214,21 +219,22 @@ void UCXMRPlacementComponent::HandleMarkerPose(int32 MarkerId, const FVector& Po
 		return; // frozen
 	}
 
-	// Marker poses jitter every frame. Re-placing the vehicle on sub-millimetre noise would read as an
-	// unstable car, so an update has to actually move before it earns a recompute. A first sighting
-	// always counts — that is the sample that puts the marker on the board at all.
-	const FTransform NewPose(Rotation, Position, FVector::OneVector);
-	if (!bIsFirstSighting)
+	// While calibrating, every sample counts: the mean of a settle window's worth of them is what makes a restarted
+	// session land where the last one did. The movement threshold used to drop samples here, which kept whichever
+	// early, noisy frame arrived first and stopped the pose improving at all.
+	//
+	// Once calibrated and following markers (freeze off), the threshold earns its keep: jitter would otherwise
+	// re-place the car every frame and read as an unstable vehicle.
+	if (bCalibrated && !bIsFirstSighting)
 	{
 		const FTransform* Existing = DetectedCalib.Find(MarkerId);
-		if (Existing && FVector::Dist(Existing->GetLocation(), Position) < MarkerUpdateThreshold)
+		if (Existing && FVector::Dist(Existing->GetLocation(), Pose.GetLocation()) < MarkerUpdateThreshold)
 		{
 			return;
 		}
 	}
 
-	// Accumulate this calibration marker's world pose, then (re)compute the alignment.
-	DetectedCalib.Add(MarkerId, NewPose);
+	DetectedCalib.Add(MarkerId, Pose);
 	RecomputeCalibration();
 }
 
@@ -248,6 +254,51 @@ static FTransform LevelTransform(const FTransform& In)
 	return FTransform(FRotationMatrix::MakeFromX(Heading).ToQuat(), In.GetLocation(), In.GetScale3D());
 }
 
+FTransform UCXMRPlacementComponent::FMarkerSamples::Mean() const
+{
+	if (Count <= 0)
+	{
+		return FTransform::Identity;
+	}
+	const FVector Position = PositionSum / Count;
+	const FVector Forward = ForwardSum.GetSafeNormal();
+	const FVector Up = UpSum.GetSafeNormal();
+	if (Forward.IsNearlyZero() || Up.IsNearlyZero())
+	{
+		return FTransform(FQuat::Identity, Position, FVector::OneVector);
+	}
+	return FTransform(FRotationMatrix::MakeFromXZ(Forward, Up).ToQuat(), Position, FVector::OneVector);
+}
+
+FTransform UCXMRPlacementComponent::AccumulateSample(int32 MarkerId, const FVector& Position, const FRotator& Rotation)
+{
+	FMarkerSamples& Samples = MarkerSamples.FindOrAdd(MarkerId);
+	const FQuat Q = Rotation.Quaternion();
+	Samples.PositionSum += Position;
+	Samples.ForwardSum  += Q.GetForwardVector();
+	Samples.UpSum       += Q.GetUpVector();
+	Samples.SquaredSum  += Position.SizeSquared();
+	++Samples.Count;
+
+	// Spread around the mean: sqrt(E[|p|^2] - |E[p]|^2). Reported to the operator, who otherwise has no way to tell
+	// a marker the headset sees well from one it is guessing at.
+	const FVector MeanPosition = Samples.PositionSum / Samples.Count;
+	const double Variance = Samples.SquaredSum / Samples.Count - MeanPosition.SizeSquared();
+	Samples.Scatter = static_cast<float>(FMath::Sqrt(FMath::Max(0.0, Variance)));
+
+	return Samples.Mean();
+}
+
+float UCXMRPlacementComponent::WorstScatter() const
+{
+	float Worst = 0.0f;
+	for (const TPair<int32, FMarkerSamples>& Pair : MarkerSamples)
+	{
+		Worst = FMath::Max(Worst, Pair.Value.Scatter);
+	}
+	return Worst;
+}
+
 void UCXMRPlacementComponent::RecomputeCalibration()
 {
 	AActor* Root = ResolveVehicleRoot();
@@ -260,9 +311,10 @@ void UCXMRPlacementComponent::RecomputeCalibration()
 	bool bHavePose = false;
 
 	// 2+ markers: robust baseline yaw + floor. 1 marker: full-transform fallback (uses its orientation).
+	LayoutFitError = -1.0f;
 	if (DetectedCalib.Num() >= 2)
 	{
-		bHavePose = ComputeMultiMarkerTransform(VehicleWorld);
+		bHavePose = ComputeMultiMarkerTransform(VehicleWorld, LayoutFitError);
 	}
 	if (!bHavePose && DetectedCalib.Num() > 0 && MarkerProfile)
 	{
@@ -360,7 +412,7 @@ void UCXMRPlacementComponent::TryStartMarkerTracking()
 		     "Press V once the headset is running."));
 }
 
-bool UCXMRPlacementComponent::ComputeMultiMarkerTransform(FTransform& Out) const
+bool UCXMRPlacementComponent::ComputeMultiMarkerTransform(FTransform& Out, float& OutResidual) const
 {
 	// Correspondences: p = marker position in vehicle-local space, q = measured world position.
 	// Solve yaw (about Z) + translation, roll/pitch = 0 (vehicle sits level on the floor).
@@ -402,6 +454,16 @@ bool UCXMRPlacementComponent::ComputeMultiMarkerTransform(FTransform& Out) const
 	const FRotator Rot(0.0f, YawDeg, 0.0f);
 	const FVector Trans = QBar - Rot.RotateVector(PBar);
 
+	// How far the measured markers end up from the saved layout, RMS cm. A layout learned in one session and markers
+	// measured in another disagree by exactly this much — and that disagreement is what moves the car between sessions,
+	// so it is worth a number on screen rather than a surprise the next morning.
+	double SquaredError = 0.0;
+	for (int32 i = 0; i < P.Num(); ++i)
+	{
+		SquaredError += FVector::DistSquared(Rot.RotateVector(P[i]) + Trans, Q[i]);
+	}
+	OutResidual = static_cast<float>(FMath::Sqrt(SquaredError / P.Num()));
+
 	Out = FTransform(Rot, Trans, FVector::OneVector);
 	return true;
 }
@@ -411,6 +473,8 @@ void UCXMRPlacementComponent::Recalibrate()
 	bCalibrated = false;
 	DetectedCalib.Reset();
 	SeenMarkers.Reset();
+	MarkerSamples.Reset();
+	LayoutFitError = -1.0f;
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(SettleTimer);
@@ -902,6 +966,35 @@ void UCXMRPlacementComponent::RegisterTunables()
 			const bool bSettling = GetWorld() && GetWorld()->GetTimerManager().IsTimerActive(SettleTimer);
 			return FText::FromString(FString::Printf(TEXT("%d in view, %d used - %s"), SeenMarkers.Num(), DetectedCalib.Num(),
 				bCalibrated ? TEXT("calibrated") : (bSettling ? TEXT("settling") : TEXT("not calibrated"))));
+		};
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.Steadiness", NSLOCTEXT("CXMRPlacement", "Steadiness", "Marker steadiness"), ECXMRTunableKind::Readout);
+		T.Text = [this]
+		{
+			if (MarkerSamples.Num() == 0)
+			{
+				return NSLOCTEXT("CXMRPlacement", "NoSamples", "no marker sampled yet");
+			}
+			int32 Samples = 0;
+			for (const TPair<int32, FMarkerSamples>& Pair : MarkerSamples)
+			{
+				Samples = FMath::Max(Samples, Pair.Value.Count);
+			}
+			return FText::FromString(FString::Printf(TEXT("%.1f mm wobble, %d samples averaged"), WorstScatter() * 10.0f, Samples));
+		};
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.LayoutFit", NSLOCTEXT("CXMRPlacement", "LayoutFit", "Fit to saved layout"), ECXMRTunableKind::Readout);
+		T.Text = [this]
+		{
+			if (LayoutFitError < 0.0f)
+			{
+				return NSLOCTEXT("CXMRPlacement", "NoFit", "one marker - nothing to cross-check");
+			}
+			return FText::FromString(FString::Printf(TEXT("%.2f cm off the saved layout"), LayoutFitError));
 		};
 		Tuning->Register(MoveTemp(T));
 	}
