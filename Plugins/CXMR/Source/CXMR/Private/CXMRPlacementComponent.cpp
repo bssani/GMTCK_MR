@@ -441,6 +441,9 @@ void UCXMRPlacementComponent::Recalibrate()
 	SeenMarkers.Reset();
 	MarkerSamples.Reset();
 	LayoutFitError = -1.0f;
+	// The held axes belonged to the last alignment. Re-reading markers starts a new one, from wherever the
+	// operator is sitting now.
+	bHaveNudgeHeading = false;
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(SettleTimer);
@@ -529,6 +532,7 @@ void UCXMRPlacementComponent::SetMarkerProfile(UCXMRMarkerProfile* NewProfile)
 		return;
 	}
 	MarkerProfile = NewProfile;
+	bHaveNudgeHeading = false;   // another vehicle, another alignment
 	EnsureCalibrationLoaded();
 
 	// Everything detected so far was keyed by the OLD profile's marker ids. Keeping it means the
@@ -978,7 +982,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 		T.Set = [this](float V) { NudgeYawStep = V; };
 		Tuning->Register(MoveTemp(T));
 	}
-	// Steppers go through NudgeVehicle, so they move in the viewer's frame exactly like the NumPad keys.
+	// Steppers go through NudgeVehicle, so they move in whatever NudgeFrame says, exactly like the NumPad keys.
 	{
 		FCXMRTunable T = Make("Vehicle.Away", NSLOCTEXT("CXMRPlacement", "Away", "Away from me (+) / toward (-)"), ECXMRTunableKind::Stepper);
 		T.Step = [this](float Direction) { NudgeVehicle(FVector(Direction * NudgeMoveStep, 0.0, 0.0), 0.0f); };
@@ -997,6 +1001,53 @@ void UCXMRPlacementComponent::RegisterTunables()
 	{
 		FCXMRTunable T = Make("Vehicle.Turn", NSLOCTEXT("CXMRPlacement", "Turn", "Turn clockwise (+) / counter (-)"), ECXMRTunableKind::Stepper);
 		T.Step = [this](float Direction) { NudgeVehicle(FVector::ZeroVector, Direction * NudgeYawStep); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.NudgeFrame", NSLOCTEXT("CXMRPlacement", "NudgeFrame", "Keys move along"), ECXMRTunableKind::Choice);
+		T.Options = {
+			NSLOCTEXT("CXMRPlacement", "FrameLatched", "Where I first faced"),
+			NSLOCTEXT("CXMRPlacement", "FrameLive", "Where I look now"),
+			NSLOCTEXT("CXMRPlacement", "FrameVehicle", "The car's own axes") };
+		T.bPersist = true;
+		T.Get = [this] { return static_cast<float>(static_cast<uint8>(NudgeFrame)); };
+		T.Set = [this](float V)
+		{
+			NudgeFrame = static_cast<ECXMRNudgeFrame>(FMath::Clamp(FMath::RoundToInt(V), 0, 2));
+			bHaveNudgeHeading = false;   // the next adjustment takes the axes afresh
+		};
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.NudgeHeading", NSLOCTEXT("CXMRPlacement", "NudgeHeading", "\"Away from me\" is"), ECXMRTunableKind::Readout);
+		T.Text = [this]
+		{
+			const APlayerCameraManager* CamMgr = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0);
+			if (!CamMgr)
+			{
+				return NSLOCTEXT("CXMRPlacement", "HeadingNoCam", "no viewer yet");
+			}
+			const float ViewerYaw = CamMgr->GetCameraRotation().Yaw;
+			if (NudgeFrame == ECXMRNudgeFrame::ViewerLive)
+			{
+				return NSLOCTEXT("CXMRPlacement", "HeadingLive", "wherever you look - turning your head turns the axes");
+			}
+			// How far the keys are from straight ahead, which is what makes a key feel sideways.
+			const float Off = FMath::Abs(FMath::FindDeltaAngleDegrees(ViewerYaw, ResolveNudgeYaw(ViewerYaw)));
+			if (NudgeFrame == ECXMRNudgeFrame::Vehicle)
+			{
+				return FText::FromString(FString::Printf(TEXT("the car's front, %.0f\u00B0 off your view"), Off));
+			}
+			return bHaveNudgeHeading
+				? FText::FromString(FString::Printf(TEXT("held, %.0f\u00B0 off your view"), Off))
+				: NSLOCTEXT("CXMRPlacement", "HeadingUnset", "not held yet - the next press takes it");
+		};
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.RetakeHeading", NSLOCTEXT("CXMRPlacement", "RetakeHeading", "Use the way I face now"), ECXMRTunableKind::Action);
+		T.Invoke = [this] { RetakeNudgeHeading(); };
+		T.IsEnabled = [this] { return NudgeFrame == ECXMRNudgeFrame::ViewerLatched; };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
@@ -1038,11 +1089,59 @@ void UCXMRPlacementComponent::RegisterTunables()
 	}
 }
 
+float UCXMRPlacementComponent::ResolveNudgeYaw(float ViewerYaw) const
+{
+	if (NudgeFrame == ECXMRNudgeFrame::Vehicle)
+	{
+		// The car's own facing, flattened — so "away" is along the car however it is tilted or however you look.
+		if (const AActor* Root = VehicleRoot ? ToRawPtr(VehicleRoot) : GetOwner())
+		{
+			return LevelTransform(Root->GetActorTransform()).GetRotation().Rotator().Yaw;
+		}
+		return ViewerYaw;
+	}
+	if (NudgeFrame == ECXMRNudgeFrame::ViewerLatched && bHaveNudgeHeading)
+	{
+		return LatchedNudgeYaw;
+	}
+	return ViewerYaw;
+}
+
+void UCXMRPlacementComponent::LatchNudgeHeading(float HeadingYaw)
+{
+	LatchedNudgeYaw = HeadingYaw;
+	bHaveNudgeHeading = true;
+	UE_LOG(LogCXMRPlacement, Log, TEXT("Adjust keys now treat yaw %.1f as 'away from me'"), HeadingYaw);
+}
+
+void UCXMRPlacementComponent::RetakeNudgeHeading()
+{
+	if (const APlayerCameraManager* CamMgr = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0))
+	{
+		LatchNudgeHeading(CamMgr->GetCameraRotation().Yaw);
+	}
+}
+
 void UCXMRPlacementComponent::NudgeVehicle(FVector ViewerDelta, float YawDelta)
 {
+	const APlayerCameraManager* CamMgr = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0);
+	if (!CamMgr)
+	{
+		return;
+	}
+	const float ViewerYaw = CamMgr->GetCameraRotation().Yaw;
+	// The first adjustment of the session decides the axes; after that looking around no longer moves them.
+	if (NudgeFrame == ECXMRNudgeFrame::ViewerLatched && !bHaveNudgeHeading)
+	{
+		LatchNudgeHeading(ViewerYaw);
+	}
+	NudgeVehicleInFrame(ViewerDelta, YawDelta, ViewerYaw, CamMgr->GetCameraLocation());
+}
+
+void UCXMRPlacementComponent::NudgeVehicleInFrame(FVector ViewerDelta, float YawDelta, float HeadingYaw, FVector ViewerLocation)
+{
 	AActor* Root = ResolveVehicleRoot();
-	APlayerCameraManager* CamMgr = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0);
-	if (!Root || !CamMgr)
+	if (!Root)
 	{
 		return;
 	}
@@ -1052,14 +1151,14 @@ void UCXMRPlacementComponent::NudgeVehicle(FVector ViewerDelta, float YawDelta)
 		bHaveBasePose = true;
 	}
 
-	// The viewer's level frame: forward is where the head points, flattened; up is the world's. The keys used
-	// to move along the vehicle's own axes — backwards, because the offset was defined on the marker side — so
-	// the same key went a different way depending on how the car happened to sit.
-	const FRotator Heading(0.0f, CamMgr->GetCameraRotation().Yaw, 0.0f);
+	// A level frame: forward is ResolveNudgeYaw, up is the world's. The keys used to move along the vehicle's own
+	// axes — backwards, because the offset was defined on the marker side — so the same key went a different way
+	// depending on how the car happened to sit.
+	const FRotator Heading(0.0f, ResolveNudgeYaw(HeadingYaw), 0.0f);
 	const FVector WorldDelta = Heading.RotateVector(ViewerDelta);
 
 	const FTransform Current = Root->GetActorTransform();
-	const FVector Pivot = ResolveNudgePivot(Current, CamMgr->GetCameraLocation());
+	const FVector Pivot = ResolveNudgePivot(Current, ViewerLocation);
 
 	// Turn about the pivot, then slide: T(-P) * R * T(P + delta), applied after the current pose.
 	const FTransform Nudge = FTransform(-Pivot) * FTransform(FRotator(0.0f, YawDelta, 0.0f)) * FTransform(Pivot + WorldDelta);

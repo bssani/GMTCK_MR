@@ -33,6 +33,25 @@ enum class ECXMRNudgePivot : uint8
 	VehicleOrigin
 };
 
+/**
+ * Which way the adjust keys and steppers call "away from me".
+ *
+ * The frame used to be read from the headset on every press. Aligning a car means looking around constantly — at the
+ * A-pillar, then the console, then down at the sill — so each press went a different way, and holding a key while
+ * turning the head dragged the car along a curve. Worst of all a key and its opposite no longer cancelled.
+ */
+UENUM(BlueprintType)
+enum class ECXMRNudgeFrame : uint8
+{
+	/** The way the viewer faced at the FIRST adjustment, held until re-taken. Turning your head afterwards does not
+	 *  turn the axes, so a key and its opposite cancel exactly. */
+	ViewerLatched,
+	/** Wherever the viewer is looking at this instant — what it did before 2026-09-21. */
+	ViewerLive,
+	/** The vehicle's own forward and right, flattened level: "away" is the way the CAR faces, whatever you look at. */
+	Vehicle
+};
+
 UCLASS(ClassGroup = (CXMR), meta = (BlueprintSpawnableComponent), DisplayName = "CXMR Placement")
 class CXMR_API UCXMRPlacementComponent : public UActorComponent
 {
@@ -87,6 +106,9 @@ public:
 	/** What the manual yaw adjustment rotates the vehicle around. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") ECXMRNudgePivot NudgePivot = ECXMRNudgePivot::Markers;
 
+	/** Which way the adjust keys call "away from me". Latched by default, so the axes hold still while you look around. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement") ECXMRNudgeFrame NudgeFrame = ECXMRNudgeFrame::ViewerLatched;
+
 	/** Distance one [-]/[+] press in the tuning window moves the vehicle, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ClampMin = "0.1")) float NudgeMoveStep = 1.0f;
 
@@ -121,6 +143,29 @@ public:
 	 * exactly as before.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void NudgeVehicle(FVector ViewerDelta, float YawDelta);
+
+	/**
+	 * NudgeVehicle with the frame handed in rather than read from the headset: HeadingYaw is what "away from me"
+	 * means and ViewerLocation is where the Viewer pivot sits. For scripts, and for tests that have no camera.
+	 * NudgeFrame still decides whether HeadingYaw is used or overridden by the latch / the vehicle's own facing.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement")
+	void NudgeVehicleInFrame(FVector ViewerDelta, float YawDelta, float HeadingYaw, FVector ViewerLocation);
+
+	/**
+	 * The world yaw the adjust keys treat as "away from me", for the current NudgeFrame. ViewerYaw is where the
+	 * viewer is looking now; it is what comes back when nothing is latched and the frame is not the vehicle's.
+	 */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Placement") float ResolveNudgeYaw(float ViewerYaw) const;
+
+	/** Hold HeadingYaw as "away from me" from now on (ViewerLatched). */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void LatchNudgeHeading(float HeadingYaw);
+
+	/** Latch the way the viewer is facing right now — use it when the axes ended up crooked. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void RetakeNudgeHeading();
+
+	/** True once a heading is held. False = the next adjustment takes one. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Placement") bool HasNudgeHeading() const { return bHaveNudgeHeading; }
 
 	/** Put the vehicle at this world pose, kept as the manual offset like a nudge — so Save adjustment and Learn work
 	 *  on it unchanged. Used by alignments that compute a whole pose at once (touched box corners). */
@@ -253,6 +298,10 @@ private:
 	 *  marker is in view: without it, looking away from the markers froze the adjustment keys. */
 	FTransform BaseVehicleTransform = FTransform::Identity;
 	bool bHaveBasePose = false;
+
+	/** The yaw the adjust keys hold as "away from me" (ViewerLatched), and whether one has been taken yet. */
+	float LatchedNudgeYaw = 0.0f;
+	bool bHaveNudgeHeading = false;
 
 	/** Writes BaseVehicleTransform + the temporary offset onto the vehicle. */
 	void ApplyPlacement();
