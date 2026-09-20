@@ -25,6 +25,12 @@
 // Colours are self-lit (BarMaterial is unlit) so they read against the camera image. Only the port nearest the plug
 // reacts, so a 2x2 block of openings does not light up as one.
 //
+// What is judged is NOT the marker mesh: it is a ball of EnterDistance around this actor's location, plus MaxAngle off
+// the port axis. The mesh can sit anywhere, so CXMR.Port.Debug 1 draws the ball, the angle cone and the line to the
+// plug tip — the tuning window's "USB port" rows turn it on and move the four numbers, for every port at once, and
+// keep them per PC. A row there also reads out how far and how skew the plug is right now, which is what to watch when
+// a port will not turn green.
+//
 // Hand tracking is not millimetre-accurate, so the defaults are loose on purpose. Green means "lined up at this
 // port", not "fully inserted": the CAD has no receptacle and nothing here measures insertion.
 
@@ -35,6 +41,7 @@
 #include "CXMRUsbPortTarget.generated.h"
 
 class UArrowComponent;
+class UCXMRTuningSubsystem;
 class UCXMRVirtualHandComponent;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
@@ -66,7 +73,10 @@ public:
 	/** Name used in the log, e.g. "USB-C left". Empty = the actor label. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") FString Label;
 
-	/** Plug tip within this distance of the port centre, and within MaxAngle, lines the port up. cm. */
+	/**
+	 * Plug tip within this distance of the port centre, and within MaxAngle, lines the port up. cm.
+	 * Measured from THIS ACTOR's location, never from the marker mesh. The tuning window overrides it for every port.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ClampMin = "0.1"))
 	float EnterDistance = 1.5f;
 
@@ -177,6 +187,19 @@ public:
 	/** The way out of the port in world space — the axis the plug is judged against. Follows the mesh, see bAxisFromMesh. */
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") FVector GetPortAxis() const;
 
+	// The four numbers as they are actually judged: the tuning window's value if an operator has moved it, this
+	// actor's own otherwise. Everything — the test, the debug draw, the readout — goes through these.
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetEnterDistance() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetExitDistance() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetMaxAngle() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetApproachDistance() const;
+
+	/** Last frame's gap from the plug tip to the port centre, cm; negative while the plug hand is not tracked. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetPlugDistance() const { return LastDistance; }
+
+	/** Last frame's angle between the plug and the port axis, degrees; negative while the plug hand is not tracked. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetPlugAngle() const { return LastAngleDeg; }
+
 	/** Applies the frame, guide, IndicatorMesh and colours again after changing them during play. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Port") void RefreshMarker();
 
@@ -194,6 +217,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
 private:
 	/**
@@ -216,6 +240,19 @@ private:
 	bool IsNearestPort(const FVector& Tip, float Distance) const;
 
 	UCXMRVirtualHandComponent* FindHands();
+
+	/** The ball, the angle cone and the line to the plug tip, while CXMR.Port.Debug is on. */
+	void DrawDebug(const FVector& Tip, bool bHavePlug) const;
+
+	/**
+	 * Adds the "USB port" rows to the tuning window. Every port asks, the first one gets them, and its rows reach all
+	 * ports because the values live in console variables. A port giving them up hands them to another live port.
+	 */
+	void RegisterTunables();
+	UCXMRTuningSubsystem* GetTuning() const;
+
+	/** One line for the readout row: how far and how skew the plug is from whichever port it is nearest. */
+	FText DescribeNearest() const;
 
 	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<USceneComponent> PortRoot;
 
@@ -243,4 +280,8 @@ private:
 
 	/** Seconds into the pop; negative while not popping. */
 	float PopElapsed = -1.0f;
+
+	/** Last frame's plug tip measurements, kept for the debug draw and the readout. Negative = no plug this frame. */
+	float LastDistance = -1.0f;
+	float LastAngleDeg = -1.0f;
 };

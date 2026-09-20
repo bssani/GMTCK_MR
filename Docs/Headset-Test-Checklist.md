@@ -351,8 +351,23 @@ CXMR 쪽 변환은 확인했다 — 폰·카메라에 오프셋이 없고, 손 �
 |---|---|---|
 | 평소 | 플러그가 멀다 | 표식만 흐린 회색(`Idle Color`). `Show When Idle`을 끄면 안 보인다 |
 | 접근 | 플러그 끝이 `Approach Distance`(12cm) 안이고 **가장 가까운 포트** | 구멍에서 사람 쪽으로 **가이드 빔**이 뻗고, 표식과 빔이 노랗게(`Approach Color`) 깜빡인다 |
-| 맞춤 | `Enter Distance`(1.5cm) 안 + 포트 축과 `Max Angle`(25°) 이내 | 초록(`Aligned Color`)으로 밝게 빛나고, 표식이 **톡 커졌다 돌아오며** "딸깍" 소리(`Aligned Sound`) |
+| 맞춤 | **액터 위치**에서 `Enter Distance`(1.5cm) 안 + 포트 축과 `Max Angle`(25°) 이내 | 초록(`Aligned Color`)으로 밝게 빛나고, 표식이 **톡 커졌다 돌아오며** "딸깍" 소리(`Aligned Sound`) |
 
+- ★ **판정은 표식 메쉬가 아니라 "액터 위치 둘레의 공"이다**(2026-09-20 추가). 메쉬는 순수 장식이라 아무 데나 있을 수 있다.
+  안 뜨면 먼저 **튜닝 창 `USB port` → `Show what the port judges`**를 켠다. 세 가지가 보인다:
+  - **공** = `Lines up within`(기본 1.5cm) 안에 플러그 끝이 들어와야 하는 범위. 상태에 따라 회색→노랑→초록
+  - **흐린 큰 공** = `Lets go past`(기본 3cm). 여기를 벗어나야 초록이 풀린다(경계에서 깜빡이지 않게)
+  - **원뿔** = `Still counts as straight`(기본 25°). 꽂는 축을 중심으로 이만큼 벌어진 각도 안이어야 한다
+  - 플러그가 `Starts guiding at`(기본 12cm) 안에 들어오면 **플러그 끝에서 포트 중심까지 선**이 그어진다
+  - 콘솔로는 `CXMR.Port.Debug 1`
+- ★ **`USB port` 분류의 숫자 네 개는 실시간으로 조절된다**(헤드셋을 쓴 채로). `Lines up within` / `Lets go past` /
+  `Still counts as straight` / `Starts guiding at`
+  - **레벨의 모든 포트에 한꺼번에** 적용되고, PC별로 `Tuning.json`에 저장돼 다음 세션에 그대로 돌아온다
+  - 손 추적이 mm 단위로 정확하지 않으므로 **안 뜨면 `Lines up within`부터 키운다**
+  - 콘솔로는 `CXMR.Port.EnterDistance` / `.ExitDistance` / `.MaxAngle` / `.ApproachDistance`.
+    **-1이면 각 포트가 자기 값을 쓴다**(처음 상태). `Lets go past`는 절대 `Lines up within`보다 안쪽으로 못 간다
+  - `Plug at the nearest port` 줄이 **지금 제일 가까운 포트까지 몇 cm·몇 도**인지 계속 읽어 준다.
+    디버그 그림이 안 보일 때도 이 숫자로 원인을 안다(거리가 문제인지 각도가 문제인지)
 - 색은 **스스로 빛나는 재질**(`/CXMR/Core/Materials/M_CXMRUnlitColor`)이라 카메라 영상 위에서도 또렷하다. 밝기 `Glow Strength`(기본 3)
 - **가장 가까운 포트 하나만** 반응한다. 2×2로 붙은 구멍이 한꺼번에 켜지지 않는다
 - 가이드 빔: 구멍 앞 `Guide Gap`(3cm)은 비워 두고 `Guide Length`(15cm)만큼 뻗는다. 굵기 `Guide Diameter`, 깜빡임 속도 `Pulse Rate`, 끄려면 `Show Guide`

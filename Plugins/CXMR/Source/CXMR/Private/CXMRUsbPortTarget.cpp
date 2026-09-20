@@ -1,11 +1,15 @@
 // Copyright GMTCK CX.
 
 #include "CXMRUsbPortTarget.h"
+#include "CXMRTuningSubsystem.h"
 #include "CXMRVirtualHandComponent.h"
 
 #include "Components/ArrowComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "DrawDebugHelpers.h"
+#include "Engine/GameInstance.h"
 #include "Engine/StaticMesh.h"
+#include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
@@ -14,6 +18,43 @@
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCXMRPort, Log, All);
+
+#define LOCTEXT_NAMESPACE "CXMRPort"
+
+// The four numbers are per-actor properties, but an operator tuning in a headset wants one knob for every port at once
+// — and the tuning window's saved value must land whatever order the ports begin play in. A console variable is both:
+// global, and read fresh every frame. Below zero means "leave each port its own value", which is how they all start.
+static TAutoConsoleVariable<int32> CVarPortDebug(
+	TEXT("CXMR.Port.Debug"),
+	0,
+	TEXT("Draw what a USB port actually judges: the ball of Enter Distance around the PORT (not around the marker mesh, ")
+	TEXT("which may sit anywhere), the fainter ball where it lets go again, the Max Angle cone along the insertion ")
+	TEXT("axis, and a line to the plug tip once it is within Approach Distance."),
+	ECVF_Default);
+
+static TAutoConsoleVariable<float> CVarPortEnter(
+	TEXT("CXMR.Port.EnterDistance"),
+	-1.f,
+	TEXT("cm from the port centre that lines the plug up, for every port. Below zero = each port keeps its own."),
+	ECVF_Default);
+
+static TAutoConsoleVariable<float> CVarPortExit(
+	TEXT("CXMR.Port.ExitDistance"),
+	-1.f,
+	TEXT("cm the plug must pass to let a lined-up port go again. Below zero = each port keeps its own."),
+	ECVF_Default);
+
+static TAutoConsoleVariable<float> CVarPortMaxAngle(
+	TEXT("CXMR.Port.MaxAngle"),
+	-1.f,
+	TEXT("Degrees off the port axis that still count as straight. Below zero = each port keeps its own."),
+	ECVF_Default);
+
+static TAutoConsoleVariable<float> CVarPortApproach(
+	TEXT("CXMR.Port.ApproachDistance"),
+	-1.f,
+	TEXT("cm at which the nearest port starts guiding. Below zero = each port keeps its own."),
+	ECVF_Default);
 
 namespace
 {
@@ -82,6 +123,32 @@ void ACXMRUsbPortTarget::OnConstruction(const FTransform& Transform)
 	// Here as well as at play, so the marker follows FrameSize / IndicatorOffset while it is being fitted to the CAD opening.
 	LayoutFrame();
 	ApplyState();
+}
+
+float ACXMRUsbPortTarget::GetEnterDistance() const
+{
+	const float Tuned = CVarPortEnter.GetValueOnGameThread();
+	return Tuned >= 0.f ? Tuned : EnterDistance;
+}
+
+float ACXMRUsbPortTarget::GetExitDistance() const
+{
+	const float Tuned = CVarPortExit.GetValueOnGameThread();
+	// Never inside the entering ball: the two exist to stop the state flickering at the edge, and crossed over they
+	// would do the opposite.
+	return FMath::Max(Tuned >= 0.f ? Tuned : ExitDistance, GetEnterDistance());
+}
+
+float ACXMRUsbPortTarget::GetMaxAngle() const
+{
+	const float Tuned = CVarPortMaxAngle.GetValueOnGameThread();
+	return Tuned >= 0.f ? Tuned : MaxAngle;
+}
+
+float ACXMRUsbPortTarget::GetApproachDistance() const
+{
+	const float Tuned = CVarPortApproach.GetValueOnGameThread();
+	return Tuned >= 0.f ? Tuned : ApproachDistance;
 }
 
 FQuat ACXMRUsbPortTarget::GetPortTurn() const
@@ -178,6 +245,25 @@ void ACXMRUsbPortTarget::BeginPlay()
 	}
 	LayoutFrame();
 	ApplyState();
+	RegisterTunables();
+}
+
+void ACXMRUsbPortTarget::EndPlay(const EEndPlayReason::Type Reason)
+{
+	if (UCXMRTuningSubsystem* Tuning = GetTuning())
+	{
+		Tuning->UnregisterOwner(this);
+		// Hand the rows on, so reloading a vehicle that carries the ports does not empty the window for the session.
+		for (TActorIterator<ACXMRUsbPortTarget> It(GetWorld()); It; ++It)
+		{
+			if (*It != this && !It->IsActorBeingDestroyed())
+			{
+				It->RegisterTunables();
+				break;
+			}
+		}
+	}
+	Super::EndPlay(Reason);
 }
 
 void ACXMRUsbPortTarget::RefreshMarker()
@@ -229,33 +315,161 @@ void ACXMRUsbPortTarget::Tick(float DeltaSeconds)
 	const UCXMRVirtualHandComponent* HandComponent = FindHands();
 	const bool bHavePlug = HandComponent && HandComponent->GetPlugTip(Tip, Direction);
 
-	ECXMRPortState NewState = ECXMRPortState::Idle;
-	if (bHavePlug)
-	{
-		const float Distance = FVector::Distance(Tip, GetActorLocation());
-		if (IsNearestPort(Tip, Distance))
-		{
-			// Going in means travelling against the arrow, which points out of the port — turned with the mesh, so a
-			// slanted opening is judged along the way it actually faces.
-			const float Alignment = FVector::DotProduct(Direction, -GetPortAxis());
-			const bool bWasAligned = State == ECXMRPortState::Aligned;
-			const float AngleLimit = FMath::Cos(FMath::DegreesToRadians(bWasAligned ? FMath::Min(MaxAngle + AngleHysteresis, 89.f) : MaxAngle));
-			const float DistanceLimit = bWasAligned ? ExitDistance : EnterDistance;
-			const float ApproachLimit = ApproachDistance + (State != ECXMRPortState::Idle ? PortApproachHysteresis : 0.f);
+	// Measured whether or not this port is the one reacting, so the debug draw and the readout can show a port that is
+	// NOT lighting up — which is the case worth looking at. Going in means travelling against the arrow, which points
+	// out of the port, turned with the mesh: a slanted opening is judged along the way it actually faces.
+	LastDistance = bHavePlug ? FVector::Distance(Tip, GetActorLocation()) : -1.f;
+	LastAngleDeg = bHavePlug
+		? FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp<float>(FVector::DotProduct(Direction, -GetPortAxis()), -1.f, 1.f)))
+		: -1.f;
 
-			if (Distance <= DistanceLimit && Alignment >= AngleLimit)
-			{
-				NewState = ECXMRPortState::Aligned;
-			}
-			else if (ApproachDistance > 0.f && Distance <= ApproachLimit)
-			{
-				NewState = ECXMRPortState::Approach;
-			}
+	ECXMRPortState NewState = ECXMRPortState::Idle;
+	if (bHavePlug && IsNearestPort(Tip, LastDistance))
+	{
+		const bool bWasAligned = State == ECXMRPortState::Aligned;
+		const float AngleLimit = bWasAligned ? FMath::Min(GetMaxAngle() + AngleHysteresis, 89.f) : GetMaxAngle();
+		const float DistanceLimit = bWasAligned ? GetExitDistance() : GetEnterDistance();
+		const float Approach = GetApproachDistance();
+		const float ApproachLimit = Approach + (State != ECXMRPortState::Idle ? PortApproachHysteresis : 0.f);
+
+		if (LastDistance <= DistanceLimit && LastAngleDeg <= AngleLimit)
+		{
+			NewState = ECXMRPortState::Aligned;
+		}
+		else if (Approach > 0.f && LastDistance <= ApproachLimit)
+		{
+			NewState = ECXMRPortState::Approach;
 		}
 	}
 
 	SetState(NewState);
 	Animate(DeltaSeconds);
+	DrawDebug(Tip, bHavePlug);
+}
+
+void ACXMRUsbPortTarget::DrawDebug(const FVector& Tip, bool bHavePlug) const
+{
+	UWorld* World = GetWorld();
+	if (!World || CVarPortDebug.GetValueOnGameThread() == 0)
+	{
+		return;
+	}
+
+	const FVector Centre = GetActorLocation();
+	const FColor Colour = State == ECXMRPortState::Aligned  ? FColor(40, 240, 70)
+	                    : State == ECXMRPortState::Approach ? FColor(255, 185, 20)
+	                                                        : FColor(120, 120, 135);
+
+	// What actually judges: a ball around the PORT, not around the marker mesh. Seeing the two apart is the point.
+	DrawDebugSphere(World, Centre, GetEnterDistance(), 16, Colour, false, -1.f, SDPG_World, 0.05f);
+	// Where a lined-up port lets go again.
+	DrawDebugSphere(World, Centre, GetExitDistance(), 12, FColor(70, 70, 85), false, -1.f, SDPG_World, 0.03f);
+	// The angle window, opening out of the port along the axis the plug is measured against.
+	const float Half = FMath::DegreesToRadians(GetMaxAngle());
+	DrawDebugCone(World, Centre, GetPortAxis(), GetEnterDistance() * 4.f, Half, Half, 16, Colour, false, -1.f, SDPG_World, 0.05f);
+
+	// Only once the plug is near, or every port in the level draws a line across the cabin.
+	if (bHavePlug && LastDistance >= 0.f && LastDistance <= GetApproachDistance())
+	{
+		DrawDebugLine(World, Tip, Centre, Colour, false, -1.f, SDPG_World, 0.05f);
+	}
+}
+
+UCXMRTuningSubsystem* ACXMRUsbPortTarget::GetTuning() const
+{
+	const UWorld* World = GetWorld();
+	const UGameInstance* GI = World ? World->GetGameInstance() : nullptr;
+	return GI ? GI->GetSubsystem<UCXMRTuningSubsystem>() : nullptr;
+}
+
+FText ACXMRUsbPortTarget::DescribeNearest() const
+{
+	const ACXMRUsbPortTarget* Near = nullptr;
+	for (TActorIterator<ACXMRUsbPortTarget> It(GetWorld()); It; ++It)
+	{
+		if (It->LastDistance >= 0.f && (!Near || It->LastDistance < Near->LastDistance))
+		{
+			Near = *It;
+		}
+	}
+	if (!Near)
+	{
+		return LOCTEXT("PlugUntracked", "no plug hand tracked");
+	}
+
+	const FText Verdict = Near->State == ECXMRPortState::Aligned  ? LOCTEXT("VerdictAligned", "lined up")
+	                    : Near->State == ECXMRPortState::Approach ? LOCTEXT("VerdictApproach", "approaching")
+	                                                             : LOCTEXT("VerdictIdle", "not reacting");
+	// Two decimals would read as precision the hand tracker does not have.
+	return FText::FromString(FString::Printf(TEXT("%s: %.1f cm, %.0f\u00B0 off - %s"),
+		*Near->Label, Near->LastDistance, Near->LastAngleDeg, *Verdict.ToString()));
+}
+
+void ACXMRUsbPortTarget::RegisterTunables()
+{
+	UCXMRTuningSubsystem* Tuning = GetTuning();
+	if (!Tuning)
+	{
+		return;
+	}
+
+	// Every port asks; the first one here owns the rows (Register refuses an id already taken). The values are console
+	// variables, so one row reaches every port however many there are and whatever order they began play in.
+	const FText Category = LOCTEXT("CatPort", "USB port");
+	auto Make = [this, &Category](FName Id, const FText& Label, ECXMRTunableKind Kind)
+	{
+		FCXMRTunable Tunable;
+		Tunable.Id = Id;
+		Tunable.Category = Category;
+		Tunable.Label = Label;
+		Tunable.Kind = Kind;
+		Tunable.Owner = this;
+		return Tunable;
+	};
+	auto WriteTo = [](TAutoConsoleVariable<float>& CVar)
+	{
+		return [&CVar](float Value) { CVar->Set(Value, ECVF_SetByConsole); };
+	};
+
+	{
+		FCXMRTunable T = Make("Port.Live", LOCTEXT("Live", "Plug at the nearest port"), ECXMRTunableKind::Readout);
+		T.Text = [this] { return DescribeNearest(); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Port.Debug", LOCTEXT("Debug", "Show what the port judges"), ECXMRTunableKind::Bool);
+		T.Get = [] { return CVarPortDebug.GetValueOnGameThread() != 0 ? 1.0f : 0.0f; };
+		T.Set = [](float Value) { CVarPortDebug->Set(Value > 0.5f ? 1 : 0, ECVF_SetByConsole); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Port.EnterDistance", LOCTEXT("Enter", "Lines up within"), ECXMRTunableKind::Float);
+		T.Unit = LOCTEXT("cm", "cm"); T.Min = 0.2f; T.Max = 10.0f; T.Delta = 0.1f; T.Default = 1.5f; T.bPersist = true;
+		T.Get = [this] { return GetEnterDistance(); };
+		T.Set = WriteTo(CVarPortEnter);
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Port.ExitDistance", LOCTEXT("Exit", "Lets go past"), ECXMRTunableKind::Float);
+		T.Unit = LOCTEXT("cm", "cm"); T.Min = 0.2f; T.Max = 20.0f; T.Delta = 0.1f; T.Default = 3.0f; T.bPersist = true;
+		T.Get = [this] { return GetExitDistance(); };
+		T.Set = WriteTo(CVarPortExit);
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Port.MaxAngle", LOCTEXT("Angle", "Still counts as straight"), ECXMRTunableKind::Float);
+		T.Unit = LOCTEXT("deg", "\u00B0"); T.Min = 5.0f; T.Max = 80.0f; T.Delta = 1.0f; T.Default = 25.0f; T.bPersist = true;
+		T.Get = [this] { return GetMaxAngle(); };
+		T.Set = WriteTo(CVarPortMaxAngle);
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Port.ApproachDistance", LOCTEXT("Approach", "Starts guiding at"), ECXMRTunableKind::Float);
+		T.Unit = LOCTEXT("cm", "cm"); T.Min = 0.0f; T.Max = 40.0f; T.Delta = 0.5f; T.Default = 12.0f; T.bPersist = true;
+		T.Get = [this] { return GetApproachDistance(); };
+		T.Set = WriteTo(CVarPortApproach);
+		Tuning->Register(MoveTemp(T));
+	}
 }
 
 void ACXMRUsbPortTarget::SetState(ECXMRPortState NewState)
@@ -358,3 +572,5 @@ void ACXMRUsbPortTarget::Animate(float DeltaSeconds)
 		}
 	}
 }
+
+#undef LOCTEXT_NAMESPACE
