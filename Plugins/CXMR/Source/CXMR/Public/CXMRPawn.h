@@ -17,7 +17,7 @@ class UCXMRVarjoInputComponent;
 class UCXMRMaskingComponent;
 class UCXMRMarkerDebugComponent;
 class UCXMRHandDebugComponent;
-class UCXMRVirtualHandComponent;
+class UCXMRPlugTipComponent;
 class UCXMRGazeDebugComponent;
 class UCXMRFoveationOverlayComponent;
 class UCXMRHandGrabComponent;
@@ -57,8 +57,8 @@ public:
 	/** Headset verification instrument. Draws the tracked hand skeleton; toggled with H. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRHandDebugComponent> HandDebug;
 
-	/** Cuts the tracked hands and the held plug out of the virtual scene in MR so the real hands show; estimates the plug tip for USB ports. CXMR.HandCutOut. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Hands") TObjectPtr<UCXMRVirtualHandComponent> VirtualHands;
+	/** Where the plug held in the tracked hand has its tip, for USB ports to judge. Draws nothing. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Hands") TObjectPtr<UCXMRPlugTipComponent> PlugTip;
 
 	/** Headset verification instrument. Draws where the wearer looks; toggled with G. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRGazeDebugComponent> GazeDebug;

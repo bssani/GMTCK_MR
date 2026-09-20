@@ -14,8 +14,9 @@
 // aim it out of the opening and what the wearer sees and what turns green are the same thing.
 // The port CENTRE is always this actor's location.
 //
-// The plug comes from the pawn's hand cut-out component (UCXMRVirtualHandComponent::GetPlugTip): the tracked thumb and
-// index tips plus its PlugOffset. What the wearer sees is the real plug.
+// The plug comes from the pawn's plug tip component (UCXMRPlugTipComponent::GetPlugTip): the tracked thumb and index
+// tips plus its PlugOffset. Nothing of the hand or the plug is drawn, so over a virtual console the wearer sees
+// neither — this marker is what tells them they are lined up.
 //
 // An opening is a centimetre across — too small to read in a headset — so the port says more than its size:
 //   Idle      the marker only (a four-bar frame, or IndicatorMesh), dim; or nothing, with bShowWhenIdle off
@@ -42,7 +43,7 @@
 
 class UArrowComponent;
 class UCXMRTuningSubsystem;
-class UCXMRVirtualHandComponent;
+class UCXMRPlugTipComponent;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
 class USoundBase;
@@ -239,7 +240,7 @@ private:
 	/** True when no other port is nearer the tip; a port already reacting keeps a small lead. */
 	bool IsNearestPort(const FVector& Tip, float Distance) const;
 
-	UCXMRVirtualHandComponent* FindHands();
+	UCXMRPlugTipComponent* FindPlugTip();
 
 	/** The ball, the angle cone and the line to the plug tip, while CXMR.Port.Debug is on. */
 	void DrawDebug(const FVector& Tip, bool bHavePlug) const;
@@ -272,7 +273,7 @@ private:
 
 	UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> FrameMaterial;
 
-	TWeakObjectPtr<UCXMRVirtualHandComponent> Hands;
+	TWeakObjectPtr<UCXMRPlugTipComponent> PlugTip;
 	ECXMRPortState State = ECXMRPortState::Idle;
 
 	/** Seconds into the approach pulse. */

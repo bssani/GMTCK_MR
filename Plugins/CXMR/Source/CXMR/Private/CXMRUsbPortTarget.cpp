@@ -2,7 +2,7 @@
 
 #include "CXMRUsbPortTarget.h"
 #include "CXMRTuningSubsystem.h"
-#include "CXMRVirtualHandComponent.h"
+#include "CXMRPlugTipComponent.h"
 
 #include "Components/ArrowComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -272,17 +272,17 @@ void ACXMRUsbPortTarget::RefreshMarker()
 	ApplyState();
 }
 
-UCXMRVirtualHandComponent* ACXMRUsbPortTarget::FindHands()
+UCXMRPlugTipComponent* ACXMRUsbPortTarget::FindPlugTip()
 {
 	// Looked up lazily: the pawn may spawn after this actor, and may be replaced during a session.
-	if (!Hands.IsValid())
+	if (!PlugTip.IsValid())
 	{
 		if (const APawn* Pawn = UGameplayStatics::GetPlayerPawn(this, 0))
 		{
-			Hands = Pawn->FindComponentByClass<UCXMRVirtualHandComponent>();
+			PlugTip = Pawn->FindComponentByClass<UCXMRPlugTipComponent>();
 		}
 	}
-	return Hands.Get();
+	return PlugTip.Get();
 }
 
 bool ACXMRUsbPortTarget::IsNearestPort(const FVector& Tip, float Distance) const
@@ -312,8 +312,8 @@ void ACXMRUsbPortTarget::Tick(float DeltaSeconds)
 
 	FVector Tip;
 	FVector Direction;
-	const UCXMRVirtualHandComponent* HandComponent = FindHands();
-	const bool bHavePlug = HandComponent && HandComponent->GetPlugTip(Tip, Direction);
+	const UCXMRPlugTipComponent* PlugTipComponent = FindPlugTip();
+	const bool bHavePlug = PlugTipComponent && PlugTipComponent->GetPlugTip(Tip, Direction);
 
 	// Measured whether or not this port is the one reacting, so the debug draw and the readout can show a port that is
 	// NOT lighting up — which is the case worth looking at. Going in means travelling against the arrow, which points
