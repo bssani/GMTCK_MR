@@ -84,9 +84,27 @@ void ACXMRUsbPortTarget::OnConstruction(const FTransform& Transform)
 	ApplyState();
 }
 
+FQuat ACXMRUsbPortTarget::GetPortTurn() const
+{
+	// Only turns, never IndicatorOffset's location: the port centre stays this actor's location, which is what
+	// IsNearestPort and the distance test measure from.
+	const FQuat MeshTurn = (bAxisFromMesh && IndicatorMesh) ? IndicatorOffset.GetRotation() : FQuat::Identity;
+	// AxisTurn goes first so it reads in the mesh's own space — a property of that mesh, not of where the port sits.
+	return MeshTurn * AxisTurn.Quaternion();
+}
+
+FVector ACXMRUsbPortTarget::GetPortAxis() const
+{
+	// Quat rather than the actor's transform: a scaled actor must not skew the axis.
+	return (GetActorQuat() * GetPortTurn()).GetForwardVector();
+}
+
 void ACXMRUsbPortTarget::LayoutFrame(float Swell)
 {
 	UMaterialInterface* Paint = FrameMaterial ? static_cast<UMaterialInterface*>(FrameMaterial) : BarMaterial.Get();
+
+	// Everything but IndicatorMesh itself is placed in the port's frame; the mesh already carries IndicatorOffset whole.
+	const FQuat Turn = GetPortTurn();
 
 	const float T = FrameThickness;
 	const float HalfW = FrameSize.X * 0.5f;
@@ -110,7 +128,8 @@ void ACXMRUsbPortTarget::LayoutFrame(float Swell)
 		Item.Bar->SetStaticMesh(BarMesh);
 		Item.Bar->SetMaterial(0, Paint);
 		// Scaling location and size together swells the frame about the port centre.
-		Item.Bar->SetRelativeLocation(Item.Location * Swell);
+		Item.Bar->SetRelativeLocation(Turn.RotateVector(Item.Location * Swell));
+		Item.Bar->SetRelativeRotation(Turn);
 		Item.Bar->SetRelativeScale3D(Item.Size * Swell / CubeCm);
 	}
 
@@ -124,6 +143,11 @@ void ACXMRUsbPortTarget::LayoutFrame(float Swell)
 		Indicator->SetRelativeTransform(Offset);
 	}
 
+	if (OutOfPort)
+	{
+		OutOfPort->SetRelativeRotation(Turn);
+	}
+
 	if (GuideBeam)
 	{
 		// The basic cylinder stands on Z; turned onto X it runs out of the opening toward the person.
@@ -131,8 +155,10 @@ void ACXMRUsbPortTarget::LayoutFrame(float Swell)
 		const float Diameter = GuideDiameter / CubeCm;
 		GuideBeam->SetStaticMesh(GuideMesh);
 		GuideBeam->SetMaterial(0, Paint);
-		GuideBeam->SetRelativeTransform(
-			FTransform(AlongX, FVector(GuideGap + GuideLength * 0.5f, 0., 0.), FVector(Diameter, Diameter, GuideLength / CubeCm)));
+		GuideBeam->SetRelativeTransform(FTransform(
+			Turn * AlongX,
+			Turn.RotateVector(FVector(GuideGap + GuideLength * 0.5f, 0., 0.)),
+			FVector(Diameter, Diameter, GuideLength / CubeCm)));
 	}
 }
 
@@ -209,8 +235,9 @@ void ACXMRUsbPortTarget::Tick(float DeltaSeconds)
 		const float Distance = FVector::Distance(Tip, GetActorLocation());
 		if (IsNearestPort(Tip, Distance))
 		{
-			// Going in means travelling against the arrow, which points out of the port.
-			const float Alignment = FVector::DotProduct(Direction, -GetActorForwardVector());
+			// Going in means travelling against the arrow, which points out of the port — turned with the mesh, so a
+			// slanted opening is judged along the way it actually faces.
+			const float Alignment = FVector::DotProduct(Direction, -GetPortAxis());
 			const bool bWasAligned = State == ECXMRPortState::Aligned;
 			const float AngleLimit = FMath::Cos(FMath::DegreesToRadians(bWasAligned ? FMath::Min(MaxAngle + AngleHysteresis, 89.f) : MaxAngle));
 			const float DistanceLimit = bWasAligned ? ExitDistance : EnterDistance;

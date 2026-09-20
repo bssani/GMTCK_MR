@@ -6,6 +6,14 @@
 // each opening, arrow pointing out of the port toward the person, and it answers the question the demo asks —
 // could the wearer bring the plug to this port, straight, from where they sit.
 //
+// An opening in a real console rarely faces straight down an axis, so the port does not have to either. With a mesh of
+// your own in IndicatorMesh, turning it with IndicatorOffset until it sits in the opening turns the PORT with it
+// (bAxisFromMesh): the axis the plug is judged against, the guide beam and the editor arrow all follow the mesh. A mesh
+// whose own X is not the way in — a CAD export keeps whatever orientation the part had — is answered by AxisTurn, which
+// aims the port without moving the mesh. Whichever you use, the editor arrow shows the axis that actually judges, so
+// aim it out of the opening and what the wearer sees and what turns green are the same thing.
+// The port CENTRE is always this actor's location.
+//
 // The plug comes from the pawn's hand cut-out component (UCXMRVirtualHandComponent::GetPlugTip): the tracked thumb and
 // index tips plus its PlugOffset. What the wearer sees is the real plug.
 //
@@ -70,6 +78,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ClampMin = "1.0", ClampMax = "80.0"))
 	float MaxAngle = 25.0f;
 
+	/**
+	 * Turns the port itself — the insertion axis, the guide beam, the frame and the editor arrow — leaving IndicatorMesh
+	 * exactly where IndicatorOffset put it. This is for a marker mesh whose own X is not the way into the port: turn it
+	 * until the arrow points out of the opening, toward the person. Applied inside the mesh's own turn, so it belongs to
+	 * the mesh and keeps holding wherever the port is moved or turned afterwards.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") FRotator AxisTurn = FRotator::ZeroRotator;
+
 	/** Inner size of the frame around the opening, cm: X across the port (actor Y), Y up the port (actor Z). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") FVector2D FrameSize = FVector2D(1.4f, 0.9f);
 
@@ -130,21 +146,36 @@ public:
 
 	/**
 	 * A mesh of your own for the marker, shown instead of the four-bar frame — one piece, any shape. Empty = the frame.
-	 * Detection does not use it: the port is still this actor's location and arrow.
+	 * The port centre is this actor's location whatever the mesh does; which way it faces can come from the mesh, see
+	 * bAxisFromMesh.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") TObjectPtr<UStaticMesh> IndicatorMesh;
 
 	/**
 	 * Where IndicatorMesh sits relative to this actor (X out of the port). A mesh exported from CAD often has its
-	 * origin far from the part — move it back onto the opening here.
+	 * origin far from the part — move it back onto the opening here. Its TURN steers the whole port while
+	 * bAxisFromMesh is on, so an opening at an angle is fitted by turning the mesh into it and nothing else.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") FTransform IndicatorOffset = FTransform::Identity;
+
+	/**
+	 * On = the port faces the way the mesh is turned — this actor's turn, then IndicatorOffset's, then AxisTurn. Turn the
+	 * mesh into a slanted opening and the insertion axis, the guide beam and the editor arrow come with it, so the plug
+	 * is judged against the opening the wearer sees rather than the actor's own X.
+	 * Off = IndicatorOffset's turn is left out and only AxisTurn aims the port (what it did before 2026-09-20).
+	 * Only turns are taken, never the offset's location: the port centre stays this actor's location. So keep the mesh
+	 * pivot on the opening — with the pivot far away, turning the mesh swings the part off the centre that judges.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") bool bAxisFromMesh = true;
 
 	/** On = the mesh keeps its own materials while idle. Off = it shows IdleColor like the frame. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") bool bKeepMeshMaterialsWhenIdle = true;
 
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") ECXMRPortState GetPortState() const { return State; }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") bool IsAligned() const { return State == ECXMRPortState::Aligned; }
+
+	/** The way out of the port in world space — the axis the plug is judged against. Follows the mesh, see bAxisFromMesh. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port") FVector GetPortAxis() const;
 
 	/** Applies the frame, guide, IndicatorMesh and colours again after changing them during play. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Port") void RefreshMarker();
@@ -165,7 +196,13 @@ protected:
 	virtual void BeginPlay() override;
 
 private:
-	/** Places the bars, IndicatorMesh and the guide. Swell scales the marker about the port centre, for the pop. */
+	/**
+	 * How far the port is turned from this actor: IndicatorOffset's turn (with bAxisFromMesh and a mesh set) and then
+	 * AxisTurn. The marker is laid out in it and the plug is judged in it, so the two can never disagree.
+	 */
+	FQuat GetPortTurn() const;
+
+	/** Places the bars, IndicatorMesh and the guide, all turned by GetPortTurn. Swell scales the marker about the port centre, for the pop. */
 	void LayoutFrame(float Swell = 1.0f);
 
 	/** Colour, visibility and materials for the current state. */
