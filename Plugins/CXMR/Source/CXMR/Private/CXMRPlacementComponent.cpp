@@ -431,7 +431,7 @@ bool UCXMRPlacementComponent::ComputeMultiMarkerTransform(FTransform& Out, float
 			Q.Add(Pair.Value.GetLocation());
 		}
 	}
-	return CXMRLevelFit::Solve(P, Q, Out, OutResidual, 0.0);
+	return CXMRLevelFit::Solve(P, Q, Out, OutResidual);
 }
 
 void UCXMRPlacementComponent::Recalibrate()
@@ -540,6 +540,22 @@ void UCXMRPlacementComponent::SetMarkerProfile(UCXMRMarkerProfile* NewProfile)
 	// HandleMarkerPose frozen so the new ones are ignored too — a swap that silently never aligns.
 	DetectedCalib.Reset();
 	bCalibrated = false;
+	SeenMarkers.Reset();
+	MarkerSamples.Reset();
+	LayoutFitError = -1.0f;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SettleTimer);
+	}
+	// 차량 위치는 유지함. 이전 차량에서 쓰던 미세조정 값은 여기서 정리함.
+	TempMarkerLocationOffset = FVector::ZeroVector;
+	TempMarkerRotationOffset = FRotator::ZeroRotator;
+	bHaveBasePose = false;
+	RebaseToCurrentTransform();
+	if (!bHaveBasePose)
+	{
+		PublishOffset();
+	}
 }
 
 void UCXMRPlacementComponent::CaptureAuthoredOffsets()
@@ -1130,11 +1146,6 @@ void UCXMRPlacementComponent::NudgeVehicle(FVector ViewerDelta, float YawDelta)
 		return;
 	}
 	const float ViewerYaw = CamMgr->GetCameraRotation().Yaw;
-	// The first adjustment of the session decides the axes; after that looking around no longer moves them.
-	if (NudgeFrame == ECXMRNudgeFrame::ViewerLatched && !bHaveNudgeHeading)
-	{
-		LatchNudgeHeading(ViewerYaw);
-	}
 	NudgeVehicleInFrame(ViewerDelta, YawDelta, ViewerYaw, CamMgr->GetCameraLocation());
 }
 
@@ -1144,6 +1155,11 @@ void UCXMRPlacementComponent::NudgeVehicleInFrame(FVector ViewerDelta, float Yaw
 	if (!Root)
 	{
 		return;
+	}
+	// 키 입력이든 직접 호출이든 처음 조정할 때 방향을 고정함.
+	if (NudgeFrame == ECXMRNudgeFrame::ViewerLatched && !bHaveNudgeHeading)
+	{
+		LatchNudgeHeading(HeadingYaw);
 	}
 	if (!bHaveBasePose)
 	{

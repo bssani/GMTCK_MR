@@ -153,10 +153,10 @@ void UCXMRMarkerDebugComponent::Draw() const
 		// The physical marker's footprint, so a wrong size shows up as an obviously wrong square.
 		if (M.Size.X > 0.0f)
 		{
-			const float HalfCm = M.Size.X * 50.0f;   // metres -> cm, halved
-			DrawDebugBox(World, M.Position, FVector(HalfCm, HalfCm, 0.1f), M.Rotation.Quaternion(), Colour, false, -1.0f, 0, 0.3f);
+			const FVector HalfSize(M.Size.X * 0.5f, M.Size.Y * 0.5f, 0.1f); // 이미 cm로 들어옴. 여기서는 절반만 계산함.
+			DrawDebugBox(World, M.Position, HalfSize, M.Rotation.Quaternion(), Colour, false, -1.0f, 0, 0.3f);
 			// Filled and see-through, so the footprint still reads from across the room.
-			DrawDebugSolidBox(World, M.Position, FVector(HalfCm, HalfCm, 0.05f), M.Rotation.Quaternion(), FColor(Colour.R, Colour.G, Colour.B, 60));
+			DrawDebugSolidBox(World, M.Position, FVector(HalfSize.X, HalfSize.Y, 0.05f), M.Rotation.Quaternion(), FColor(Colour.R, Colour.G, Colour.B, 60));
 		}
 	}
 

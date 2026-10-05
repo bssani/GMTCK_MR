@@ -2,6 +2,8 @@
 
 #include "CXMRTuningWindowComponent.h"
 #include "CXMRPanelUI.h"
+#include "CXMRPanelSections.h"
+#include "CXMRMarkerDebugComponent.h"
 #include "CXMRSubsystem.h"
 #include "CXMRTuningSubsystem.h"
 #include "CXMRVarjoInputComponent.h"
@@ -17,6 +19,8 @@
 #include "Misc/App.h"
 #include "Widgets/SWindow.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Widgets/Layout/SWidgetSwitcher.h"
+#include "Widgets/SBoxPanel.h"
 
 #define LOCTEXT_NAMESPACE "CXMRTuning"
 
@@ -60,7 +64,7 @@ namespace
 UCXMRTuningWindowComponent::UCXMRTuningWindowComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
-	WindowTitle = LOCTEXT("WindowTitle", "CXMR Tuning");
+	WindowTitle = LOCTEXT("WindowTitle", "CXMR Developer Panel");
 }
 
 UCXMRTuningSubsystem* UCXMRTuningWindowComponent::GetTuning() const
@@ -226,6 +230,38 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 
+	// 보정과 사용자 앞에 배치하는 기능은 개발자 패널에서 사용함.
+	{
+		FCXMRTunable T = Make("Vehicle.PlaceInFront", LOCTEXT("CatPlacement", "Vehicle placement"), LOCTEXT("PlaceInFront", "Place vehicle in front of me"), ECXMRTunableKind::Action);
+		T.Invoke = [Weak] { if (Weak.IsValid()) { Weak->RequestPlaceInFront(); } };
+		Tuning->Register(MoveTemp(T));
+	}
+	const FText Diagnostics = LOCTEXT("CatDiagnostics", "Tracking diagnostics");
+	{
+		FCXMRTunable T = Make("Diagnostics.MarkerTracking", Diagnostics, LOCTEXT("MarkerTracking", "Marker tracking"), ECXMRTunableKind::Bool);
+		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsMarkerTrackingOn()) : 0.f; };
+		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetMarkerTracking(V > 0.5f); } };
+		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMarkerTrackingSupported(); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Diagnostics.HandSkeleton", Diagnostics, LOCTEXT("HandSkeleton", "Show hand skeleton"), ECXMRTunableKind::Bool);
+		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsHandVisualizationOn()) : 0.f; };
+		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetHandVisualization(V > 0.5f); } };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Diagnostics.MarkerLabels", Diagnostics, LOCTEXT("MarkerLabels", "Show marker axes and labels"), ECXMRTunableKind::Bool);
+		T.Get = [] { return AsValue(UCXMRMarkerDebugComponent::IsMarkerDrawingOn()); };
+		T.Set = [](float V) { UCXMRMarkerDebugComponent::SetMarkerDrawing(V > 0.5f); };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Diagnostics.MRState", Diagnostics, LOCTEXT("MRState", "Log MR state"), ECXMRTunableKind::Action);
+		T.Invoke = [Weak] { if (Weak.IsValid()) { Weak->DumpMRState(); } };
+		Tuning->Register(MoveTemp(T));
+	}
+
 	// ---- Input ----
 	if (UCXMRVarjoInputComponent* Input = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVarjoInputComponent>() : nullptr)
 	{
@@ -253,12 +289,27 @@ TSharedRef<SWidget> UCXMRTuningWindowComponent::BuildPanel() const
 
 	// Every row goes through the registry by id, so a row whose owner has left reads as empty instead of calling
 	// into a destroyed component.
-	TArray<CXMRPanelUI::FRowSpec> Rows;
+	TArray<CXMRPanelUI::FRowSpec> Rows[3];
 	for (const FCXMRTunable* Tunable : Tuning->GetTunables())
 	{
-		Rows.Add({ *Tunable, CXMRPanelUI::BindToRegistry(Tuning, *Tunable) });
+		Rows[CXMRPanelSections::DeveloperTab(Tunable->Id)].Add({ *Tunable, CXMRPanelUI::BindToRegistry(Tuning, *Tunable) });
 	}
-	return CXMRPanelUI::MakeBackground(CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeRowList(Rows)));
+	const TWeakObjectPtr<UCXMRTuningWindowComponent> Weak(const_cast<UCXMRTuningWindowComponent*>(this));
+	const TArray<FText> Tabs = { LOCTEXT("CalibrationTab", "Calibration"), LOCTEXT("SettingsTab", "Display / Device"), LOCTEXT("DiagnosticsTab", "Diagnostics") };
+	return CXMRPanelUI::MakeBackground(SNew(SVerticalBox)
+		+ SVerticalBox::Slot().AutoHeight().Padding(6.f)
+		[
+			CXMRPanelUI::MakeTabBar(Tabs,
+				[Weak] { return Weak.IsValid() ? Weak->ActiveTab : 0; },
+				[Weak](int32 Index) { if (Weak.IsValid()) { Weak->ActiveTab = FMath::Clamp(Index, 0, 2); } })
+		]
+		+ SVerticalBox::Slot().FillHeight(1.f)
+		[
+			SNew(SWidgetSwitcher).WidgetIndex_Lambda([Weak] { return Weak.IsValid() ? Weak->ActiveTab : 0; })
+			+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeRowList(Rows[0])) ]
+			+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeRowList(Rows[1])) ]
+			+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeRowList(Rows[2])) ]
+		]);
 }
 
 void UCXMRTuningWindowComponent::RebuildContent()

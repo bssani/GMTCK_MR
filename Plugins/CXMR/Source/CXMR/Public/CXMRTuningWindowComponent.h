@@ -1,16 +1,10 @@
 // Copyright GMTCK CX.
 //
-// UCXMRTuningWindowComponent — the operator's tuning window: every registered tunable as a live number, checkbox or
-// button, in a desktop OS window beside the headset view.
-//
-// Slate, not UMG: the rows are generated from the tuning registry, so adding a tunable never means editing a widget
-// blueprint (and never risks the widget-tree breakage that editing one from Python has caused). Values are read back
-// from the feature every frame, so a key press or a controller change shows up here straight away.
-//
-// It also registers the template's core tunables — mixed reality, depth test, view offset, exposure, adjust speed —
-// because those need a live world and pawn to act on. Other features register their own (vehicle placement does).
-// Console: CXMR.Tuning opens or closes it.
-
+// 개발자 패널. 보정 / 화면·장비 / 진단 탭으로 나눠서 보여줌.
+// 기능별로 등록한 설정을 Slate 행으로 만듦. 위젯 BP를 수정할 필요는 없음.
+// 다른 입력으로 값이 바뀌어도 현재 값을 읽어서 화면에 반영함.
+// MR, 깊이, 노출, 조정 속도는 여기서 등록함. 나머지는 각 기능에서 등록함.
+// 콘솔의 CXMR.Tuning으로도 창을 열고 닫을 수 있음.
 #pragma once
 
 #include "CoreMinimal.h"
@@ -53,4 +47,5 @@ private:
 	/** Slate window is not a UObject — held by shared ptr and closed explicitly in EndPlay. */
 	TSharedPtr<SWindow> Window;
 	FDelegateHandle TunablesChangedHandle;
+	int32 ActiveTab = 0;
 };

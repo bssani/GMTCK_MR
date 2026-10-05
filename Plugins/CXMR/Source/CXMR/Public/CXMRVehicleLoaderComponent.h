@@ -20,6 +20,18 @@ class UCXMRVehicleProfile;
 class UCXMRVehicleCatalog;
 class UMaterialInterface;
 class UCXMRSubsystem;
+class UPrimitiveComponent;
+
+/** CMF 변경 전에 쓰던 재질. 교체 후에도 GC로 사라지지 않게 보관함. */
+USTRUCT()
+struct FCXMRCMFOriginalMaterial
+{
+	GENERATED_BODY()
+
+	UPROPERTY() TWeakObjectPtr<UPrimitiveComponent> Component;
+	UPROPERTY() int32 Slot = 0;
+	UPROPERTY() TObjectPtr<UMaterialInterface> Material;
+};
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnVehicleLoaded, UCXMRVehicleProfile*, Profile);
 
@@ -71,7 +83,7 @@ protected:
 private:
 	USceneComponent* ResolveAttachTarget();
 
-	/** Pushes the marker profile from the vehicle profile onto the placement component, if present. */
+	/** 새 차량의 마커 프로파일을 적용함. 없으면 이전 프로파일도 비움. */
 	void SyncMarkerProfile();
 
 	/** Points VehicleIndex at wherever the loaded profile sits in the catalog. Without this, loading a
@@ -90,6 +102,7 @@ private:
 	void ReportStatus();
 
 	UPROPERTY(Transient) TObjectPtr<AActor> SpawnedVehicle;
+	UPROPERTY(Transient) TArray<FCXMRCMFOriginalMaterial> OriginalMaterials;
 	UPROPERTY(Transient) TObjectPtr<UCXMRSubsystem> Subsystem;
 
 	UFUNCTION() void HandleViewerAction(ECXMRViewerAction Action);

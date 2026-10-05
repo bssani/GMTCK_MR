@@ -138,6 +138,7 @@ void UCXMRVehicleLoaderComponent::LoadVehicle(UCXMRVehicleProfile* NewProfile)
 
 void UCXMRVehicleLoaderComponent::UnloadVehicle()
 {
+	OriginalMaterials.Reset();
 	if (SpawnedVehicle)
 	{
 		SpawnedVehicle->Destroy();
@@ -148,10 +149,6 @@ void UCXMRVehicleLoaderComponent::UnloadVehicle()
 void UCXMRVehicleLoaderComponent::SyncMarkerProfile()
 {
 	// The vehicle carries its own calibration config, so switching vehicle switches marker IDs with it.
-	if (Profile->MarkerProfile.IsNull())
-	{
-		return;
-	}
 	if (AActor* Owner = GetOwner())
 	{
 		if (UCXMRPlacementComponent* Placement = Owner->FindComponentByClass<UCXMRPlacementComponent>())
@@ -332,6 +329,14 @@ void UCXMRVehicleLoaderComponent::ApplyTrim()
 
 void UCXMRVehicleLoaderComponent::ApplyCMF()
 {
+	// 새 옵션에 없는 재질은 원래대로 돌림. CMF가 없는 트림도 똑같이 처리함.
+	for (const FCXMRCMFOriginalMaterial& Original : OriginalMaterials)
+	{
+		if (UPrimitiveComponent* Component = Original.Component.Get())
+		{
+			Component->SetMaterial(Original.Slot, Original.Material);
+		}
+	}
 	if (!SpawnedVehicle || !Profile || !Profile->IsValidTrim(TrimIndex))
 	{
 		return;
@@ -359,6 +364,18 @@ void UCXMRVehicleLoaderComponent::ApplyCMF()
 			// A None tag means "the whole vehicle" — the common case for paint.
 			if (Override.PartTag.IsNone() || Primitive->ComponentTags.Contains(Override.PartTag))
 			{
+				if (Override.MaterialSlot < 0)
+				{
+					continue;
+				}
+				if (!OriginalMaterials.ContainsByPredicate([Primitive, &Override](const FCXMRCMFOriginalMaterial& Original)
+					{ return Original.Component.Get() == Primitive && Original.Slot == Override.MaterialSlot; }))
+				{
+					FCXMRCMFOriginalMaterial& Original = OriginalMaterials.AddDefaulted_GetRef();
+					Original.Component = Primitive;
+					Original.Slot = Override.MaterialSlot;
+					Original.Material = Primitive->GetMaterial(Override.MaterialSlot);
+				}
 				Primitive->SetMaterial(Override.MaterialSlot, Material);
 			}
 		}

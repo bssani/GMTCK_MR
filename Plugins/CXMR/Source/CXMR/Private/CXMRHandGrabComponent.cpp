@@ -65,6 +65,7 @@ UCXMRTuningSubsystem* UCXMRHandGrabComponent::GetTuning() const
 void UCXMRHandGrabComponent::BeginPlay()
 {
 	Super::BeginPlay();
+	NormalizePinchDistances();
 	RegisterTunables();
 }
 
@@ -85,8 +86,16 @@ void UCXMRHandGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+	// BP에서 값을 넣으면 범위 제한을 건너뛸 수 있음. 손 상태를 판단하기 전에 정리함.
+	NormalizePinchDistances();
 	UpdateHand(EControllerHand::Left, DeltaTime);
 	UpdateHand(EControllerHand::Right, DeltaTime);
+}
+
+void UCXMRHandGrabComponent::NormalizePinchDistances()
+{
+	PinchCloseDistance = FMath::Clamp(PinchCloseDistance, 0.5f, 10.0f);
+	PinchOpenDistance = FMath::Clamp(PinchOpenDistance, PinchCloseDistance + 0.1f, 15.0f);
 }
 
 void UCXMRHandGrabComponent::UpdateHand(EControllerHand Hand, float DeltaTime)
@@ -388,14 +397,14 @@ void UCXMRHandGrabComponent::RegisterTunables()
 		FCXMRTunable T = Make("Grab.PinchClose", LOCTEXT("PinchClose", "Pinch closes below"), ECXMRTunableKind::Float);
 		T.Unit = LOCTEXT("cm", "cm"); T.Min = 0.5f; T.Max = 6.0f; T.Delta = 0.1f; T.Default = 2.0f; T.bPersist = true;
 		T.Get = [this] { return PinchCloseDistance; };
-		T.Set = [this](float Value) { PinchCloseDistance = Value; };
+		T.Set = [this](float Value) { PinchCloseDistance = Value; NormalizePinchDistances(); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
 		FCXMRTunable T = Make("Grab.PinchOpen", LOCTEXT("PinchOpen", "Pinch opens above"), ECXMRTunableKind::Float);
 		T.Unit = LOCTEXT("cm", "cm"); T.Min = 1.0f; T.Max = 10.0f; T.Delta = 0.1f; T.Default = 3.5f; T.bPersist = true;
 		T.Get = [this] { return PinchOpenDistance; };
-		T.Set = [this](float Value) { PinchOpenDistance = Value; };
+		T.Set = [this](float Value) { PinchOpenDistance = Value; NormalizePinchDistances(); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{

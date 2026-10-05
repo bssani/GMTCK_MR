@@ -15,7 +15,7 @@ UCXMRDesktopPanelComponent::UCXMRDesktopPanelComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 
-	WindowTitle = NSLOCTEXT("CXMR", "DesktopPanelTitle", "CXMR Control");
+	WindowTitle = NSLOCTEXT("CXMR", "DesktopPanelTitle", "CXMR User Panel");
 
 	// Same reason the pawn resolves its panel class in C++: a Blueprint class default silently
 	// reverts to null when PIE reinstances the Blueprint, and a panel that fails to appear looks

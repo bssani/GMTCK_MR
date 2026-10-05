@@ -4,6 +4,7 @@
 #include "CXMRHandTracking.h"
 #include "CXMRTuningSubsystem.h"
 #include "CXMRVehicleRoot.h"
+#include "CXMRVehicleLoaderComponent.h"
 
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/Engine.h"
@@ -253,10 +254,13 @@ bool UCXMRSpectatorComponent::FindOrbitTarget(FVector& OutCentre, double& OutGro
 	{
 		FVector Origin;
 		FVector Extent;
-		It->GetActorBounds(/*bOnlyCollidingComponents*/ false, Origin, Extent, /*bIncludeFromChildActors*/ true);
+		// 차량은 별도로 생성해서 붙인 액터임. 실제 차량의 크기로 카메라 중심을 잡음.
+		const AActor* Vehicle = It->Loader ? It->Loader->GetSpawnedVehicle() : nullptr;
+		const AActor* Target = Vehicle ? Vehicle : *It;
+		Target->GetActorBounds(/*bOnlyCollidingComponents*/ false, Origin, Extent, /*bIncludeFromChildActors*/ true);
 		if (Extent.IsNearlyZero())
 		{
-			Origin = It->GetActorLocation();
+			Origin = Target->GetActorLocation();
 		}
 		OutCentre = Origin;
 		OutGroundZ = Origin.Z - Extent.Z;

@@ -137,10 +137,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void PlaceInFrontOfPawn();
 
 	/**
-	 * Move the vehicle in the VIEWER's frame, whichever way the car faces: X away from the viewer (head
-	 * direction flattened), Y to the viewer's right, Z world up; yaw about world up around NudgePivot,
-	 * positive = clockwise seen from above. The result is kept as the offset, so saving and learning work
-	 * exactly as before.
+	 * 선택한 조정 방향으로 차량을 움직임. X는 앞, Y는 오른쪽, Z는 위.
+	 * 회전은 NudgePivot을 중심으로 수직 축을 사용함. 양수는 위에서 봤을 때 시계 방향.
+	 * 결과는 보정 오프셋으로 보관해서 저장과 마커 학습에도 사용함.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement") void NudgeVehicle(FVector ViewerDelta, float YawDelta);
 

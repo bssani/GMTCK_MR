@@ -639,7 +639,7 @@ ETrackingStatus FVarjoHandInteraction::GetControllerTrackingStatus(const int32 C
 		PoseActionStateInfo.action = RightInteractionController.PalmPoseAction;
 	}
 
-	if (MotionSource == HandInteractionMotionSource::LeftAim)
+	else if (MotionSource == HandInteractionMotionSource::LeftAim)
 	{
 		PoseActionStateInfo.action = LeftInteractionController.AimPoseAction;
 	}
