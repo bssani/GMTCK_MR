@@ -32,8 +32,7 @@ namespace
 		Rows.Add({ MoveTemp(Row), MoveTemp(Binding) });
 	}
 
-	/** "Sedan  2 / 3". A dash when nothing is loaded — a stepper with no value reads as broken, not empty.
-	 *  ASCII only: the default font draws a box for anything else. */
+	/** 차량 이름과 순번 표시함. 로드 전에는 '-'로 표시함. */
 	FText NameAndPosition(const FText& Name, int32 Index, int32 Count)
 	{
 		if (Count <= 0)
@@ -66,8 +65,8 @@ void UCXMRControlPanelWidget::SetActiveTab(int32 TabIndex)
 
 TSharedRef<SWidget> UCXMRControlPanelWidget::RebuildWidget()
 {
-	// The base does the user-widget bookkeeping (initialisation, player context). Its content — the widget tree,
-	// empty for this class — is not used.
+	// 기본 위젯 초기화만 사용함.
+
 	Super::RebuildWidget();
 
 	const TWeakObjectPtr<UCXMRControlPanelWidget> Weak(this);
@@ -100,28 +99,41 @@ void UCXMRControlPanelWidget::ReleaseSlateResources(bool bReleaseChildren)
 	Pages.Reset();
 }
 
-// ---- 보기: 자주 쓰는 화면 조작만 둠 ----
+// 보기 조작
 
 TSharedRef<SWidget> UCXMRControlPanelWidget::BuildDisplayPage()
 {
 	const TWeakObjectPtr<UCXMRControlPanelWidget> Weak(this);
+	auto CXMR = [Weak]() -> UCXMRSubsystem* { return Weak.IsValid() ? Weak->GetCXMR() : nullptr; };
 	FRows Rows;
 	const FText Category = LOCTEXT("UserView", "View");
-	FCXMRTunable MR = MakeRow("Panel.MR", Category, LOCTEXT("UserMR", "Show the real room"), ECXMRTunableKind::Bool);
+	FCXMRTunable MR = MakeRow("Panel.MR", Category, LOCTEXT("UserMR", "Passthrough"), ECXMRTunableKind::Bool);
 	MR.Get = [Weak] { const UCXMRSubsystem* S = Weak.IsValid() ? Weak->GetCXMR() : nullptr; return S && S->IsMixedRealityOn() ? 1.f : 0.f; };
 	MR.Set = [Weak](float Value) { if (UCXMRSubsystem* S = Weak.IsValid() ? Weak->GetCXMR() : nullptr) { S->SetMixedReality(Value > 0.5f); } };
 	MR.IsEnabled = [Weak] { const UCXMRSubsystem* S = Weak.IsValid() ? Weak->GetCXMR() : nullptr; return S && S->IsMixedRealitySupported(); };
 	AddRow(Rows, MoveTemp(MR));
 
-	FCXMRTunable Monitor = MakeRow("Panel.Spectator", Category, LOCTEXT("UserMonitor", "Monitor view"), ECXMRTunableKind::Choice);
-	Monitor.Options = { LOCTEXT("Mirror", "Headset"), LOCTEXT("Smooth", "Smoothed"), LOCTEXT("Orbit", "Around vehicle") };
+	FCXMRTunable Monitor = MakeRow("Panel.Spectator", Category, LOCTEXT("UserMonitor", "Monitor View"), ECXMRTunableKind::Choice);
+	Monitor.Options = { LOCTEXT("Mirror", "Headset Mirror"), LOCTEXT("Smooth", "Smooth View"), LOCTEXT("Orbit", "Vehicle Orbit") };
 	Monitor.Get = [Weak] { const UCXMRTuningSubsystem* T = Weak.IsValid() ? Weak->GetTuning() : nullptr; return T ? T->GetTunableValue("Spectator.Mode") : 0.f; };
 	Monitor.Set = [Weak](float Value) { if (UCXMRTuningSubsystem* T = Weak.IsValid() ? Weak->GetTuning() : nullptr) { T->SetTunableValue("Spectator.Mode", Value); } };
 	Monitor.IsEnabled = [Weak] { const UCXMRTuningSubsystem* T = Weak.IsValid() ? Weak->GetTuning() : nullptr; return T && T->GetTunables().ContainsByPredicate([](const FCXMRTunable* Row) { return Row->Id == "Spectator.Mode"; }); };
 	AddRow(Rows, MoveTemp(Monitor));
+	const FText Human = LOCTEXT("CatHuman", "Seating View");
+	{
+		FCXMRTunable Row = MakeRow("Panel.Manikin", Human, LOCTEXT("Manikin", "Eye Position"), ECXMRTunableKind::Stepper);
+		Row.Text = [CXMR]
+		{
+			const UCXMRSubsystem* S = CXMR();
+			return S ? NameAndPosition(S->GetManikinName(), S->GetManikinIndex(), S->GetManikinCount()) : FText::GetEmpty();
+		};
+		Row.Step = [CXMR](float Direction) { if (UCXMRSubsystem* S = CXMR()) { S->RequestErgonomicsStep(Direction > 0.0f ? 1 : -1); } };
+		AddRow(Rows, MoveTemp(Row));
+	}
+
 	return CXMRPanelUI::MakeRowList(Rows);
 }
-// ---- Viewer: what is being reviewed ----
+// 차량 선택
 
 TSharedRef<SWidget> UCXMRControlPanelWidget::BuildViewerPage()
 {
@@ -129,7 +141,7 @@ TSharedRef<SWidget> UCXMRControlPanelWidget::BuildViewerPage()
 	auto CXMR = [Weak]() -> UCXMRSubsystem* { return Weak.IsValid() ? Weak->GetCXMR() : nullptr; };
 
 	FRows Rows;
-	const FText Vehicle = LOCTEXT("CatVehicle", "Vehicle");
+	const FText Vehicle = LOCTEXT("CatVehicle", "Vehicle Selection");
 	{
 		FCXMRTunable Row = MakeRow("Panel.Vehicle", Vehicle, LOCTEXT("VehicleName", "Vehicle"), ECXMRTunableKind::Stepper);
 		Row.Text = [CXMR]
@@ -146,46 +158,6 @@ TSharedRef<SWidget> UCXMRControlPanelWidget::BuildViewerPage()
 		};
 		AddRow(Rows, MoveTemp(Row));
 	}
-	{
-		FCXMRTunable Row = MakeRow("Panel.Trim", Vehicle, LOCTEXT("TrimName", "Trim"), ECXMRTunableKind::Stepper);
-		Row.Text = [CXMR]
-		{
-			const UCXMRSubsystem* S = CXMR();
-			return S ? NameAndPosition(S->GetTrimName(), S->GetTrimIndex(), S->GetTrimCount()) : FText::GetEmpty();
-		};
-		Row.Step = [CXMR](float Direction)
-		{
-			if (UCXMRSubsystem* S = CXMR())
-			{
-				S->RequestViewerAction(Direction > 0.0f ? ECXMRViewerAction::NextTrim : ECXMRViewerAction::PreviousTrim);
-			}
-		};
-		AddRow(Rows, MoveTemp(Row));
-	}
-	{
-		FCXMRTunable Row = MakeRow("Panel.CMF", Vehicle, LOCTEXT("CMF", "Colour / finish"), ECXMRTunableKind::Readout);
-		Row.Text = [CXMR] { const UCXMRSubsystem* S = CXMR(); return S && S->GetTrimCount() > 0 ? FText::AsNumber(S->GetCMFIndex() + 1) : LOCTEXT("NoFinish", "-"); };
-		AddRow(Rows, MoveTemp(Row));
-	}
-	{
-		// The loader only cycles CMF forwards, so this is one button rather than a [-] [+] pair with a dead [-].
-		FCXMRTunable Row = MakeRow("Panel.NextCMF", Vehicle, LOCTEXT("NextCMF", "Next colour / finish"), ECXMRTunableKind::Action);
-		Row.Invoke = [CXMR] { if (UCXMRSubsystem* S = CXMR()) { S->RequestViewerAction(ECXMRViewerAction::NextCMF); } };
-		AddRow(Rows, MoveTemp(Row));
-	}
-
-	const FText Human = LOCTEXT("CatHuman", "Seating position");
-	{
-		FCXMRTunable Row = MakeRow("Panel.Manikin", Human, LOCTEXT("Manikin", "Eye position"), ECXMRTunableKind::Stepper);
-		Row.Text = [CXMR]
-		{
-			const UCXMRSubsystem* S = CXMR();
-			return S ? NameAndPosition(S->GetManikinName(), S->GetManikinIndex(), S->GetManikinCount()) : FText::GetEmpty();
-		};
-		Row.Step = [CXMR](float Direction) { if (UCXMRSubsystem* S = CXMR()) { S->RequestErgonomicsStep(Direction > 0.0f ? 1 : -1); } };
-		AddRow(Rows, MoveTemp(Row));
-	}
-
 	return CXMRPanelUI::MakeRowList(Rows);
 }
 

@@ -3,9 +3,12 @@
 #include "CXMRPanelUI.h"
 
 #include "Styling/CoreStyle.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SSpinBox.h"
+#include "Widgets/Input/SSlider.h"
+#include "Widgets/Input/SComboButton.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
@@ -90,6 +93,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeHeader(const FText& Category)
 TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRowBinding& Binding)
 {
 	TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
+	if (!Tunable.Help.IsEmpty()) { Row->SetToolTipText(Tunable.Help); }
 	if (Binding.IsEnabled)
 	{
 		Row->SetEnabled(TAttribute<bool>::CreateLambda([IsEnabled = Binding.IsEnabled] { return IsEnabled(); }));
@@ -113,7 +117,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 
 	Row->AddSlot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(0.0f, 0.0f, 8.0f, 0.0f)
 	[
-		SNew(STextBlock).Text(Tunable.Label)
+		SNew(STextBlock).Text(Tunable.Label).AutoWrapText(true)
 	];
 
 	const TFunction<float()> Get = Binding.Get;
@@ -137,16 +141,27 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 		break;
 
 	case ECXMRTunableKind::Float:
+	{
+		const float Min = Tunable.Min;
+		const float Span = FMath::Max(KINDA_SMALL_NUMBER, Tunable.Max - Min);
+		Row->AddSlot().FillWidth(0.7f).VAlign(VAlign_Center).Padding(0.f, 0.f, 10.f, 0.f)
+		[
+			SNew(SSlider).StepSize(Tunable.Delta / Span)
+			.Value_Lambda([Get, Min, Span] { return Get ? FMath::Clamp((Get() - Min) / Span, 0.f, 1.f) : 0.f; })
+			.OnValueChanged_Lambda([Apply, Min, Span](float Value) { if (Apply) { Apply(Min + Value * Span, false); } })
+			.OnMouseCaptureEnd_Lambda([Get, Apply] { if (Get && Apply) { Apply(Get(), true); } })
+			.OnControllerCaptureEnd_Lambda([Get, Apply] { if (Get && Apply) { Apply(Get(), true); } })
+		];
 		Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
 		[
-			SNew(SBox).WidthOverride(150.0f)
+			SNew(SBox).WidthOverride(95.0f)
 			[
 				SNew(SSpinBox<float>)
 				.MinValue(Tunable.Min).MaxValue(Tunable.Max)
 				.MinSliderValue(Tunable.Min).MaxSliderValue(Tunable.Max)
 				.Delta(Tunable.Delta)
 				.Value_Lambda([Get] { return Get ? Get() : 0.0f; })
-				// Applied live while dragging, committed once the drag or the typed edit ends.
+				// 조작 중에는 바로 적용하고 조작이 끝나면 저장함.
 				.OnValueChanged_Lambda([Apply](float Value) { if (Apply) { Apply(Value, false); } })
 				.OnValueCommitted_Lambda([Apply](float Value, ETextCommit::Type) { if (Apply) { Apply(Value, true); } })
 				.OnEndSliderMovement_Lambda([Apply](float Value) { if (Apply) { Apply(Value, true); } })
@@ -157,6 +172,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 			SNew(SBox).WidthOverride(52.0f) [ SNew(STextBlock).Text(Tunable.Unit) ]
 		];
 		break;
+	}
 
 	case ECXMRTunableKind::Choice:
 	{
@@ -165,20 +181,21 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 		[
 			SNew(SBox).WidthOverride(150.0f)
 			[
-				SNew(SButton)
-				.HAlign(HAlign_Center)
-				.Text_Lambda([Get, Options]
+				SNew(SComboButton)
+				.ButtonContent()
+				[ SNew(STextBlock).Text_Lambda([Get, Options] { const int32 Index = Get ? FMath::RoundToInt(Get()) : 0; return Options.IsValidIndex(Index) ? Options[Index] : FText::GetEmpty(); }) ]
+				.OnGetMenuContent_Lambda([Apply, Options]
 				{
-					const int32 Index = Get ? FMath::RoundToInt(Get()) : 0;
-					return Options.IsValidIndex(Index) ? Options[Index] : FText::GetEmpty();
-				})
-				.OnClicked_Lambda([Get, Apply, Count = Options.Num()]
-				{
-					if (Get && Apply && Count > 0)
+					TSharedRef<SVerticalBox> Choices = SNew(SVerticalBox);
+					for (int32 Index = 0; Index < Options.Num(); ++Index)
 					{
-						Apply(static_cast<float>((FMath::RoundToInt(Get()) + 1) % Count), true);
+						Choices->AddSlot().AutoHeight()
+						[
+							SNew(SButton).Text(Options[Index]).ContentPadding(FMargin(12.f, 8.f))
+							.OnClicked_Lambda([Apply, Index] { if (Apply) { Apply(static_cast<float>(Index), true); } FSlateApplication::Get().DismissAllMenus(); return FReply::Handled(); })
+						];
 					}
-					return FReply::Handled();
+					return StaticCastSharedRef<SWidget>(Choices);
 				})
 			]
 		];
@@ -187,14 +204,15 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 
 	case ECXMRTunableKind::Stepper:
 	{
-		// A stepper that also says what it is stepping through ("Vehicle  Sedan 2 / 3  [-] [+]").
+		// 현재 항목과 순번을 함께 표시함.
 		if (Tunable.Text && Binding.Text)
 		{
-			Row->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 8.0f, 0.0f)
+			Row->AddSlot().FillWidth(1.f).VAlign(VAlign_Center).Padding(0.0f, 0.0f, 8.0f, 0.0f)
 			[
 				SNew(STextBlock)
 				.ColorAndOpacity(ReadoutColor())
-				.Text_Lambda([Text = Binding.Text] { return Text(); })
+					.Text_Lambda([Text = Binding.Text] { return Text(); })
+					.AutoWrapText(true)
 			];
 		}
 		const TFunction<void(float)> Step = Binding.Step;
@@ -218,9 +236,10 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 	}
 
 	case ECXMRTunableKind::Readout:
-		Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
+		Row->AddSlot().FillWidth(1.5f).VAlign(VAlign_Center)
 		[
 			SNew(STextBlock)
+			.AutoWrapText(true)
 			.ColorAndOpacity(ReadoutColor())
 			.Text_Lambda([Text = Binding.Text] { return Text ? Text() : FText::GetEmpty(); })
 		];
@@ -247,7 +266,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRowList(const TArray<FRowSpec>& Rows)
 {
 	TSharedRef<SVerticalBox> List = SNew(SVerticalBox);
 
-	// Features register as their actors begin play, so rows of one category can arrive between rows of another.
+	// 등록 순서와 관계없이 같은 분류끼리 모음.
 	TArray<FString> Categories;
 	for (const FRowSpec& Row : Rows)
 	{
@@ -261,7 +280,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRowList(const TArray<FRowSpec>& Rows)
 		{
 			if (Row.Tunable.Category.ToString() == Category)
 			{
-				List->AddSlot().AutoHeight().Padding(10.0f, 2.0f)[ MakeRow(Row.Tunable, Row.Binding) ];
+				List->AddSlot().AutoHeight().Padding(10.0f, 7.0f)[ MakeRow(Row.Tunable, Row.Binding) ];
 			}
 		}
 	}

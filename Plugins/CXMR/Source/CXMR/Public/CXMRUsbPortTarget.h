@@ -1,39 +1,27 @@
 // Copyright GMTCK CX.
-//
-// ACXMRUsbPortTarget — marks one USB opening in the vehicle CAD and shows the wearer bringing a plug to it.
-//
-// The CAD carries a port as an opening only: nothing in it says whether a plug goes in. Place one of these on
-// each opening, arrow pointing out of the port toward the person, and it answers the question the demo asks —
-// could the wearer bring the plug to this port, straight, from where they sit.
-//
-// An opening in a real console rarely faces straight down an axis, so the port does not have to either. With a mesh of
-// your own in IndicatorMesh, turning it with IndicatorOffset until it sits in the opening turns the PORT with it
-// (bAxisFromMesh): the axis the plug is judged against, the guide beam and the editor arrow all follow the mesh. A mesh
-// whose own X is not the way in — a CAD export keeps whatever orientation the part had — is answered by AxisTurn, which
-// aims the port without moving the mesh. Whichever you use, the editor arrow shows the axis that actually judges, so
-// aim it out of the opening and what the wearer sees and what turns green are the same thing.
-// The port CENTRE is always this actor's location.
-//
-// The plug comes from the pawn's plug tip component (UCXMRPlugTipComponent::GetPlugTip): the tracked thumb and index
-// tips plus its PlugOffset. Nothing of the hand or the plug is drawn, so over a virtual console the wearer sees
-// neither — this marker is what tells them they are lined up.
-//
-// An opening is a centimetre across — too small to read in a headset — so the port says more than its size:
-//   Idle      the marker only (a four-bar frame, or IndicatorMesh), dim; or nothing, with bShowWhenIdle off
-//   Approach  the plug is within ApproachDistance and this is the nearest port: a guide beam stands out of the
-//             opening along the insertion axis, and marker and beam pulse in ApproachColor
-//   Aligned   within EnterDistance and MaxAngle: AlignedColor at full glow, a pop, and AlignedSound
-// Colours are self-lit (BarMaterial is unlit) so they read against the camera image. Only the port nearest the plug
-// reacts, so a 2x2 block of openings does not light up as one.
-//
-// What is judged is NOT the marker mesh: it is a ball of EnterDistance around this actor's location, plus MaxAngle off
-// the port axis. The mesh can sit anywhere, so CXMR.Port.Debug 1 draws the ball, the angle cone and the line to the
-// plug tip — the tuning window's "USB port" rows turn it on and move the four numbers, for every port at once, and
-// keep them per PC. A row there also reads out how far and how skew the plug is right now, which is what to watch when
-// a port will not turn green.
-//
-// Hand tracking is not millimetre-accurate, so the defaults are loose on purpose. Green means "lined up at this
-// port", not "fully inserted": the CAD has no receptacle and nothing here measures insertion.
+
+// 차량 USB의 접근·근접·정렬 상태 표시함.
+
+// 포트 중심에 배치하고 화살표는 바깥으로 향하게 함.
+
+// IndicatorOffset과 AxisTurn으로 실제 포트 방향에 맞춤.
+
+// 포트 중심은 액터 위치임.
+
+// 손 관절로 추정한 플러그 끝 사용함.
+
+// 포트 크기의 테두리와 위치 기반 소리로 반응함.
+
+// Idle은 대기. bShowWhenIdle이 꺼져 있으면 숨김.
+// Approach는 가까워질수록 테두리가 밝아짐.
+// Near는 방향과 관계없이 가까워지면 반응함.
+// Aligned는 거리·각도를 일정 시간 유지하면 반응함.
+// 안내 빔과 확대 효과는 기본값에서 꺼둠.
+// 가장 가까운 포트만 반응함. Unlit으로 카메라 배경에서도 보이게 함.
+
+// 거리와 각도 판정 기준은 포트 액터임. 디버그 표시로 범위 확인함.
+
+// 손 추적 정확도에 맞춰 여유를 둠. 정렬 반응은 삽입 확인이 아님.
 
 #pragma once
 
@@ -49,15 +37,18 @@ class UMaterialInterface;
 class USoundBase;
 class UStaticMesh;
 class UStaticMeshComponent;
+class USoundAttenuation;
 
 UENUM(BlueprintType)
 enum class ECXMRPortState : uint8
 {
 	Idle,
-	/** The plug is near and this is the nearest port. */
-	Approach,
-	/** The plug is lined up with this port. */
-	Aligned,
+	/*~ 가장 가까운 포트가 반응할 거리 안에 있음. */
+	Approach UMETA(ToolTip="The plug is near and this is the nearest port."),
+	/*~ 포트의 거리와 방향에 맞음. */
+	Aligned UMETA(ToolTip="The plug is lined up with this port."),
+	/*~ 방향과 관계없이 근접 반응함. 기존 enum 순번 유지함. */
+	Near UMETA(ToolTip="Near feedback regardless of plug orientation."),
 };
 
 UCLASS(DisplayName = "CXMR USB Port Target")
@@ -71,34 +62,26 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void OnConstruction(const FTransform& Transform) override;
 
-	/** Name used in the log, e.g. "USB-C left". Empty = the actor label. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") FString Label;
+	/** 로그용 이름. 비우면 액터 이름 사용함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta=(ToolTip="Name used in the log, e.g. \"USB-C left\". Empty = the actor label.")) FString Label;
 
-	/**
-	 * Plug tip within this distance of the port centre, and within MaxAngle, lines the port up. cm.
-	 * Measured from THIS ACTOR's location, never from the marker mesh. The tuning window overrides it for every port.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ClampMin = "0.1"))
+	/** 정렬 진입 거리(cm). 메시가 아니라 액터 위치 기준. 전역 설정으로 덮어쓸 수 있음. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ToolTip="Plug tip within this distance of the port centre, and within MaxAngle, lines the port up. cm. Measured from THIS ACTOR's location, never from the marker mesh. The tuning window overrides it for every port.", ClampMin = "0.1"))
 	float EnterDistance = 1.5f;
 
-	/** Stays lined up until the tip is farther than this. A single threshold flickers at the edge. cm. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ClampMin = "0.1"))
+	/** 정렬 해제 거리(cm). 진입 거리보다 크게 둠. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ToolTip="Stays lined up until the tip is farther than this. A single threshold flickers at the edge. cm.", ClampMin = "0.1"))
 	float ExitDistance = 3.0f;
 
-	/** Largest angle between the plug and the port axis that still counts as straight. Degrees. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ClampMin = "1.0", ClampMax = "80.0"))
+	/** 허용 방향 오차(deg). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ToolTip="Largest angle between the plug and the port axis that still counts as straight. Degrees.", ClampMin = "1.0", ClampMax = "80.0"))
 	float MaxAngle = 25.0f;
 
-	/**
-	 * Turns the port itself — the insertion axis, the guide beam, the frame and the editor arrow — leaving IndicatorMesh
-	 * exactly where IndicatorOffset put it. This is for a marker mesh whose own X is not the way into the port: turn it
-	 * until the arrow points out of the opening, toward the person. Applied inside the mesh's own turn, so it belongs to
-	 * the mesh and keeps holding wherever the port is moved or turned afterwards.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") FRotator AxisTurn = FRotator::ZeroRotator;
+	/** 메시는 유지하고 포트 축만 로컬 기준으로 돌림. 화살표를 포트 밖으로 맞춤. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta=(ToolTip="Adjust the insertion axis in mesh space without moving the indicator mesh.")) FRotator AxisTurn = FRotator::ZeroRotator;
 
-	/** Inner size of the frame around the opening, cm: X across the port (actor Y), Y up the port (actor Z). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") FVector2D FrameSize = FVector2D(1.4f, 0.9f);
+	/** 포트 테두리 안쪽 크기(cm). X는 액터 Y, Y는 액터 Z. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta=(ToolTip="Inner size of the frame around the opening, cm: X across the port (actor Y), Y up the port (actor Z).")) FVector2D FrameSize = FVector2D(1.4f, 0.9f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ClampMin = "0.05"))
 	float FrameThickness = 0.15f;
@@ -107,182 +90,182 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") FLinearColor ApproachColor = FLinearColor(1.00f, 0.72f, 0.05f, 1.0f);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") FLinearColor AlignedColor  = FLinearColor(0.10f, 0.95f, 0.25f, 1.0f);
 
-	/** Off = the marker appears only while the plug approaches or lines up, leaving the CAD untouched the rest of the time. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port") bool bShowWhenIdle = true;
+	/** 끄면 접근이나 정렬 중에만 표시함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta=(ToolTip="Off = the marker appears only while the plug approaches or lines up, leaving the CAD untouched the rest of the time.")) bool bShowWhenIdle = true;
 
-	// --- Approach ---
+	// 접근
 
-	/** The nearest port starts guiding once the plug tip is this close, cm. 0 = no approach stage. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ClampMin = "0.0"))
+	/** 접근 반응 시작 거리(cm). 0이면 접근 단계 생략함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ToolTip="The nearest port starts guiding once the plug tip is this close, cm. 0 = no approach stage.", ClampMin = "0.0"))
 	float ApproachDistance = 12.0f;
 
-	/** A beam standing out of the opening along the insertion axis while the plug approaches (and while lined up). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach") bool bShowGuide = true;
+	/** 방향과 관계없이 근접 반응할 거리(cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ToolTip="Distance for near feedback regardless of orientation, in cm.", ClampMin = "0.1")) float NearDistance = 4.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach") FLinearColor NearColor = FLinearColor(0.05f, 0.8f, 1.f, 1.f);
+	/** 가까이 왔다는 안내음. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta=(ToolTip="Sound played when the plug comes near. Does not confirm contact.")) TObjectPtr<USoundBase> NearSound;
+	/** 표면 앞에 표시를 띄울 거리(cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ToolTip="Distance to push feedback out from the surface, in cm.", ClampMin = "0.0")) float FeedbackPushOut = 0.05f;
 
-	/** cm of beam, starting GuideGap out from the opening. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ClampMin = "1.0"))
+	/** 손 추적이 잠깐 끊겼을 때 유지할 시간(초). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ToolTip="Seconds to keep feedback during a brief tracking loss.", ClampMin = "0.0")) float TrackingGraceSeconds = 0.15f;
+	/** 정렬 조건을 유지해야 할 시간(초). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port", meta = (ToolTip="Seconds the alignment conditions must hold before confirmation.", ClampMin = "0.0")) float AlignmentDwellSeconds = 0.15f;
+
+	/** 접근과 정렬 중 삽입 축에 안내 빔 표시함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta=(ToolTip="A beam standing out of the opening along the insertion axis while the plug approaches (and while lined up).")) bool bShowGuide = false;
+
+	/** GuideGap부터 시작할 빔 길이(cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ToolTip="cm of beam, starting GuideGap out from the opening.", ClampMin = "1.0"))
 	float GuideLength = 15.0f;
 
-	/** cm left clear in front of the opening, so the beam never covers the marker or the plug's last stretch. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ClampMin = "0.0"))
+	/** 포트 앞에 비울 거리(cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ToolTip="cm left clear in front of the opening, so the beam never covers the marker or the plug's last stretch.", ClampMin = "0.0"))
 	float GuideGap = 3.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ClampMin = "0.05"))
 	float GuideDiameter = 0.35f;
 
-	/** Pulses per second while approaching. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ClampMin = "0.1"))
+	/** 접근 중 초당 밝기 변화 횟수. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Approach", meta = (ToolTip="Pulses per second while approaching.", ClampMin = "0.1"))
 	float PulseRate = 2.5f;
 
-	// --- Aligned ---
+	// 정렬
 
-	/** Brightness of the self-lit colours when lined up; approaching pulses up to it. Needs BarMaterial's "Glow". */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Aligned", meta = (ClampMin = "0.1"))
+	/** 정렬 상태의 밝기. 재질의 Glow 파라미터 필요함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Aligned", meta = (ToolTip="Brightness of the self-lit colours when lined up; approaching pulses up to it. Needs BarMaterial's \"Glow\".", ClampMin = "0.1"))
 	float GlowStrength = 3.0f;
 
-	/** How far the marker swells for a moment on lining up. 1 = no pop. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Aligned", meta = (ClampMin = "1.0", ClampMax = "4.0"))
-	float PopScale = 1.6f;
+	/** 정렬 순간 확대 배율. 1이면 확대하지 않음. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Aligned", meta = (ToolTip="How far the marker swells for a moment on lining up. 1 = no pop.", ClampMin = "1.0", ClampMax = "4.0"))
+	float PopScale = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Aligned", meta = (ClampMin = "0.05"))
 	float PopSeconds = 0.35f;
 
-	/** Played once on lining up, through the PC's audio. Empty = silent. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Aligned") TObjectPtr<USoundBase> AlignedSound;
+	/** 포트 위치에서 정렬 안내음 한 번 재생함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Aligned", meta=(ToolTip="Alignment sound played once at the port. Does not confirm insertion.")) TObjectPtr<USoundBase> AlignedSound;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Aligned", meta = (ClampMin = "0.0"))
 	float SoundVolume = 1.0f;
 
-	// --- Custom Mesh ---
+	// 표시 메시
 
-	/**
-	 * A mesh of your own for the marker, shown instead of the four-bar frame — one piece, any shape. Empty = the frame.
-	 * The port centre is this actor's location whatever the mesh does; which way it faces can come from the mesh, see
-	 * bAxisFromMesh.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") TObjectPtr<UStaticMesh> IndicatorMesh;
+	/** 포트 표시용 메시. 비우면 테두리만 사용함. 중심은 액터 위치 유지함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh", meta=(ToolTip="Optional port indicator mesh. The actor location remains the port centre.")) TObjectPtr<UStaticMesh> IndicatorMesh;
+	/** 원래 USB 형상과 재질 유지하고 테두리만 반응함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh", meta=(ToolTip="Preserve the USB geometry and materials; show state through the outer frame.")) bool bKeepMeshMaterialsWhenActive = true;
 
-	/**
-	 * Where IndicatorMesh sits relative to this actor (X out of the port). A mesh exported from CAD often has its
-	 * origin far from the part — move it back onto the opening here. Its TURN steers the whole port while
-	 * bAxisFromMesh is on, so an opening at an angle is fitted by turning the mesh into it and nothing else.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") FTransform IndicatorOffset = FTransform::Identity;
+	/** 메시의 위치와 방향 조정함. bAxisFromMesh가 켜져 있으면 회전이 포트 축에도 반영됨. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh", meta=(ToolTip="Indicator transform relative to the actor. Its rotation also steers the axis when bAxisFromMesh is enabled.")) FTransform IndicatorOffset = FTransform::Identity;
 
-	/**
-	 * On = the port faces the way the mesh is turned — this actor's turn, then IndicatorOffset's, then AxisTurn. Turn the
-	 * mesh into a slanted opening and the insertion axis, the guide beam and the editor arrow come with it, so the plug
-	 * is judged against the opening the wearer sees rather than the actor's own X.
-	 * Off = IndicatorOffset's turn is left out and only AxisTurn aims the port (what it did before 2026-09-20).
-	 * Only turns are taken, never the offset's location: the port centre stays this actor's location. So keep the mesh
-	 * pivot on the opening — with the pivot far away, turning the mesh swings the part off the centre that judges.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") bool bAxisFromMesh = true;
+	/** 메시 회전을 삽입 축에 반영함. 위치는 반영하지 않으므로 피벗을 포트 중심에 맞춰야 함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh", meta=(ToolTip="Include the mesh rotation in the insertion axis. Keep the mesh pivot at the port centre.")) bool bAxisFromMesh = true;
 
-	/** On = the mesh keeps its own materials while idle. Off = it shows IdleColor like the frame. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh") bool bKeepMeshMaterialsWhenIdle = true;
+	/** 대기 중 원래 메시 재질 유지함. 끄면 IdleColor 사용함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Custom Mesh", meta=(ToolTip="On = the mesh keeps its own materials while idle. Off = it shows IdleColor like the frame.")) bool bKeepMeshMaterialsWhenIdle = true;
 
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") ECXMRPortState GetPortState() const { return State; }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") bool IsAligned() const { return State == ECXMRPortState::Aligned; }
 
-	/** The way out of the port in world space — the axis the plug is judged against. Follows the mesh, see bAxisFromMesh. */
-	UFUNCTION(BlueprintPure, Category = "CXMR|Port") FVector GetPortAxis() const;
+	/** 월드 기준 포트 바깥 방향 반환함. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port", meta=(ToolTip="The way out of the port in world space — the axis the plug is judged against. Follows the mesh, see bAxisFromMesh.")) FVector GetPortAxis() const;
 
-	// The four numbers as they are actually judged: the tuning window's value if an operator has moved it, this
-	// actor's own otherwise. Everything — the test, the debug draw, the readout — goes through these.
+	// 판정·디버그·상태 표시 모두 같은 설정값 사용함. 전역 값이 없으면 액터 기본값 사용함.
+
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetEnterDistance() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetExitDistance() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetMaxAngle() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetApproachDistance() const;
 
-	/** Last frame's gap from the plug tip to the port centre, cm; negative while the plug hand is not tracked. */
-	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetPlugDistance() const { return LastDistance; }
+	/** 포트와 추정 끝 거리(cm). 추적 유예가 지나면 음수. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port", meta=(ToolTip="Estimated tip-to-port distance in cm. Uses the last pose during tracking grace; negative afterwards.")) float GetPlugDistance() const { return LastDistance; }
 
-	/** Last frame's angle between the plug and the port axis, degrees; negative while the plug hand is not tracked. */
-	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetPlugAngle() const { return LastAngleDeg; }
+	/** 삽입 축과 추정 방향 각도(deg). 추적 유예가 지나면 음수. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port", meta=(ToolTip="Estimated plug angle to the insertion axis in degrees. Negative after tracking grace.")) float GetPlugAngle() const { return LastAngleDeg; }
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetApproachAmount() const { return ApproachAmount; }
 
-	/** Applies the frame, guide, IndicatorMesh and colours again after changing them during play. */
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Port") void RefreshMarker();
+	/** 실행 중 바뀐 메시·테두리·색상 다시 적용함. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Port", meta=(ToolTip="Applies the frame, guide, IndicatorMesh and colours again after changing them during play.")) void RefreshMarker();
 
-	// --- Assets ---
+	// 애셋
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Assets") TObjectPtr<UStaticMesh> BarMesh;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Assets") TObjectPtr<UStaticMesh> GuideMesh;
 
-	/**
-	 * Paints the frame, the guide and (when not idle) IndicatorMesh. Needs a vector parameter "Color"; a scalar "Glow"
-	 * makes it brighten. Default /CXMR/Core/Materials/M_CXMRUnlitColor is self-lit; the engine's BasicShapeMaterial
-	 * works too, lit and without glow.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Assets") TObjectPtr<UMaterialInterface> BarMaterial;
+	/** 테두리와 빔 재질. Color는 필수, Glow는 선택. 기본값은 Unlit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Assets", meta=(ToolTip="Frame and guide material. Requires Color; Glow is optional. Defaults to unlit.")) TObjectPtr<UMaterialInterface> BarMaterial;
 
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
 private:
-	/**
-	 * How far the port is turned from this actor: IndicatorOffset's turn (with bAxisFromMesh and a mesh set) and then
-	 * AxisTurn. The marker is laid out in it and the plug is judged in it, so the two can never disagree.
-	 */
+	/** 메시 회전과 AxisTurn을 합친 포트 방향. */
 	FQuat GetPortTurn() const;
 
-	/** Places the bars, IndicatorMesh and the guide, all turned by GetPortTurn. Swell scales the marker about the port centre, for the pop. */
+	/** 포트 기준으로 표시 배치함. 확대는 포트 중심 기준. */
 	void LayoutFrame(float Swell = 1.0f);
 
-	/** Colour, visibility and materials for the current state. */
+	/** 현재 상태의 색상·가시성·재질 적용함. */
 	void ApplyState();
 	void SetState(ECXMRPortState NewState);
 
-	/** Pulse and pop, every frame. */
+	/** 매 프레임 밝기와 확대 반응 갱신함. */
 	void Animate(float DeltaSeconds);
+	void PlayFeedbackSound(USoundBase* Sound, float Volume, float Pitch);
 
-	/** True when no other port is nearer the tip; a port already reacting keeps a small lead. */
+	/** 가장 가까운 포트인지 확인함. 반응 중이면 작은 우선권을 둠. */
 	bool IsNearestPort(const FVector& Tip, float Distance) const;
 
 	UCXMRPlugTipComponent* FindPlugTip();
 
-	/** The ball, the angle cone and the line to the plug tip, while CXMR.Port.Debug is on. */
+	/** 디버그가 켜져 있으면 거리·각도·연결선 표시함. */
 	void DrawDebug(const FVector& Tip, bool bHavePlug) const;
 
-	/**
-	 * Adds the "USB port" rows to the tuning window. Every port asks, the first one gets them, and its rows reach all
-	 * ports because the values live in console variables. A port giving them up hands them to another live port.
-	 */
+	/** 포트 설정 등록함. 처음 포트가 소유하고 없어지면 다른 포트에 넘김. */
 	void RegisterTunables();
 	UCXMRTuningSubsystem* GetTuning() const;
 
-	/** One line for the readout row: how far and how skew the plug is from whichever port it is nearest. */
+	/** 가장 가까운 포트의 거리와 각도 표시함. */
 	FText DescribeNearest() const;
 
 	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<USceneComponent> PortRoot;
 
-	/** Editor only. Must point out of the port, toward the person reaching for it. */
-	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UArrowComponent> OutOfPort;
+	/** 에디터 화살표. 포트 바깥을 향해야 함. */
+	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (ToolTip="Editor only. Must point out of the port, toward the person reaching for it.", AllowPrivateAccess = "true")) TObjectPtr<UArrowComponent> OutOfPort;
 
 	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> BarTop;
 	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> BarBottom;
 	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> BarLeft;
 	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> BarRight;
 
-	/** Shows IndicatorMesh. Hidden while it is empty. */
-	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> Indicator;
+	/** IndicatorMesh 표시함. 비어 있으면 숨김. */
+	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (ToolTip="Shows IndicatorMesh. Hidden while it is empty.", AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> Indicator;
 
-	/** The approach beam along the insertion axis. */
-	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> GuideBeam;
+	/** 삽입 축 방향 안내 빔. */
+	UPROPERTY(VisibleAnywhere, Category = "CXMR|Port", meta = (ToolTip="The approach beam along the insertion axis.", AllowPrivateAccess = "true")) TObjectPtr<UStaticMeshComponent> GuideBeam;
 
 	UPROPERTY(Transient) TObjectPtr<UMaterialInstanceDynamic> FrameMaterial;
+	UPROPERTY(Transient) TObjectPtr<USoundAttenuation> FeedbackAttenuation;
 
 	TWeakObjectPtr<UCXMRPlugTipComponent> PlugTip;
 	ECXMRPortState State = ECXMRPortState::Idle;
 
-	/** Seconds into the approach pulse. */
+	/** 접근 반응 진행 시간(초). */
 	float PulseTime = 0.0f;
 
-	/** Seconds into the pop; negative while not popping. */
+	/** 확대 반응 진행 시간(초). 반응 전에는 음수. */
 	float PopElapsed = -1.0f;
 
-	/** Last frame's plug tip measurements, kept for the debug draw and the readout. Negative = no plug this frame. */
+	/** 디버그와 상태 표시용 마지막 측정값. 플러그가 없으면 음수. */
 	float LastDistance = -1.0f;
 	float LastAngleDeg = -1.0f;
+	float ApproachAmount = 0.f;
+	FVector LastTrackedTip = FVector::ZeroVector;
+	FVector LastTrackedDirection = FVector::ForwardVector;
+	bool bHaveTrackedPose = false;
+	bool bNearSoundArmed = true;
+	float TrackingLostSeconds = 0.f;
+	float AlignmentElapsed = 0.f;
 };

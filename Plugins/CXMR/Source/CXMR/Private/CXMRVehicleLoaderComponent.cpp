@@ -51,7 +51,7 @@ void UCXMRVehicleLoaderComponent::HandleViewerAction(ECXMRViewerAction Action)
 	case ECXMRViewerAction::NextTrim:        NextTrim();        break;
 	case ECXMRViewerAction::PreviousTrim:    PreviousTrim();    break;
 	case ECXMRViewerAction::NextCMF:         NextCMF();         break;
-	default: break;   // rotation belongs to the turntable
+	default: break;   // 회전은 턴테이블에서 처리함.
 	}
 }
 
@@ -71,24 +71,22 @@ USceneComponent* UCXMRVehicleLoaderComponent::ResolveAttachTarget()
 	{
 		return AttachTarget;
 	}
-	// On ACXMRVehicleRoot the root component IS VehicleAnchor, the transform calibration writes to.
+	// VehicleRoot의 루트가 보정 기준 앵커임.
 	return GetOwner() ? GetOwner()->GetRootComponent() : nullptr;
 }
 
 void UCXMRVehicleLoaderComponent::LoadVehicle(UCXMRVehicleProfile* NewProfile)
 {
-	UnloadVehicle();
-
-	Profile = NewProfile;
-	if (!Profile)
+	if (!NewProfile)
 	{
+		UE_LOG(LogCXMRVehicle, Warning, TEXT("Cannot replace vehicle: no profile supplied."));
 		return;
 	}
 
-	UClass* VehicleClass = Profile->VehicleActor.LoadSynchronous();
+	UClass* VehicleClass = NewProfile->VehicleActor.LoadSynchronous();
 	if (!VehicleClass)
 	{
-		UE_LOG(LogCXMRVehicle, Warning, TEXT("Vehicle profile '%s' has no VehicleActor set."), *Profile->GetName());
+		UE_LOG(LogCXMRVehicle, Warning, TEXT("Vehicle profile '%s' has no loadable VehicleActor. Keeping current vehicle."), *NewProfile->GetName());
 		return;
 	}
 
@@ -96,6 +94,7 @@ void UCXMRVehicleLoaderComponent::LoadVehicle(UCXMRVehicleProfile* NewProfile)
 	UWorld* World = GetWorld();
 	if (!Target || !World)
 	{
+		UE_LOG(LogCXMRVehicle, Warning, TEXT("Cannot load vehicle '%s': missing world or attach target."), *NewProfile->GetName());
 		return;
 	}
 
@@ -103,16 +102,27 @@ void UCXMRVehicleLoaderComponent::LoadVehicle(UCXMRVehicleProfile* NewProfile)
 	Params.Owner = GetOwner();
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	SpawnedVehicle = World->SpawnActor<AActor>(VehicleClass, Target->GetComponentTransform(), Params);
-	if (!SpawnedVehicle)
+	AActor* Candidate = World->SpawnActor<AActor>(VehicleClass, Target->GetComponentTransform(), Params);
+	if (!IsValid(Candidate))
 	{
+		UE_LOG(LogCXMRVehicle, Warning, TEXT("Cannot spawn vehicle '%s'. Keeping current vehicle."), *NewProfile->GetName());
 		return;
 	}
 
-	// Attached to the anchor, then offset locally — the anchor's own transform stays exactly as
-	// calibration left it, which is what makes swapping free of recalibration.
-	SpawnedVehicle->AttachToComponent(Target, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-	SpawnedVehicle->SetActorRelativeTransform(Profile->VehicleRootOffset);
+	// 차량은 앵커 아래에 붙이고 로컬 오프셋만 적용함.
+
+	if (!Candidate->AttachToComponent(Target, FAttachmentTransformRules::SnapToTargetNotIncludingScale))
+	{
+		Candidate->Destroy();
+		UE_LOG(LogCXMRVehicle, Warning, TEXT("Cannot attach vehicle '%s'. Keeping current vehicle."), *NewProfile->GetName());
+		return;
+	}
+	Candidate->SetActorRelativeTransform(NewProfile->VehicleRootOffset);
+
+	// 새 차량 준비 후 기존 차량과 선택 상태 교체함.
+	UnloadVehicle();
+	SpawnedVehicle = Candidate;
+	Profile = NewProfile;
 
 	SyncMarkerProfile();
 	SyncVehicleIndex();
@@ -122,8 +132,8 @@ void UCXMRVehicleLoaderComponent::LoadVehicle(UCXMRVehicleProfile* NewProfile)
 	ApplyTrim();
 	ApplyCMF();
 
-	// The ergonomics profile swaps with the car. Without this the index can point past the end of a
-	// shorter profile and every seating getter fails silently — the panel row just goes blank.
+	// 차량 교체 시 착좌 프로필과 순번도 갱신함.
+
 	if (AActor* Owner = GetOwner())
 	{
 		if (UCXMRErgonomicsComponent* Ergonomics = Owner->FindComponentByClass<UCXMRErgonomicsComponent>())
@@ -148,14 +158,14 @@ void UCXMRVehicleLoaderComponent::UnloadVehicle()
 
 void UCXMRVehicleLoaderComponent::SyncMarkerProfile()
 {
-	// The vehicle carries its own calibration config, so switching vehicle switches marker IDs with it.
+	// 차량의 마커 프로필로 전환함.
 	if (AActor* Owner = GetOwner())
 	{
 		if (UCXMRPlacementComponent* Placement = Owner->FindComponentByClass<UCXMRPlacementComponent>())
 		{
-			// Through the setter, not a plain write: it restores the outgoing profile and brings the
-			// incoming one's saved field calibration with it.
-			Placement->SetMarkerProfile(Profile->MarkerProfile.LoadSynchronous());
+			// Setter로 이전 원본 복원과 새 보정 파일 적용을 함께 처리함.
+
+			Placement->SetMarkerProfile(Profile->MarkerProfile.LoadSynchronous(), true);
 		}
 	}
 }
@@ -167,7 +177,7 @@ void UCXMRVehicleLoaderComponent::SyncVehicleIndex()
 		return;
 	}
 
-	// Compare by path so an unloaded catalog entry still matches the loaded profile.
+	// 로드 전 카탈로그 항목도 찾을 수 있게 경로로 비교함.
 	const FSoftObjectPath Wanted(Profile);
 	const int32 Found = Catalog->Vehicles.IndexOfByPredicate(
 		[&Wanted](const TSoftObjectPtr<UCXMRVehicleProfile>& Entry) { return Entry.ToSoftObjectPath() == Wanted; });
@@ -238,9 +248,9 @@ void UCXMRVehicleLoaderComponent::ReportStatus()
 		TrimName, TrimIndex, TrimCount, CMFIndex);
 }
 
-// ---------- Cycling ----------
-//
-// Wrapping is what makes a stick flick usable: the list has no ends to get stuck against.
+// 차량·트림 순환
+
+// 목록 끝에서는 처음 항목으로 돌아감.
 
 void UCXMRVehicleLoaderComponent::CycleVehicle(int32 Step)
 {
@@ -250,11 +260,15 @@ void UCXMRVehicleLoaderComponent::CycleVehicle(int32 Step)
 	}
 
 	const int32 Count = Catalog->Vehicles.Num();
-	VehicleIndex = ((VehicleIndex + Step) % Count + Count) % Count;   // negative-safe modulo
+	const int32 NextIndex = ((VehicleIndex + Step) % Count + Count) % Count;
 
-	if (UCXMRVehicleProfile* Next = Catalog->Vehicles[VehicleIndex].LoadSynchronous())
+	if (UCXMRVehicleProfile* Next = Catalog->Vehicles[NextIndex].LoadSynchronous())
 	{
 		LoadVehicle(Next);
+	}
+	else
+	{
+		UE_LOG(LogCXMRVehicle, Warning, TEXT("Cannot load vehicle catalog entry %d. Keeping current selection."), NextIndex);
 	}
 }
 
@@ -294,7 +308,7 @@ void UCXMRVehicleLoaderComponent::ApplyTrim()
 		return;
 	}
 
-	// Only tags some trim mentions are managed; anything untagged is shared geometry and stays visible.
+	// 트림에서 사용하는 태그만 관리함. 공용 형상은 유지함.
 	const TSet<FName> Managed = Profile->GetManagedPartTags();
 	const TArray<FName>& Visible = Profile->Trims[TrimIndex].VisibleParts;
 
@@ -329,7 +343,7 @@ void UCXMRVehicleLoaderComponent::ApplyTrim()
 
 void UCXMRVehicleLoaderComponent::ApplyCMF()
 {
-	// 새 옵션에 없는 재질은 원래대로 돌림. CMF가 없는 트림도 똑같이 처리함.
+	// 새 옵션에 없는 재질은 원래대로 복원함.
 	for (const FCXMRCMFOriginalMaterial& Original : OriginalMaterials)
 	{
 		if (UPrimitiveComponent* Component = Original.Component.Get())
@@ -361,7 +375,7 @@ void UCXMRVehicleLoaderComponent::ApplyCMF()
 
 		for (UPrimitiveComponent* Primitive : Primitives)
 		{
-			// A None tag means "the whole vehicle" — the common case for paint.
+			// 태그가 없으면 차량 전체에 적용함.
 			if (Override.PartTag.IsNone() || Primitive->ComponentTags.Contains(Override.PartTag))
 			{
 				if (Override.MaterialSlot < 0)

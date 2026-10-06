@@ -2,13 +2,21 @@
 
 #include "CXMRTuningWindowComponent.h"
 #include "CXMRPanelUI.h"
-#include "CXMRPanelSections.h"
+#include "SCXMRControlPanel.h"
+#include "CXMRControlPanelWidget.h"
+#include "CXMRPlacementComponent.h"
+#include "CXMRMarkerProfile.h"
+#include "CXMRVehicleLoaderComponent.h"
+#include "CXMRVehicleProfile.h"
 #include "CXMRMarkerDebugComponent.h"
 #include "CXMRSubsystem.h"
 #include "CXMRTuningSubsystem.h"
 #include "CXMRVarjoInputComponent.h"
 
 #include "Engine/GameInstance.h"
+#include "Engine/Engine.h"
+#include "IXRTrackingSystem.h"
+#include "TimerManager.h"
 #include "Engine/PostProcessVolume.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -18,9 +26,6 @@
 #include "Kismet/GameplayStatics.h"
 #include "Misc/App.h"
 #include "Widgets/SWindow.h"
-#include "Widgets/Text/STextBlock.h"
-#include "Widgets/Layout/SWidgetSwitcher.h"
-#include "Widgets/SBoxPanel.h"
 
 #define LOCTEXT_NAMESPACE "CXMRTuning"
 
@@ -44,7 +49,7 @@ namespace
 {
 	float AsValue(bool bOn) { return bOn ? 1.0f : 0.0f; }
 
-	/** The level-wide post-process volume the exposure row writes to. */
+	/** 노출 조정에 사용할 Unbound 볼륨 찾음. */
 	APostProcessVolume* FindUnboundVolume(UWorld* World)
 	{
 		if (World)
@@ -64,7 +69,8 @@ namespace
 UCXMRTuningWindowComponent::UCXMRTuningWindowComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
-	WindowTitle = LOCTEXT("WindowTitle", "CXMR Developer Panel");
+	WindowTitle = LOCTEXT("WindowTitle", "CXMR Control");
+	CalibrationMessage = LOCTEXT("CalibrationReady", "First setup: initial alignment, fine adjustment, confirm and save. Later sessions restore from markers.");
 }
 
 UCXMRTuningSubsystem* UCXMRTuningWindowComponent::GetTuning() const
@@ -77,14 +83,18 @@ UCXMRTuningSubsystem* UCXMRTuningWindowComponent::GetTuning() const
 void UCXMRTuningWindowComponent::BeginPlay()
 {
 	Super::BeginPlay();
-
-	RegisterCoreTunables();
+	if (UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
+	{
+		if (UCXMRSubsystem* CXMR = GI->GetSubsystem<UCXMRSubsystem>()) { CXMR->OnPlaceRequested.AddDynamic(this, &UCXMRTuningWindowComponent::HandleManualPlacementRequest); }
+	}
 
 	if (UCXMRTuningSubsystem* Tuning = GetTuning())
 	{
-		// Features keep registering as their actors begin play; an open window follows along.
+		// 기능 등록이 바뀌면 열린 창도 갱신함.
 		TunablesChangedHandle = Tuning->OnTunablesChanged.AddUObject(this, &UCXMRTuningWindowComponent::RebuildContent);
 	}
+	RegisterCoreTunables();
+	RebuildContent(); // 창이 먼저 열렸어도 등록한 설정 반영함.
 
 	if (bOpenOnBeginPlay)
 	{
@@ -94,8 +104,13 @@ void UCXMRTuningWindowComponent::BeginPlay()
 
 void UCXMRTuningWindowComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
-	// A Slate window is not garbage collected: without this it floats on the editor desktop after PIE stops.
+	// PIE 종료 시 Slate 창도 닫음.
+	CancelInitialAlignment();
 	CloseWindow();
+	if (UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
+	{
+		if (UCXMRSubsystem* CXMR = GI->GetSubsystem<UCXMRSubsystem>()) { CXMR->OnPlaceRequested.RemoveDynamic(this, &UCXMRTuningWindowComponent::HandleManualPlacementRequest); }
+	}
 
 	if (UCXMRTuningSubsystem* Tuning = GetTuning())
 	{
@@ -128,7 +143,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		return Tunable;
 	};
 
-	// ---- Mixed reality ----
+	// 실물 화면
 	const FText MR = LOCTEXT("CatMR", "Mixed reality");
 	{
 		FCXMRTunable T = Make("MR.MixedReality", MR, LOCTEXT("MixedReality", "Mixed reality (passthrough)"), ECXMRTunableKind::Bool);
@@ -163,7 +178,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 
-	// ---- Depth ----
+	// 깊이
 	const FText Depth = LOCTEXT("CatDepth", "Depth");
 	{
 		FCXMRTunable T = Make("Depth.Test", Depth, LOCTEXT("DepthTest", "Depth test (real in front of virtual)"), ECXMRTunableKind::Bool);
@@ -208,10 +223,10 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 
-	// ---- Display ----
+	// 화면
 	{
-		// Exposure goes through the level's unbound post-process volume rather than a console variable, so it also
-		// works in a packaged build.
+		// 패키징에서도 동작하도록 볼륨의 노출 값을 변경함.
+
 		FCXMRTunable T = Make("Display.Exposure", LOCTEXT("CatDisplay", "Display"), LOCTEXT("Exposure", "Exposure compensation"), ECXMRTunableKind::Float);
 		T.Unit = LOCTEXT("EV", "EV"); T.Min = -6.0f; T.Max = 6.0f; T.Delta = 0.1f; T.Default = 0.0f; T.bPersist = true;
 		T.Get = [this]
@@ -230,7 +245,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 
-	// 보정과 사용자 앞에 배치하는 기능은 개발자 패널에서 사용함.
+	// 배치 메뉴와 콘솔에서 같은 기능 사용함.
 	{
 		FCXMRTunable T = Make("Vehicle.PlaceInFront", LOCTEXT("CatPlacement", "Vehicle placement"), LOCTEXT("PlaceInFront", "Place vehicle in front of me"), ECXMRTunableKind::Action);
 		T.Invoke = [Weak] { if (Weak.IsValid()) { Weak->RequestPlaceInFront(); } };
@@ -262,7 +277,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 
-	// ---- Input ----
+	// 입력
 	if (UCXMRVarjoInputComponent* Input = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVarjoInputComponent>() : nullptr)
 	{
 		const TWeakObjectPtr<UCXMRVarjoInputComponent> WeakInput(Input);
@@ -279,37 +294,266 @@ bool UCXMRTuningWindowComponent::IsWindowOpen() const
 	return Window.IsValid();
 }
 
-TSharedRef<SWidget> UCXMRTuningWindowComponent::BuildPanel() const
+TSharedRef<SWidget> UCXMRTuningWindowComponent::BuildPanel()
 {
-	UCXMRTuningSubsystem* Tuning = GetTuning();
-	if (!Tuning)
+	if (!ControlWidget && GetWorld() && GetWorld()->GetGameInstance())
 	{
-		return CXMRPanelUI::MakeBackground(SNew(STextBlock).Text(LOCTEXT("NoRegistry", "Tuning registry is not available.")));
+		ControlWidget = CreateWidget<UCXMRControlPanelWidget>(GetWorld(), UCXMRControlPanelWidget::StaticClass());
 	}
+	return SNew(SCXMRControlPanel).Control(this).Tuning(GetTuning()).Viewer(ControlWidget);
+}
 
-	// Every row goes through the registry by id, so a row whose owner has left reads as empty instead of calling
-	// into a destroyed component.
-	TArray<CXMRPanelUI::FRowSpec> Rows[3];
-	for (const FCXMRTunable* Tunable : Tuning->GetTunables())
+void UCXMRTuningWindowComponent::SelectPage(ECXMRControlPage Page)
+{
+	if (Page > ECXMRControlPage::Diagnostics || (!bSetupMode && Page >= ECXMRControlPage::Display)) { return; }
+	ActivePage = Page;
+}
+
+void UCXMRTuningWindowComponent::SetSetupMode(bool bEnable)
+{
+	bSetupMode = bEnable;
+	if (!bSetupMode && ActivePage >= ECXMRControlPage::Display) { ActivePage = ECXMRControlPage::Vehicle; }
+}
+
+UCXMRPlacementComponent* UCXMRTuningWindowComponent::FindPlacement() const
+{
+	if (GetWorld())
 	{
-		Rows[CXMRPanelSections::DeveloperTab(Tunable->Id)].Add({ *Tunable, CXMRPanelUI::BindToRegistry(Tuning, *Tunable) });
+		for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+		{
+			if (!It->IsActorBeingDestroyed())
+			{
+				if (UCXMRPlacementComponent* Placement = It->FindComponentByClass<UCXMRPlacementComponent>()) { return Placement; }
+			}
+		}
 	}
-	const TWeakObjectPtr<UCXMRTuningWindowComponent> Weak(const_cast<UCXMRTuningWindowComponent*>(this));
-	const TArray<FText> Tabs = { LOCTEXT("CalibrationTab", "Calibration"), LOCTEXT("SettingsTab", "Display / Device"), LOCTEXT("DiagnosticsTab", "Diagnostics") };
-	return CXMRPanelUI::MakeBackground(SNew(SVerticalBox)
-		+ SVerticalBox::Slot().AutoHeight().Padding(6.f)
-		[
-			CXMRPanelUI::MakeTabBar(Tabs,
-				[Weak] { return Weak.IsValid() ? Weak->ActiveTab : 0; },
-				[Weak](int32 Index) { if (Weak.IsValid()) { Weak->ActiveTab = FMath::Clamp(Index, 0, 2); } })
-		]
-		+ SVerticalBox::Slot().FillHeight(1.f)
-		[
-			SNew(SWidgetSwitcher).WidgetIndex_Lambda([Weak] { return Weak.IsValid() ? Weak->ActiveTab : 0; })
-			+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeRowList(Rows[0])) ]
-			+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeRowList(Rows[1])) ]
-			+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeRowList(Rows[2])) ]
-		]);
+	return nullptr;
+}
+
+int32 UCXMRTuningWindowComponent::GetCalibrationPhase() const
+{
+	if (CalibrationPhase == 0) { return 0; }
+	const UCXMRPlacementComponent* Placement = FindPlacement();
+	const UCXMRVehicleLoaderComponent* Loader = Placement && Placement->GetOwner() ? Placement->GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
+	const TWeakObjectPtr<UCXMRVehicleProfile> CurrentVehicleProfile(Loader ? Loader->Profile.Get() : nullptr);
+	const TWeakObjectPtr<AActor> CurrentVehicle(Loader ? Loader->GetSpawnedVehicle() : nullptr);
+	if (!Placement || Placement != CalibrationPlacement.Get() || Placement->MarkerProfile.Get() != CalibrationProfile.Get()
+		|| !CurrentVehicleProfile.HasSameIndexAndSerialNumber(CalibrationVehicleProfile)
+		|| !CurrentVehicle.HasSameIndexAndSerialNumber(CalibrationVehicle))
+	{
+		CalibrationPhase = 0;
+		CalibrationMessage = LOCTEXT("SessionChanged", "Vehicle or profile changed. Start calibration again.");
+		return 0;
+	}
+	if (CalibrationPhase >= 2)
+	{
+		const AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
+		if ((!Placement->bCalibrated && !Placement->IsManualAlignment()) || !IsValid(Root)
+			|| !Root->GetActorTransform().Equals(ConfirmedPose, 0.001f)
+			|| (CalibrationPhase == 2 && Placement->IsManualAlignment() && !Placement->HasAlignmentCapture()))
+		{
+			CalibrationPhase = 1;
+			CalibrationMessage = LOCTEXT("PoseChanged", "Placement changed. Confirm alignment again.");
+		}
+	}
+	return CalibrationPhase;
+}
+
+FText UCXMRTuningWindowComponent::GetCalibrationMessage() const
+{
+	GetCalibrationPhase();
+	if (IsInitialAlignmentPending())
+	{
+		const float Remaining = GetWorld()->GetTimerManager().GetTimerRemaining(InitialAlignmentTimer);
+		return FText::FromString(FString::Printf(TEXT("Sit naturally and face straight ahead. Aligning in %d..."), FMath::Max(1, FMath::CeilToInt(Remaining))));
+	}
+	const UCXMRPlacementComponent* Placement = FindPlacement();
+	if (Placement && Placement->NeedsRestoreConfirmation()) { return LOCTEXT("RestoreCheck", "Restored from one marker. Check the physical reference, then use this alignment."); }
+	if (Placement && Placement->bCalibrated && !Placement->IsManualAlignment() && Placement->HasSavedAlignment() && CalibrationPhase == 0)
+	{
+		return LOCTEXT("RestoredAutomatically", "Saved alignment restored from consistent markers. The vehicle stays fixed.");
+	}
+	if (Placement && CalibrationPhase == 2 && Placement->IsManualAlignment())
+	{
+		if (bAlignmentSaveFailed) { return CalibrationMessage; }
+		return FText::FromString(FString::Printf(TEXT("Alignment confirmed. Observe each configured marker: %d / %d captured. The vehicle stays fixed."),
+			Placement->GetCapturedAlignmentMarkerCount(), Placement->GetRequiredAlignmentMarkerCount()));
+	}
+	return CalibrationMessage;
+}
+
+void UCXMRTuningWindowComponent::StartCalibration()
+{
+	UCXMRPlacementComponent* Placement = FindPlacement();
+	if (!Placement || !Placement->MarkerProfile)
+	{
+		CalibrationPhase = 0;
+		CalibrationMessage = LOCTEXT("NoPlacement", "Load a vehicle and marker profile first.");
+		return;
+	}
+	CancelInitialAlignment();
+	CaptureSessionIdentity(Placement);
+	CalibrationPhase = 1;
+	CalibrationMessage = LOCTEXT("CalibrationStarted", "Keep the markers visible and check vehicle alignment.");
+	Placement->Recalibrate();
+}
+
+void UCXMRTuningWindowComponent::HandleManualPlacementRequest()
+{
+	CancelInitialAlignment();
+	CalibrationPhase = 0;
+	CalibrationMessage = LOCTEXT("ManualPlacement", "Manual placement. Adjust the vehicle, then confirm alignment and capture the configured markers.");
+}
+
+void UCXMRTuningWindowComponent::CaptureSessionIdentity(UCXMRPlacementComponent* Placement)
+{
+	CalibrationPlacement = Placement;
+	CalibrationProfile = Placement->MarkerProfile;
+	const UCXMRVehicleLoaderComponent* Loader = Placement->GetOwner() ? Placement->GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
+	CalibrationVehicleProfile = Loader ? Loader->Profile.Get() : nullptr;
+	CalibrationVehicle = Loader ? Loader->GetSpawnedVehicle() : nullptr;
+}
+
+bool UCXMRTuningWindowComponent::CanStartInitialAlignment() const
+{
+	const UCXMRPlacementComponent* Placement = FindPlacement();
+	FTransform Eye;
+	return Placement && Placement->Mode == ECXMRPlacementMode::MarkerAnchor && Placement->GetDriverEyeWorld(Eye)
+		&& Placement->MarkerProfile && Placement->GetRequiredAlignmentMarkerCount() > 0;
+}
+
+bool UCXMRTuningWindowComponent::IsInitialAlignmentPending() const
+{
+	return GetWorld() && GetWorld()->GetTimerManager().IsTimerActive(InitialAlignmentTimer);
+}
+
+void UCXMRTuningWindowComponent::CancelInitialAlignment()
+{
+	if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(InitialAlignmentTimer); }
+}
+
+void UCXMRTuningWindowComponent::StartInitialAlignment()
+{
+	if (IsInitialAlignmentPending())
+	{
+		CancelInitialAlignment();
+		CalibrationMessage = LOCTEXT("InitialCancelled", "Initial alignment cancelled. Vehicle position kept.");
+		return;
+	}
+	if (!CanStartInitialAlignment() || !GetWorld())
+	{
+		CalibrationMessage = LOCTEXT("EyeMissing", "Load a vehicle, enable its Driver Eye Reference and configure calibration marker IDs.");
+		return;
+	}
+	UCXMRPlacementComponent* Placement = FindPlacement();
+	CaptureSessionIdentity(Placement);
+	InitialEyeReference = CalibrationVehicleProfile->DriverEyeReference;
+	InitialModelOffset = CalibrationVehicleProfile->VehicleRootOffset;
+	InitialModelClass = CalibrationVehicleProfile->VehicleActor.ToSoftObjectPath();
+	const AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
+	InitialVehicleRelativePose = CalibrationVehicle->GetActorTransform().GetRelativeTransform(Root->GetActorTransform());
+	CalibrationPhase = 1;
+	GetWorld()->GetTimerManager().SetTimer(InitialAlignmentTimer, this, &UCXMRTuningWindowComponent::FinishInitialAlignment, 3.f, false);
+}
+
+void UCXMRTuningWindowComponent::FinishInitialAlignment()
+{
+	const UCXMRPlacementComponent* Placement = FindPlacement();
+	const AActor* Root = Placement ? (Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner()) : nullptr;
+	if (GetCalibrationPhase() != 1 || !CanStartInitialAlignment() || !IsValid(Root) || !CalibrationVehicleProfile.IsValid()
+		|| !CalibrationVehicleProfile->DriverEyeReference.Equals(InitialEyeReference, 0.001f)
+		|| !CalibrationVehicleProfile->VehicleRootOffset.Equals(InitialModelOffset, 0.001f)
+		|| CalibrationVehicleProfile->VehicleActor.ToSoftObjectPath() != InitialModelClass
+		|| !CalibrationVehicle.IsValid()
+		|| !CalibrationVehicle->GetActorTransform().GetRelativeTransform(Root->GetActorTransform()).Equals(InitialVehicleRelativePose, 0.001f))
+	{
+		CalibrationMessage = LOCTEXT("InitialSessionChanged", "Vehicle or reference changed. Start initial alignment again.");
+		return;
+	}
+	FQuat Rotation;
+	FVector Position;
+	if (!GEngine || !GEngine->XRSystem.IsValid() || !GEngine->XRSystem->HasValidTrackingPosition()
+		|| !GEngine->XRSystem->IsTracking(IXRTrackingSystem::HMDDeviceId)
+		|| !GEngine->XRSystem->GetCurrentPose(IXRTrackingSystem::HMDDeviceId, Rotation, Position))
+	{
+		CalibrationMessage = LOCTEXT("HeadNotTracked", "Headset position is not tracked. Vehicle position kept; retry when tracking is valid.");
+		return;
+	}
+	const FTransform HeadWorld = FTransform(Rotation, Position) * GEngine->XRSystem->GetTrackingToWorldTransform();
+	if (FindPlacement()->AlignToDriverEyePose(HeadWorld))
+	{
+		CalibrationMessage = LOCTEXT("EyeAligned", "Initial alignment complete. Adjust against the physical USB and console, then confirm alignment.");
+	}
+}
+
+bool UCXMRTuningWindowComponent::AcceptRestoredAlignment()
+{
+	UCXMRPlacementComponent* Placement = FindPlacement();
+	if (!Placement || !Placement->ConfirmRestoredAlignment()) { return false; }
+	CaptureSessionIdentity(Placement);
+	const AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
+	ConfirmedPose = Root->GetActorTransform();
+	CalibrationPhase = 3;
+	CalibrationMessage = LOCTEXT("RestoredAccepted", "Saved alignment restored and accepted. No new calibration save is needed.");
+	return true;
+}
+
+void UCXMRTuningWindowComponent::PlaceManually()
+{
+	if (UCXMRTuningSubsystem* Registry = GetTuning()) { Registry->InvokeTunable("Vehicle.PlaceInFront"); }
+}
+
+bool UCXMRTuningWindowComponent::CanConfirmCalibration() const
+{
+	const UCXMRPlacementComponent* Placement = FindPlacement();
+	return Placement && !IsInitialAlignmentPending() && (GetCalibrationPhase() <= 1)
+		&& (Placement->IsManualAlignment() || (CalibrationPhase == 1 && Placement->bCalibrated));
+}
+
+bool UCXMRTuningWindowComponent::ConfirmCalibration()
+{
+	UCXMRPlacementComponent* Placement = FindPlacement();
+	if (!CanConfirmCalibration()) { return false; }
+	AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
+	if (!IsValid(Root)) { return false; }
+	if (Placement->IsManualAlignment() && !Placement->BeginAlignmentCapture())
+	{
+		CalibrationMessage = LOCTEXT("NoConfiguredMarkers", "Configure calibration marker IDs in the vehicle marker profile first.");
+		return false;
+	}
+	CaptureSessionIdentity(Placement);
+	ConfirmedPose = Root->GetActorTransform();
+	bAlignmentSaveFailed = false;
+	CalibrationPhase = 2;
+	CalibrationMessage = LOCTEXT("CalibrationConfirmed", "Alignment confirmed. Save calibration.");
+	return true;
+}
+
+bool UCXMRTuningWindowComponent::CanSaveCalibration() const
+{
+	const UCXMRPlacementComponent* Placement = FindPlacement();
+	return GetCalibrationPhase() == 2 && Placement && (!Placement->IsManualAlignment() || Placement->CanSaveAlignment());
+}
+
+bool UCXMRTuningWindowComponent::SaveCalibration()
+{
+	if (!CanSaveCalibration()) { return false; }
+	UCXMRPlacementComponent* Placement = FindPlacement();
+	if (Placement->IsManualAlignment()) { Placement->SaveAlignment(); }
+	else if (!Placement->GetMarkerLocationOffset().IsNearlyZero() || !Placement->GetMarkerRotationOffset().IsNearlyZero())
+	{
+		Placement->SaveMarkerOffsetToProfile();
+	}
+	else
+	{
+		Placement->SaveCalibrationToDisk();
+	}
+	const bool bSaved = Placement->WasLastCalibrationSaveSuccessful();
+	bAlignmentSaveFailed = !bSaved;
+	CalibrationPhase = bSaved ? 3 : 2;
+	CalibrationMessage = bSaved ? LOCTEXT("CalibrationSaved", "Calibration saved.")
+		: LOCTEXT("CalibrationSaveFailed", "Save failed. Check the profile and save location, then retry.");
+	return bSaved;
 }
 
 void UCXMRTuningWindowComponent::RebuildContent()
@@ -328,7 +572,7 @@ void UCXMRTuningWindowComponent::OpenWindow()
 		return;
 	}
 
-	// Commandlets and dedicated servers have no Slate. Asking for a window there is a crash.
+	// Slate를 사용할 수 없으면 창을 열지 않음.
 	if (!FApp::CanEverRender() || !FSlateApplication::IsInitialized())
 	{
 		UE_LOG(LogCXMRTuningWindow, Log, TEXT("Tuning window skipped: this build has no Slate application."));
@@ -340,13 +584,13 @@ void UCXMRTuningWindowComponent::OpenWindow()
 		.ClientSize(WindowSize)
 		.ScreenPosition(WindowPosition)
 		.AutoCenter(EAutoCenter::None)
-		.SupportsMaximize(false)
+		.SupportsMaximize(true)
 		.SupportsMinimize(true);
 
 	Window->SetContent(BuildPanel());
 
-	// Closing from the title bar must clear the handle, or OpenWindow would bring a destroyed window to the front.
-	Window->SetOnWindowClosed(FOnWindowClosed::CreateWeakLambda(this, [this](const TSharedRef<SWindow>&) { Window.Reset(); }));
+	// X로 닫으면 창 참조도 비움.
+	Window->SetOnWindowClosed(FOnWindowClosed::CreateWeakLambda(this, [this](const TSharedRef<SWindow>&) { Window.Reset(); ControlWidget = nullptr; }));
 
 	FSlateApplication::Get().AddWindow(Window.ToSharedRef(), /*bShowImmediately*/ true);
 
@@ -358,10 +602,11 @@ void UCXMRTuningWindowComponent::CloseWindow()
 {
 	if (Window.IsValid())
 	{
-		Window->SetOnWindowClosed(FOnWindowClosed());   // do not re-enter the lambda while tearing down
+		Window->SetOnWindowClosed(FOnWindowClosed());   // 종료 중 콜백 재진입 방지함.
 		Window->RequestDestroyWindow();
 		Window.Reset();
 	}
+	ControlWidget = nullptr;
 }
 
 void UCXMRTuningWindowComponent::ToggleWindow()

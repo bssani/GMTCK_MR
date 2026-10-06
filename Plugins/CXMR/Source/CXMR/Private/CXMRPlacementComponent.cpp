@@ -5,6 +5,8 @@
 #include "CXMRMarkerProfile.h"
 #include "CXMRTuningSubsystem.h"
 #include "CXMRLevelFit.h"
+#include "CXMRVehicleLoaderComponent.h"
+#include "CXMRVehicleProfile.h"
 
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -13,11 +15,8 @@
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Pawn.h"
 
-#include "Dom/JsonObject.h"
-#include "Serialization/JsonReader.h"
-#include "Serialization/JsonSerializer.h"
-#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/SecureHash.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
 #include "UObject/UObjectIterator.h"
@@ -26,8 +25,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogCXMRPlacement, Log, All);
 
 namespace
 {
-	/** Runs an action on every placement component in the world. Console commands cannot reach a
-	 *  component directly, and on site the operator is wearing a headset — typing is the fallback. */
+	/** 월드의 배치 컴포넌트에 콘솔 명령 전달함. */
 	void ForEachPlacement(UWorld* World, TFunctionRef<void(UCXMRPlacementComponent&)> Action)
 	{
 		if (!World)
@@ -101,9 +99,11 @@ void UCXMRPlacementComponent::BeginPlay()
 	Subsystem = GetCXMR();
 	if (Subsystem)
 	{
-		// Subscribe to the subsystem (marker events + placement requests), never the plugin directly.
+		// 마커 이벤트와 배치 요청은 Subsystem에서 받음.
 		Subsystem->OnMarkerDetected.AddDynamic(this, &UCXMRPlacementComponent::HandleMarkerDetected);
 		Subsystem->OnMarkerMoved.AddDynamic(this, &UCXMRPlacementComponent::HandleMarkerMoved);
+		Subsystem->OnMarkerLost.AddDynamic(this, &UCXMRPlacementComponent::HandleMarkerLost);
+		Subsystem->OnMarkerTrackingChanged.AddDynamic(this, &UCXMRPlacementComponent::HandleMarkerTrackingChanged);
 		Subsystem->OnRecalibrateRequested.AddDynamic(this, &UCXMRPlacementComponent::HandleRecalibrateRequest);
 		Subsystem->OnPlaceRequested.AddDynamic(this, &UCXMRPlacementComponent::HandlePlaceRequest);
 		Subsystem->OnAdjustMarkerOffsetRequested.AddDynamic(this, &UCXMRPlacementComponent::HandleAdjustOffsetRequest);
@@ -112,14 +112,14 @@ void UCXMRPlacementComponent::BeginPlay()
 		PublishOffset();
 	}
 
-	// Keep the shipped values so field edits can be undone, then let a saved calibration win —
-	// on site that file, not the asset, is what describes where the markers actually are.
-	// The vehicle loader may have swapped the profile before we got here, so this is idempotent.
+	// 원본 값을 보관한 뒤 현장 보정 파일을 적용함.
+
+	// 프로필이 먼저 바뀌어도 중복 적용하지 않음.
 	EnsureCalibrationLoaded();
 
 	RegisterTunables();
 
-	// A saved layout only helps while markers are tracked, and tracking starts off.
+	// 저장한 배치를 쓰려면 마커 추적이 필요함.
 	if (Mode == ECXMRPlacementMode::MarkerAnchor && bStartMarkerTrackingOnBeginPlay)
 	{
 		TryStartMarkerTracking();
@@ -132,6 +132,8 @@ void UCXMRPlacementComponent::EndPlay(const EEndPlayReason::Type Reason)
 	{
 		Subsystem->OnMarkerDetected.RemoveDynamic(this, &UCXMRPlacementComponent::HandleMarkerDetected);
 		Subsystem->OnMarkerMoved.RemoveDynamic(this, &UCXMRPlacementComponent::HandleMarkerMoved);
+		Subsystem->OnMarkerLost.RemoveDynamic(this, &UCXMRPlacementComponent::HandleMarkerLost);
+		Subsystem->OnMarkerTrackingChanged.RemoveDynamic(this, &UCXMRPlacementComponent::HandleMarkerTrackingChanged);
 		Subsystem->OnRecalibrateRequested.RemoveDynamic(this, &UCXMRPlacementComponent::HandleRecalibrateRequest);
 		Subsystem->OnPlaceRequested.RemoveDynamic(this, &UCXMRPlacementComponent::HandlePlaceRequest);
 		Subsystem->OnAdjustMarkerOffsetRequested.RemoveDynamic(this, &UCXMRPlacementComponent::HandleAdjustOffsetRequest);
@@ -139,8 +141,8 @@ void UCXMRPlacementComponent::EndPlay(const EEndPlayReason::Type Reason)
 		Subsystem->OnResetMarkerOffsetRequested.RemoveDynamic(this, &UCXMRPlacementComponent::HandleResetOffsetRequest);
 	}
 
-	// Hand the data asset back exactly as it shipped. Field calibration lives in Saved/CXMR, so PIE
-	// must not leave the asset dirty with values that were only ever meant for one physical setup.
+	// 종료 시 원본 값을 복원함. 현장 보정은 파일에만 남김.
+
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearAllTimersForObject(this);
@@ -167,17 +169,78 @@ void UCXMRPlacementComponent::HandleMarkerMoved(int32 MarkerId, FVector Position
 	HandleMarkerPose(MarkerId, Position, Rotation, /*bIsFirstSighting*/ false);
 }
 
+bool UCXMRPlacementComponent::IsMarkerObservationCurrent(int32 MarkerId) const
+{
+	const double* LastObserved = MarkerLastObserved.Find(MarkerId);
+	const UWorld* World = GetWorld();
+	if (!LastObserved || !World || (Subsystem && !Subsystem->IsMarkerTrackingOn()))
+	{
+		return false;
+	}
+	const double Age = World->GetRealTimeSeconds() - *LastObserved;
+	return Age >= 0.0 && Age <= FMath::Max(0.01f, MarkerObservationMaxAge);
+}
+
+int32 UCXMRPlacementComponent::CurrentMarkerCount() const
+{
+	int32 Count = 0;
+	for (const TPair<int32, FTransform>& Seen : SeenMarkers)
+	{
+		Count += IsMarkerObservationCurrent(Seen.Key) ? 1 : 0;
+	}
+	return Count;
+}
+
+void UCXMRPlacementComponent::HandleMarkerLost(int32 MarkerId)
+{
+	MarkerLastObserved.Remove(MarkerId);
+	const bool bWasCalibrationMarker = DetectedCalib.Remove(MarkerId) > 0;
+	MarkerSamples.Remove(MarkerId);
+	// 재관측 시 이전 평균을 버림. 안 보이는 동안 옮겨졌을 수 있음.
+	if (bWasCalibrationMarker && !bCalibrated)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(SettleTimer);
+		}
+	}
+}
+
+void UCXMRPlacementComponent::HandleMarkerTrackingChanged(bool bEnabled)
+{
+	if (!bEnabled)
+	{
+		CancelAlignmentCapture();
+		MarkerLastObserved.Reset();
+		DetectedCalib.Reset();
+		MarkerSamples.Reset();
+		ConfiguredMarkerIds.Reset();
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(SettleTimer);
+		}
+	}
+}
+
 void UCXMRPlacementComponent::HandleMarkerPose(int32 MarkerId, const FVector& Position, const FRotator& Rotation, bool bIsFirstSighting)
 {
-	if (Mode != ECXMRPlacementMode::MarkerAnchor || !MarkerProfile)
+	if (Mode != ECXMRPlacementMode::MarkerAnchor || !MarkerProfile || MarkerId == 0 || Position.ContainsNaN() || Rotation.ContainsNaN())
 	{
 		return;
 	}
+	if (!IsMarkerObservationCurrent(MarkerId))
+	{
+		MarkerSamples.Remove(MarkerId);
+		DetectedCalib.Remove(MarkerId);
+	}
+	if (const UWorld* World = GetWorld())
+	{
+		MarkerLastObserved.Add(MarkerId, World->GetRealTimeSeconds());
+	}
 
-	// Remember every marker, listed or not. Learn records the layout from these — which is how a site whose marker
-	// ids were never typed into the profile gets calibrated at all. While calibrating this is the AVERAGE of the
-	// samples so far, so a layout is never learned from one noisy frame either.
-	const bool bAveraging = bAverageMarkerSamples && !bCalibrated;
+	// 미등록 마커도 보관함. 학습에는 보정 중 누적한 평균 좌표를 사용함.
+
+	const bool bAveraging = bAverageMarkerSamples && !bCalibrated && !bAlignmentPoseLocked;
 	const FTransform Pose = bAveraging
 		? AccumulateSample(MarkerId, Position, Rotation)
 		: FTransform(Rotation, Position, FVector::OneVector);
@@ -189,43 +252,39 @@ void UCXMRPlacementComponent::HandleMarkerPose(int32 MarkerId, const FVector& Po
 	FCXMRMarkerEntry Entry;
 	if (!MarkerProfile->FindEntry(MarkerId, Entry) || Entry.Role != ECXMRMarkerRole::Calibration)
 	{
-		return; // not in the layout yet (Learn adds it); DynamicObject markers belong to another component
+		return; // 미등록 마커는 학습 때 추가함. 동적 마커는 다른 컴포넌트에서 처리함.
 	}
 
-	// Per-marker config — only valid AFTER detection (plugin caveat), and only worth doing once.
-	if (bIsFirstSighting && Subsystem)
+	// 프로필이 바뀌어도 플러그인이 아는 ID는 Moved로 들어옴.
+	if (Subsystem && !ConfiguredMarkerIds.Contains(MarkerId))
 	{
-		// The plugin reserves id 0 as its "invalid marker" sentinel and rejects both of these calls
-		// outright (VarjoMarkersPlugin.cpp:150, :162), logging a warning that names no profile and so
-		// tells the tester nothing. A profile authored with id 0 — the struct default — therefore looks
-		// like a working setup right up until no physical marker ever matches it.
-		if (MarkerId == 0)
+		const bool bTimeoutSet = Subsystem->SetMarkerTimeout(MarkerId, Entry.Timeout);
+		const bool bModeSet = Subsystem->SetMarkerTrackingMode(MarkerId, Entry.TrackingMode);
+		if (bTimeoutSet && bModeSet)
 		{
-			UE_LOG(LogCXMRPlacement, Warning,
-				TEXT("Marker profile '%s' contains id 0, which the Varjo plugin treats as its invalid-id "
-				     "sentinel: timeout and tracking mode cannot be set for it. Physical markers carry "
-				     "their own printed number — read it from the LogCXMRDebug 'DETECTED id=' line and "
-				     "put that in the profile."),
-				*MarkerProfile->GetName());
-		}
-		else
-		{
-			Subsystem->SetMarkerTimeout(MarkerId, Entry.Timeout);
-			Subsystem->SetMarkerTrackingMode(MarkerId, Entry.TrackingMode);
+			ConfiguredMarkerIds.Add(MarkerId);
 		}
 	}
 
+	if (bCapturingAlignment)
+	{
+		if (!IsCapturePoseCurrent()) { CancelAlignmentCapture(); }
+		else if (CaptureMarkerIds.Contains(MarkerId))
+		{
+			CapturedAlignmentMarkers.Add(MarkerId, Pose.GetRelativeTransform(CapturePose));
+		}
+	}
+	if (bAlignmentPoseLocked) { return; }
+	if (!SavedAlignmentMarkers.IsEmpty() && !SavedAlignmentMarkers.Contains(MarkerId)) { return; }
 	if (bFreezeAfterCalibration && bCalibrated)
 	{
-		return; // frozen
+		return; // 보정 후 위치 고정함.
 	}
 
-	// While calibrating, every sample counts: the mean of a settle window's worth of them is what makes a restarted
-	// session land where the last one did. The movement threshold used to drop samples here, which kept whichever
-	// early, noisy frame arrived first and stopped the pose improving at all.
-	//
-	// Once calibrated and following markers (freeze off), the threshold earns its keep: jitter would otherwise
-	// re-place the car every frame and read as an unstable vehicle.
+	// 보정 중에는 모든 표본을 평균에 반영함.
+
+	// 마커를 따라갈 때만 이동 임계값을 적용해서 흔들림을 줄임.
+
 	if (bCalibrated && !bIsFirstSighting)
 	{
 		const FTransform* Existing = DetectedCalib.Find(MarkerId);
@@ -239,8 +298,7 @@ void UCXMRPlacementComponent::HandleMarkerPose(int32 MarkerId, const FVector& Po
 	RecomputeCalibration();
 }
 
-/** Same position, rotation reduced to heading. The heading comes from whichever horizontal axis survives:
- *  a marker lying flat can point its X straight up, where FRotator::Yaw means nothing. */
+/** 높이와 위치는 유지하고 수평 축에서 yaw를 구함. */
 static FTransform LevelTransform(const FTransform& In)
 {
 	const FQuat Rotation = In.GetRotation();
@@ -250,7 +308,7 @@ static FTransform LevelTransform(const FTransform& In)
 	{
 		FVector Right = Rotation.GetRightVector();
 		Right.Z = 0.0;
-		Heading = Right.GetSafeNormal() ^ FVector::UpVector;   // right x up = forward
+		Heading = Right.GetSafeNormal() ^ FVector::UpVector;   // 오른쪽 축과 위 축으로 앞 방향 구함.
 	}
 	return FTransform(FRotationMatrix::MakeFromX(Heading).ToQuat(), In.GetLocation(), In.GetScale3D());
 }
@@ -281,8 +339,8 @@ FTransform UCXMRPlacementComponent::AccumulateSample(int32 MarkerId, const FVect
 	Samples.SquaredSum  += Position.SizeSquared();
 	++Samples.Count;
 
-	// Spread around the mean: sqrt(E[|p|^2] - |E[p]|^2). Reported to the operator, who otherwise has no way to tell
-	// a marker the headset sees well from one it is guessing at.
+	// 표본의 평균 주변 분산으로 추적 흔들림을 표시함.
+
 	const FVector MeanPosition = Samples.PositionSum / Samples.Count;
 	const double Variance = Samples.SquaredSum / Samples.Count - MeanPosition.SizeSquared();
 	Samples.Scatter = static_cast<float>(FMath::Sqrt(FMath::Max(0.0, Variance)));
@@ -300,22 +358,29 @@ float UCXMRPlacementComponent::WorstScatter() const
 	return Worst;
 }
 
-void UCXMRPlacementComponent::RecomputeCalibration()
+bool UCXMRPlacementComponent::ComputeCalibrationPose(FTransform& VehicleWorld, bool& bOutReady)
 {
-	AActor* Root = ResolveVehicleRoot();
-	if (!Root)
+	bOutReady = false;
+	for (auto It = DetectedCalib.CreateIterator(); It; ++It)
 	{
-		return;
+		FCXMRMarkerEntry Entry;
+		if (!IsMarkerObservationCurrent(It.Key()) || !MarkerProfile ||
+			!MarkerProfile->FindEntry(It.Key(), Entry) || Entry.Role != ECXMRMarkerRole::Calibration)
+		{
+			It.RemoveCurrent();
+		}
 	}
 
-	FTransform VehicleWorld;
 	bool bHavePose = false;
+	bool bMultiMarkerSolved = false;
+	if (!SavedAlignmentMarkers.IsEmpty()) { return ComputeSavedAlignmentPose(VehicleWorld, bOutReady); }
 
-	// 2+ markers: robust baseline yaw + floor. 1 marker: full-transform fallback (uses its orientation).
+	// 다중 마커는 위치로 계산하고 단일 마커는 방향까지 사용함.
 	LayoutFitError = -1.0f;
 	if (DetectedCalib.Num() >= 2)
 	{
-		bHavePose = ComputeMultiMarkerTransform(VehicleWorld, LayoutFitError);
+		bMultiMarkerSolved = ComputeMultiMarkerTransform(VehicleWorld, LayoutFitError);
+		bHavePose = bMultiMarkerSolved;
 	}
 	if (!bHavePose && DetectedCalib.Num() > 0 && MarkerProfile)
 	{
@@ -323,20 +388,40 @@ void UCXMRPlacementComponent::RecomputeCalibration()
 		FCXMRMarkerEntry Entry;
 		if (MarkerProfile->FindEntry(First.Key, Entry))
 		{
-			// VehicleWorld = Inverse(LocalOffset) * MarkerWorld (UE compose A*B = apply A then B).
+			// UE는 A*B에서 A를 먼저 적용함. VehicleWorld = LocalOffset^-1 * MarkerWorld.
 			VehicleWorld = Entry.LocalOffset.Inverse() * First.Value;
 			if (bKeepLevel)
 			{
-				// Match the multi-marker solve, which is always level. Otherwise the car takes the tilt of
-				// whatever surface the marker sits on, and jumps when a second marker arrives.
+				// 단일 마커도 수평을 유지해서 마커가 추가될 때 기울기가 바뀌지 않게 함.
+
 				VehicleWorld = LevelTransform(VehicleWorld);
 			}
 			bHavePose = true;
 		}
 	}
 
-	// The manual offset is applied in one place for both paths. It used to live inside the
-	// single-marker fallback only, so with the usual 2+ markers the adjust keys did nothing.
+	const bool bFitAcceptable = bMultiMarkerSolved && FMath::IsFinite(LayoutFitError) &&
+		LayoutFitError <= FMath::Max(0.f, MaxCalibrationFitError);
+	bOutReady = bHavePose && !VehicleWorld.ContainsNaN() &&
+		DetectedCalib.Num() >= FMath::Max(1, MinMarkersToCalibrate) &&
+		(MinMarkersToCalibrate <= 1 || bFitAcceptable);
+	return bHavePose && !VehicleWorld.ContainsNaN();
+}
+
+void UCXMRPlacementComponent::RecomputeCalibration()
+{
+	if (bAlignmentPoseLocked) { return; }
+	AActor* Root = ResolveVehicleRoot();
+	if (!Root)
+	{
+		return;
+	}
+	FTransform VehicleWorld;
+	bool bReady = false;
+	const bool bHavePose = ComputeCalibrationPose(VehicleWorld, bReady);
+
+	// 단일·다중 마커 모두 같은 경로에서 수동 오프셋을 적용함.
+
 	if (bHavePose)
 	{
 		BaseVehicleTransform = VehicleWorld;
@@ -344,17 +429,16 @@ void UCXMRPlacementComponent::RecomputeCalibration()
 	}
 	else if (!bHaveBasePose)
 	{
-		// No markers yet and nothing cached — nudge the vehicle from wherever it currently stands.
+		// 마커와 기준 위치가 없으면 현재 차량 위치를 기준으로 조정함.
 		BaseVehicleTransform = Root->GetActorTransform();
 		bHaveBasePose = true;
 	}
 
 	ApplyPlacement();
 
-	// Freeze once enough markers have contributed. The freeze itself is LOCAL — bCalibrated makes
-	// HandleMarkerDetected stop re-placing. Killing the headset's marker tracking is global and would
-	// take DynamicObject markers (doors, props) down with it, so it is opt-in and off by default.
-	if (DetectedCalib.Num() >= MinMarkersToCalibrate && !bCalibrated)
+	// 위치 고정은 이 컴포넌트에만 적용함. 전체 추적을 끄면 동적 마커도 멈춤.
+
+	if (bReady && !bCalibrated)
 	{
 		UWorld* World = GetWorld();
 		if (CalibrationSettleSeconds <= 0.0f || !World)
@@ -363,19 +447,38 @@ void UCXMRPlacementComponent::RecomputeCalibration()
 		}
 		else if (!World->GetTimerManager().IsTimerActive(SettleTimer))
 		{
-			// Keep taking marker updates for a moment before freezing: a first sighting is a marker's noisiest sample.
+			// 첫 관측의 흔들림을 줄이려고 잠시 표본을 더 받음.
 			World->GetTimerManager().SetTimer(SettleTimer, this, &UCXMRPlacementComponent::FinishCalibration, CalibrationSettleSeconds, false);
+		}
+	}
+	else if (!bReady)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(SettleTimer);
 		}
 	}
 }
 
 void UCXMRPlacementComponent::FinishCalibration()
 {
-	if (bCalibrated || DetectedCalib.Num() < MinMarkersToCalibrate)
+	if (bCalibrated)
 	{
 		return;
 	}
-	bCalibrated = true;
+	FTransform VehicleWorld;
+	bool bReady = false;
+	if (!ComputeCalibrationPose(VehicleWorld, bReady) || !bReady)
+	{
+		return;
+	}
+	// 타이머 종료 시 관측 수와 계산 품질을 다시 확인함.
+	BaseVehicleTransform = VehicleWorld;
+	bHaveBasePose = true;
+	ApplyPlacement();
+	bRestoreNeedsConfirmation = !SavedAlignmentMarkers.IsEmpty() && DetectedCalib.Num() < 2;
+	bCalibrated = !bRestoreNeedsConfirmation;
+	if (!SavedAlignmentMarkers.IsEmpty()) { bAlignmentPoseLocked = true; }
 	UE_LOG(LogCXMRPlacement, Log, TEXT("Calibrated from %d marker(s)%s."), DetectedCalib.Num(),
 		bFreezeAfterCalibration ? TEXT(" - placement frozen until Recalibrate") : TEXT(""));
 	if (bStopMarkerTrackingWhenCalibrated && Subsystem)
@@ -391,15 +494,15 @@ void UCXMRPlacementComponent::TryStartMarkerTracking()
 		return;
 	}
 
-	// Support is only reported once the XR session is up, which can be seconds after BeginPlay. Asking earlier makes
-	// the plugin refuse and log a warning every time, so wait quietly instead.
+	// XR 세션이 준비된 뒤 추적을 시작함.
+
 	if (Subsystem->IsMarkerTrackingSupported() && Subsystem->SetMarkerTracking(true))
 	{
 		UE_LOG(LogCXMRPlacement, Log, TEXT("Marker tracking started for calibration."));
 		return;
 	}
 
-	const int32 MaxAttempts = 40;   // every 0.5 s -> 20 s
+	const int32 MaxAttempts = 40;   // 0.5초 간격으로 최대 20초 재시도함.
 	if (++TrackingStartAttempts < MaxAttempts)
 	{
 		if (UWorld* World = GetWorld())
@@ -415,12 +518,10 @@ void UCXMRPlacementComponent::TryStartMarkerTracking()
 
 bool UCXMRPlacementComponent::ComputeMultiMarkerTransform(FTransform& Out, float& OutResidual) const
 {
-	// Correspondences: marker position in vehicle-local space vs measured world position. Uses marker POSITIONS only —
-	// the baseline between markers gives a far more stable yaw than any single marker's own (noisy) orientation.
-	//
-	// OutResidual: how far the measured markers end up from the saved layout, RMS cm. A layout learned in one session
-	// and markers measured in another disagree by exactly this much — and that disagreement is what moves the car
-	// between sessions, so it is worth a number on screen rather than a surprise the next morning.
+	// 마커 위치로 차량의 이동과 yaw를 계산함. 마커 방향은 사용하지 않음.
+
+	// OutResidual은 저장된 배치와 관측 좌표의 RMS 오차(cm).
+
 	TArray<FVector> P, Q;
 	for (const TPair<int32, FTransform>& Pair : DetectedCalib)
 	{
@@ -436,20 +537,26 @@ bool UCXMRPlacementComponent::ComputeMultiMarkerTransform(FTransform& Out, float
 
 void UCXMRPlacementComponent::Recalibrate()
 {
+	CancelAlignmentCapture();
+	bManualAlignment = false;
+	bAlignmentPoseLocked = false;
+	bRestoreNeedsConfirmation = false;
 	bCalibrated = false;
 	DetectedCalib.Reset();
 	SeenMarkers.Reset();
+	MarkerLastObserved.Reset();
+	ConfiguredMarkerIds.Reset();
 	MarkerSamples.Reset();
 	LayoutFitError = -1.0f;
-	// The held axes belonged to the last alignment. Re-reading markers starts a new one, from wherever the
-	// operator is sitting now.
+	// 다시 보정하면 기존 조정 방향도 비움.
+
 	bHaveNudgeHeading = false;
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(SettleTimer);
 	}
 
-	// Cycle tracking so the plugin re-fires Detected (its marker map is only reset on disable).
+	// 추적을 껐다 켜서 플러그인의 감지 이력을 초기화함.
 	if (Subsystem)
 	{
 		Subsystem->SetMarkerTracking(false);
@@ -482,32 +589,40 @@ void UCXMRPlacementComponent::PlaceInFrontOfPawn()
 		return;
 	}
 
-	// Horizontal look direction from the (HMD-driven) camera.
+	// 카메라의 수평 시선 방향 사용함.
 	FRotator LookRot = CamMgr->GetCameraRotation();
 	LookRot.Pitch = 0.0f;
 	LookRot.Roll = 0.0f;
 	const FVector Forward = LookRot.Vector();
 
-	// In front of the camera, on the floor (pawn origin = VR floor when tracking origin is floor/stage).
+	// 사용자 앞에 놓고 높이는 pawn의 바닥 기준을 사용함.
 	FVector Target = CamMgr->GetCameraLocation() + Forward * PawnRelativeDistance;
 	Target.Z = Pawn->GetActorLocation().Z;
 
-	// Face the user (yaw + 180 so the vehicle front points back toward them).
+	// 사용자를 바라보도록 yaw를 180도 돌림.
 	const FRotator FaceRot(0.0f, LookRot.Yaw + 180.0f, 0.0f);
 
-	// This placement becomes what the offset keys nudge from; otherwise the first nudge would snap
-	// the vehicle back to whatever the markers last said.
+	// 수동 배치를 새 기준으로 사용함. 다음 조정 때 옛 마커 위치로 돌아가지 않게 함.
+
 	BaseVehicleTransform = FTransform(FaceRot, Target, FVector::OneVector);
+	CancelAlignmentCapture();
+	bAlignmentPoseLocked = true;
+	bManualAlignment = true;
+	bRestoreNeedsConfirmation = false;
 	bHaveBasePose = true;
 	TempMarkerLocationOffset = FVector::ZeroVector;
 	TempMarkerRotationOffset = FRotator::ZeroRotator;
-	PublishOffset();   // the panel would otherwise keep showing the offset we just threw away
+	PublishOffset();   // 버린 오프셋을 패널에도 반영함.
 	ApplyPlacement();
 
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SettleTimer);
+	}
 	bCalibrated = true;
 }
 
-// ---------- Field calibration ----------
+// 현장 보정
 
 void UCXMRPlacementComponent::EnsureCalibrationLoaded()
 {
@@ -516,8 +631,8 @@ void UCXMRPlacementComponent::EnsureCalibrationLoaded()
 		return;
 	}
 
-	// Whatever the previous profile is holding came from a file, not from its author. Give it back
-	// before moving on, or that asset stays edited for the rest of the session.
+	// 프로필 교체 전 원본 값을 복원함.
+
 	RestoreAuthoredOffsets();
 
 	CaptureAuthoredOffsets();
@@ -525,29 +640,37 @@ void UCXMRPlacementComponent::EnsureCalibrationLoaded()
 	bCalibrationLoaded = true;
 }
 
-void UCXMRPlacementComponent::SetMarkerProfile(UCXMRMarkerProfile* NewProfile)
+void UCXMRPlacementComponent::SetMarkerProfile(UCXMRMarkerProfile* NewProfile, bool bForceReload)
 {
-	if (MarkerProfile == NewProfile)
+	if (MarkerProfile == NewProfile && !bForceReload)
 	{
 		return;
 	}
+	CancelAlignmentCapture();
+	bManualAlignment = false;
+	bAlignmentPoseLocked = false;
+	bRestoreNeedsConfirmation = false;
+	SavedAlignmentMarkers.Reset();
+	SavedPrimaryMarker = 0;
+	if (bForceReload) { bCalibrationLoaded = false; }
 	MarkerProfile = NewProfile;
-	bHaveNudgeHeading = false;   // another vehicle, another alignment
+	bHaveNudgeHeading = false;   // 차량별 조정 방향 초기화함.
 	EnsureCalibrationLoaded();
 
-	// Everything detected so far was keyed by the OLD profile's marker ids. Keeping it means the
-	// solve runs against markers the new vehicle never heard of, and bCalibrated would keep
-	// HandleMarkerPose frozen so the new ones are ignored too — a swap that silently never aligns.
+	// 이전 프로필의 관측과 보정 상태를 버림.
+
 	DetectedCalib.Reset();
 	bCalibrated = false;
 	SeenMarkers.Reset();
+	MarkerLastObserved.Reset();
+	ConfiguredMarkerIds.Reset();
 	MarkerSamples.Reset();
 	LayoutFitError = -1.0f;
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(SettleTimer);
 	}
-	// 차량 위치는 유지함. 이전 차량에서 쓰던 미세조정 값은 여기서 정리함.
+	// 차량 위치는 유지하고 이전 미세조정 값만 비움.
 	TempMarkerLocationOffset = FVector::ZeroVector;
 	TempMarkerRotationOffset = FRotator::ZeroRotator;
 	bHaveBasePose = false;
@@ -580,7 +703,7 @@ void UCXMRPlacementComponent::RestoreAuthoredOffsets()
 		return;
 	}
 
-	// Markers Learn or a saved file added at runtime were never part of the asset.
+	// 학습이나 파일에서 추가한 마커는 원본에 남기지 않음.
 	Profile->Markers.RemoveAll([this](const FCXMRMarkerEntry& Entry) { return !AuthoredOffsets.Contains(Entry.MarkerId); });
 
 	for (FCXMRMarkerEntry& Entry : Profile->Markers)
@@ -598,15 +721,15 @@ FString UCXMRPlacementComponent::GetCalibrationFilePath() const
 	{
 		return FString();
 	}
+	const UCXMRVehicleLoaderComponent* Loader = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
+	FString VehicleKey;
+	if (Loader && Loader->Profile)
+	{
+		const FTCHARToUTF8 AssetPath(*Loader->Profile->GetPathName());
+		VehicleKey = TEXT("_") + FMD5::HashBytes(reinterpret_cast<const uint8*>(AssetPath.Get()), AssetPath.Length());
+	}
 	return FPaths::ProjectSavedDir() / TEXT("CXMR")
-		/ FString::Printf(TEXT("MarkerCalib_%s.json"), *MarkerProfile->GetCalibrationId());
-}
-
-/** Untouched copy of whatever was on disk when this session started. The live file is overwritten
- *  every save, so a run of bad saves would otherwise leave nothing to go back to. */
-static FString StartupBackupPath(const FString& LivePath)
-{
-	return FPaths::ChangeExtension(LivePath, TEXT("startup.json"));
+		/ FString::Printf(TEXT("MarkerCalib_%s%s.json"), *MarkerProfile->GetCalibrationId(), *VehicleKey);
 }
 
 void UCXMRPlacementComponent::LearnMarkerLayout()
@@ -621,29 +744,34 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 		return;
 	}
 
-	// Where the vehicle stands right now is the truth we are recording against — the operator has
-	// just lined it up with the physical model by eye.
+	// 현재 차량 위치를 기준으로 마커 배치를 기록함.
+
 	const FTransform VehicleWorld = Root->GetActorTransform();
 
 	int32 Updated = 0;
 	int32 Added = 0;
+	TMap<int32, FTransform> LearnedMarkers;
 	for (const TPair<int32, FTransform>& Seen : SeenMarkers)
 	{
-		// LocalOffset * VehicleWorld == MarkerWorld, which is what GetRelativeTransform solves.
+		if (!IsMarkerObservationCurrent(Seen.Key))
+		{
+			continue;
+		}
+		// LocalOffset * VehicleWorld = MarkerWorld.
 		const FTransform Local = Seen.Value.GetRelativeTransform(VehicleWorld);
 		if (FCXMRMarkerEntry* Entry = MarkerProfile->GetEntryMutable(Seen.Key))
 		{
 			if (Entry->Role != ECXMRMarkerRole::Calibration)
 			{
-				continue;   // a marker driving a door or a prop is not part of the vehicle's layout
+				continue;   // 동적 마커는 차량 배치에 사용하지 않음.
 			}
 			Entry->LocalOffset = Local;
 			++Updated;
 		}
 		else
 		{
-			// Not listed: add it. The layout lives in the saved file, so the profile need not know a site's marker
-			// ids in advance. These used to be ignored, and Learn then learned nothing at all.
+			// 학습한 미등록 마커는 프로필과 저장 파일에 추가함.
+
 			FCXMRMarkerEntry NewEntry;
 			NewEntry.MarkerId = Seen.Key;
 			NewEntry.Role = ECXMRMarkerRole::Calibration;
@@ -652,14 +780,14 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 			MarkerProfile->Markers.Add(NewEntry);
 			++Added;
 		}
-		DetectedCalib.Add(Seen.Key, Seen.Value);   // learned markers take part in placement straight away
+		LearnedMarkers.Add(Seen.Key, Seen.Value);
 	}
 
-	// Listed markers that were not in view keep offsets from an earlier setup; if that setup differs they pull the fit
-	// the next time they are seen, so name them.
+	// 안 보이는 마커는 이전 보정값을 유지하므로 따로 알림.
+
 	for (const FCXMRMarkerEntry& Entry : MarkerProfile->Markers)
 	{
-		if (Entry.Role == ECXMRMarkerRole::Calibration && Entry.MarkerId != 0 && !SeenMarkers.Contains(Entry.MarkerId))
+		if (Entry.Role == ECXMRMarkerRole::Calibration && Entry.MarkerId != 0 && !LearnedMarkers.Contains(Entry.MarkerId))
 		{
 			UE_LOG(LogCXMRPlacement, Warning,
 				TEXT("Marker %d is in the layout but was not in view while learning: its offset is from an earlier setup."),
@@ -673,7 +801,14 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 		return;
 	}
 
-	// The learned layout already reproduces this pose, so the manual offset starts clean.
+	// 학습한 배치가 현재 위치를 재현하므로 임시 오프셋을 비움.
+	DetectedCalib = MoveTemp(LearnedMarkers);
+	MarkerSamples.Reset();
+	bCalibrated = false;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(SettleTimer);
+	}
 	TempMarkerLocationOffset = FVector::ZeroVector;
 	TempMarkerRotationOffset = FRotator::ZeroRotator;
 	BaseVehicleTransform = VehicleWorld;
@@ -682,166 +817,21 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 
 	UE_LOG(LogCXMRPlacement, Log, TEXT("Learned marker layout from the current vehicle pose: %d updated, %d added."), Updated, Added);
 
-	// Re-place from what we just learned. If the maths is right the vehicle does not move; if it
-	// jumps, the layout is wrong and the operator sees it immediately instead of hours later.
+	// 학습 결과로 다시 배치해서 차량 위치가 유지되는지 확인함.
+
 	RecomputeCalibration();
 
 	SaveCalibrationToDisk();
 }
 
-bool UCXMRPlacementComponent::SaveCalibrationToDisk()
-{
-	const FString Path = GetCalibrationFilePath();
-	if (Path.IsEmpty() || !MarkerProfile)
-	{
-		return false;
-	}
-
-	TArray<TSharedPtr<FJsonValue>> MarkerArray;
-	for (const FCXMRMarkerEntry& Entry : MarkerProfile->Markers)
-	{
-		const FVector  Loc = Entry.LocalOffset.GetLocation();
-		const FRotator Rot = Entry.LocalOffset.Rotator();
-
-		TSharedRef<FJsonObject> Obj = MakeShared<FJsonObject>();
-		Obj->SetNumberField(TEXT("id"), Entry.MarkerId);
-		Obj->SetStringField(TEXT("label"), Entry.Label.ToString());
-		Obj->SetNumberField(TEXT("x"), Loc.X);
-		Obj->SetNumberField(TEXT("y"), Loc.Y);
-		Obj->SetNumberField(TEXT("z"), Loc.Z);
-		Obj->SetNumberField(TEXT("pitch"), Rot.Pitch);
-		Obj->SetNumberField(TEXT("yaw"),   Rot.Yaw);
-		Obj->SetNumberField(TEXT("roll"),  Rot.Roll);
-		MarkerArray.Add(MakeShared<FJsonValueObject>(Obj));
-	}
-
-	TSharedRef<FJsonObject> RootObj = MakeShared<FJsonObject>();
-	RootObj->SetStringField(TEXT("profile"), MarkerProfile->GetName());
-	RootObj->SetStringField(TEXT("savedAt"), FDateTime::Now().ToString());
-	RootObj->SetStringField(TEXT("units"), TEXT("cm, degrees; marker pose in vehicle-local space"));
-	RootObj->SetArrayField(TEXT("markers"), MarkerArray);
-
-	FString Text;
-	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Text);
-	if (!FJsonSerializer::Serialize(RootObj, Writer))
-	{
-		UE_LOG(LogCXMRPlacement, Warning, TEXT("Failed to serialize marker calibration."));
-		return false;
-	}
-
-	// SaveStringToFile does not create directories, and Saved/CXMR does not exist on a fresh install
-	// — without this the very first save fails.
-	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), /*Tree*/ true);
-
-	if (!FFileHelper::SaveStringToFile(Text, *Path))
-	{
-		UE_LOG(LogCXMRPlacement, Warning, TEXT("Failed to write marker calibration to '%s'."), *Path);
-		return false;
-	}
-
-	UE_LOG(LogCXMRPlacement, Log, TEXT("Marker calibration saved: %s"), *Path);
-	return true;
-}
-
-bool UCXMRPlacementComponent::LoadCalibrationFromDisk()
-{
-	const FString Path = GetCalibrationFilePath();
-	if (Path.IsEmpty() || !MarkerProfile || !FPaths::FileExists(Path))
-	{
-		return false;
-	}
-
-	FString Text;
-	if (!FFileHelper::LoadFileToString(Text, *Path))
-	{
-		UE_LOG(LogCXMRPlacement, Warning, TEXT("Could not read marker calibration '%s'."), *Path);
-		return false;
-	}
-
-	TSharedPtr<FJsonObject> RootObj;
-	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Text);
-	if (!FJsonSerializer::Deserialize(Reader, RootObj) || !RootObj.IsValid())
-	{
-		UE_LOG(LogCXMRPlacement, Warning,
-			TEXT("Marker calibration '%s' is not valid JSON — ignoring it and using the profile as authored."), *Path);
-		return false;
-	}
-
-	// Two profiles sharing a CalibrationId would silently read each other's file. Say so.
-	FString SavedFor;
-	if (RootObj->TryGetStringField(TEXT("profile"), SavedFor) && SavedFor != MarkerProfile->GetName())
-	{
-		UE_LOG(LogCXMRPlacement, Warning,
-			TEXT("Calibration '%s' was saved for profile '%s' but is being applied to '%s'. "
-			     "Check for a duplicate Calibration Id."),
-			*Path, *SavedFor, *MarkerProfile->GetName());
-	}
-
-	// One untouched copy per session, taken before anything can overwrite the live file. Keyed by
-	// path, not a bool, so switching vehicles backs up each profile's file exactly once.
-	if (!StartupBackedUp.Contains(Path))
-	{
-		IFileManager::Get().Copy(*StartupBackupPath(Path), *Path);
-		StartupBackedUp.Add(Path);
-	}
-
-	const TArray<TSharedPtr<FJsonValue>>* MarkerArray = nullptr;
-	if (!RootObj->TryGetArrayField(TEXT("markers"), MarkerArray) || !MarkerArray)
-	{
-		return false;
-	}
-
-	int32 Applied = 0;
-	for (const TSharedPtr<FJsonValue>& Value : *MarkerArray)
-	{
-		const TSharedPtr<FJsonObject>* Obj = nullptr;
-		if (!Value.IsValid() || !Value->TryGetObject(Obj) || !Obj)
-		{
-			continue;
-		}
-
-		double Id = 0.0;
-		if (!(*Obj)->TryGetNumberField(TEXT("id"), Id))
-		{
-			continue;
-		}
-
-		const int32 MarkerIdValue = static_cast<int32>(Id);
-		FCXMRMarkerEntry* Entry = MarkerProfile->GetEntryMutable(MarkerIdValue);
-		if (!Entry)
-		{
-			// Learned on site: the profile never listed it. Put it back into the layout.
-			FCXMRMarkerEntry NewEntry;
-			NewEntry.MarkerId = MarkerIdValue;
-			NewEntry.Role = ECXMRMarkerRole::Calibration;
-			FString Label;
-			if ((*Obj)->TryGetStringField(TEXT("label"), Label) && !Label.IsEmpty() && Label != TEXT("None"))
-			{
-				NewEntry.Label = FName(*Label);
-			}
-			MarkerProfile->Markers.Add(NewEntry);
-			Entry = &MarkerProfile->Markers.Last();
-		}
-
-		const FVector Loc(
-			(*Obj)->GetNumberField(TEXT("x")),
-			(*Obj)->GetNumberField(TEXT("y")),
-			(*Obj)->GetNumberField(TEXT("z")));
-		const FRotator Rot(
-			(*Obj)->GetNumberField(TEXT("pitch")),
-			(*Obj)->GetNumberField(TEXT("yaw")),
-			(*Obj)->GetNumberField(TEXT("roll")));
-
-		Entry->LocalOffset = FTransform(Rot, Loc, FVector::OneVector);
-		++Applied;
-	}
-
-	UE_LOG(LogCXMRPlacement, Log, TEXT("Applied saved calibration for %d marker(s) from %s"), Applied, *Path);
-	return Applied > 0;
-}
-
 void UCXMRPlacementComponent::ResetCalibrationToAuthored()
 {
+	CancelAlignmentCapture();
+	bManualAlignment = false;
+	bAlignmentPoseLocked = false;
+	bRestoreNeedsConfirmation = false;
+	SavedAlignmentMarkers.Reset();
+	SavedPrimaryMarker = 0;
 	const FString Path = GetCalibrationFilePath();
 	if (!Path.IsEmpty() && FPaths::FileExists(Path))
 	{
@@ -850,6 +840,9 @@ void UCXMRPlacementComponent::ResetCalibrationToAuthored()
 	}
 
 	RestoreAuthoredOffsets();
+	// 차량별 원본 저장으로 이전 공용 파일이 다시 적용되지 않게 함.
+	const UCXMRVehicleLoaderComponent* Loader = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
+	if (Loader && Loader->Profile && MarkerProfile) { SaveCalibrationToDisk(); }
 	TempMarkerLocationOffset = FVector::ZeroVector;
 	TempMarkerRotationOffset = FRotator::ZeroRotator;
 	PublishOffset();
@@ -875,9 +868,8 @@ void UCXMRPlacementComponent::RebaseToCurrentTransform()
 
 void UCXMRPlacementComponent::HandleAdjustOffsetRequest(FVector DeltaLocation, FRotator DeltaRotation)
 {
-	// The request carries the key layout's signs: the left key of each NumPad pair is positive (7 / 1 / 4 / 0).
-	// In the viewer's frame those keys mean away / left / turn left / up, so Y and yaw flip into
-	// NudgeVehicle's convention (Y+ right, yaw+ clockwise from above).
+	// 넘버패드 부호를 조정 좌표계에 맞춤. Y와 yaw는 반전함.
+
 	NudgeVehicle(FVector(DeltaLocation.X, -DeltaLocation.Y, DeltaLocation.Z), -DeltaRotation.Yaw);
 }
 
@@ -885,6 +877,11 @@ FVector UCXMRPlacementComponent::ResolveNudgePivot(const FTransform& Vehicle, co
 {
 	switch (NudgePivot)
 	{
+	case ECXMRNudgePivot::DriverEyeReference:
+	{
+		FTransform Eye;
+		return GetDriverEyeWorld(Eye) ? Eye.GetLocation() : ViewerLocation;
+	}
 	case ECXMRNudgePivot::Markers:
 		if (DetectedCalib.Num() > 0)
 		{
@@ -895,7 +892,7 @@ FVector UCXMRPlacementComponent::ResolveNudgePivot(const FTransform& Vehicle, co
 			}
 			return Sum / DetectedCalib.Num();
 		}
-		return ViewerLocation;   // nothing seen yet
+		return ViewerLocation;   // 아직 관측된 마커 없음.
 	case ECXMRNudgePivot::Viewer:
 		return ViewerLocation;
 	default:
@@ -938,7 +935,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 			FString Text = FString::Printf(TEXT("X %.1f  Y %.1f  Z %.1f  Yaw %.1f"), L.X, L.Y, L.Z, R.Yaw);
 			if (FMath::Abs(R.Pitch) > 0.5f || FMath::Abs(R.Roll) > 0.5f)
 			{
-				// Yaw alone hid an upside-down test car for weeks.
+				// yaw뿐 아니라 전체 회전을 표시함.
 				Text += FString::Printf(TEXT("  TILTED P %.0f R %.0f"), R.Pitch, R.Roll);
 			}
 			return FText::FromString(Text);
@@ -950,7 +947,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 		T.Text = [this]
 		{
 			const bool bSettling = GetWorld() && GetWorld()->GetTimerManager().IsTimerActive(SettleTimer);
-			return FText::FromString(FString::Printf(TEXT("%d in view, %d used - %s"), SeenMarkers.Num(), DetectedCalib.Num(),
+			return FText::FromString(FString::Printf(TEXT("%d in view, %d used - %s"), CurrentMarkerCount(), DetectedCalib.Num(),
 				bCalibrated ? TEXT("calibrated") : (bSettling ? TEXT("settling") : TEXT("not calibrated"))));
 		};
 		Tuning->Register(MoveTemp(T));
@@ -976,9 +973,11 @@ void UCXMRPlacementComponent::RegisterTunables()
 		FCXMRTunable T = Make("Vehicle.LayoutFit", NSLOCTEXT("CXMRPlacement", "LayoutFit", "Fit to saved layout"), ECXMRTunableKind::Readout);
 		T.Text = [this]
 		{
+			if (bManualAlignment) { return NSLOCTEXT("CXMRPlacement", "ManualFit", "Manual alignment - check against the physical vehicle"); }
 			if (LayoutFitError < 0.0f)
 			{
-				return NSLOCTEXT("CXMRPlacement", "NoFit", "one marker - nothing to cross-check");
+				return DetectedCalib.IsEmpty() ? NSLOCTEXT("CXMRPlacement", "NoObservations", "Waiting for marker observations")
+					: NSLOCTEXT("CXMRPlacement", "NoFit", "One marker - cross-check unavailable");
 			}
 			return FText::FromString(FString::Printf(TEXT("%.2f cm off the saved layout"), LayoutFitError));
 		};
@@ -998,7 +997,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 		T.Set = [this](float V) { NudgeYawStep = V; };
 		Tuning->Register(MoveTemp(T));
 	}
-	// Steppers go through NudgeVehicle, so they move in whatever NudgeFrame says, exactly like the NumPad keys.
+	// 버튼과 넘버패드 모두 같은 조정 방향 사용함.
 	{
 		FCXMRTunable T = Make("Vehicle.Away", NSLOCTEXT("CXMRPlacement", "Away", "Away from me (+) / toward (-)"), ECXMRTunableKind::Stepper);
 		T.Step = [this](float Direction) { NudgeVehicle(FVector(Direction * NudgeMoveStep, 0.0, 0.0), 0.0f); };
@@ -1030,7 +1029,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 		T.Set = [this](float V)
 		{
 			NudgeFrame = static_cast<ECXMRNudgeFrame>(FMath::Clamp(FMath::RoundToInt(V), 0, 2));
-			bHaveNudgeHeading = false;   // the next adjustment takes the axes afresh
+			bHaveNudgeHeading = false;   // 다음 조정에서 방향을 다시 잡음.
 		};
 		Tuning->Register(MoveTemp(T));
 	}
@@ -1048,7 +1047,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 			{
 				return NSLOCTEXT("CXMRPlacement", "HeadingLive", "wherever you look - turning your head turns the axes");
 			}
-			// How far the keys are from straight ahead, which is what makes a key feel sideways.
+			// 조정 방향과 현재 시선의 차이를 표시함.
 			const float Off = FMath::Abs(FMath::FindDeltaAngleDegrees(ViewerYaw, ResolveNudgeYaw(ViewerYaw)));
 			if (NudgeFrame == ECXMRNudgeFrame::Vehicle)
 			{
@@ -1071,9 +1070,10 @@ void UCXMRPlacementComponent::RegisterTunables()
 		T.Options = {
 			NSLOCTEXT("CXMRPlacement", "PivotMarkers", "Markers"),
 			NSLOCTEXT("CXMRPlacement", "PivotViewer", "Viewer"),
-			NSLOCTEXT("CXMRPlacement", "PivotOrigin", "Vehicle origin") };
+			NSLOCTEXT("CXMRPlacement", "PivotOrigin", "Vehicle origin"),
+			NSLOCTEXT("CXMRPlacement", "PivotEye", "Driver eye reference") };
 		T.Get = [this] { return static_cast<float>(static_cast<uint8>(NudgePivot)); };
-		T.Set = [this](float V) { NudgePivot = static_cast<ECXMRNudgePivot>(FMath::Clamp(FMath::RoundToInt(V), 0, 2)); };
+		T.Set = [this](float V) { NudgePivot = static_cast<ECXMRNudgePivot>(FMath::Clamp(FMath::RoundToInt(V), 0, 3)); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
@@ -1109,7 +1109,7 @@ float UCXMRPlacementComponent::ResolveNudgeYaw(float ViewerYaw) const
 {
 	if (NudgeFrame == ECXMRNudgeFrame::Vehicle)
 	{
-		// The car's own facing, flattened — so "away" is along the car however it is tilted or however you look.
+		// 차량 방향은 수평으로 펴서 사용함.
 		if (const AActor* Root = VehicleRoot ? ToRawPtr(VehicleRoot) : GetOwner())
 		{
 			return LevelTransform(Root->GetActorTransform()).GetRotation().Rotator().Yaw;
@@ -1156,7 +1156,7 @@ void UCXMRPlacementComponent::NudgeVehicleInFrame(FVector ViewerDelta, float Yaw
 	{
 		return;
 	}
-	// 키 입력이든 직접 호출이든 처음 조정할 때 방향을 고정함.
+	// 첫 조정 때 방향 고정함.
 	if (NudgeFrame == ECXMRNudgeFrame::ViewerLatched && !bHaveNudgeHeading)
 	{
 		LatchNudgeHeading(HeadingYaw);
@@ -1167,16 +1167,20 @@ void UCXMRPlacementComponent::NudgeVehicleInFrame(FVector ViewerDelta, float Yaw
 		bHaveBasePose = true;
 	}
 
-	// A level frame: forward is ResolveNudgeYaw, up is the world's. The keys used to move along the vehicle's own
-	// axes — backwards, because the offset was defined on the marker side — so the same key went a different way
-	// depending on how the car happened to sit.
+	// 앞 방향은 조정 기준, 위 방향은 월드 기준 사용함.
+
 	const FRotator Heading(0.0f, ResolveNudgeYaw(HeadingYaw), 0.0f);
 	const FVector WorldDelta = Heading.RotateVector(ViewerDelta);
 
 	const FTransform Current = Root->GetActorTransform();
+	FTransform DriverEye;
+	if (Mode == ECXMRPlacementMode::MarkerAnchor && GetDriverEyeWorld(DriverEye))
+	{
+		NudgePivot = ECXMRNudgePivot::DriverEyeReference;
+	}
 	const FVector Pivot = ResolveNudgePivot(Current, ViewerLocation);
 
-	// Turn about the pivot, then slide: T(-P) * R * T(P + delta), applied after the current pose.
+	// 현재 위치에서 T(-P) * R * T(P + delta) 순서로 회전 후 이동함.
 	const FTransform Nudge = FTransform(-Pivot) * FTransform(FRotator(0.0f, YawDelta, 0.0f)) * FTransform(Pivot + WorldDelta);
 	MoveVehicleTo(Current * Nudge);
 }
@@ -1194,16 +1198,21 @@ void UCXMRPlacementComponent::MoveVehicleTo(FTransform VehicleWorld)
 		bHaveBasePose = true;
 	}
 	VehicleWorld.SetScale3D(FVector::OneVector);
+	CancelAlignmentCapture();
+	bManualAlignment = true;
+	bAlignmentPoseLocked = true;
+	bRestoreNeedsConfirmation = false;
+	if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
 
-	// Store the result as the vehicle-frame offset the rest of this component already speaks
-	// (ApplyPlacement: Vehicle = Adjust^-1 * Base  =>  Adjust = Base * Desired^-1), so saving the offset
-	// and learning the marker layout keep working unchanged.
+	// 저장과 학습에 쓰도록 결과를 차량 기준 오프셋으로 변환함. Adjust = Base * Desired^-1.
+
 	const FTransform Adjust = BaseVehicleTransform * VehicleWorld.Inverse();
 	TempMarkerLocationOffset = Adjust.GetLocation();
 	TempMarkerRotationOffset = Adjust.Rotator();
 
 	PublishOffset();
-	RecomputeCalibration();
+	// 현재 기준에 수동 오프셋만 적용함.
+	ApplyPlacement();
 }
 
 void UCXMRPlacementComponent::HandleSaveOffsetRequest()  { SaveMarkerOffsetToProfile(); }
@@ -1225,14 +1234,18 @@ void UCXMRPlacementComponent::ApplyPlacement()
 		return;
 	}
 
-	// Adjust is expressed in the vehicle's own frame, so it is applied before the base pose
-	// (UE compose A*B = apply A then B). Inverse: nudging the marker +X slides the vehicle -X.
+	// 차량 기준 오프셋을 먼저 적용함. 마커 +X 조정은 차량 -X 이동임.
+
 	const FTransform Adjust(TempMarkerRotationOffset, TempMarkerLocationOffset);
 	Root->SetActorTransform(Adjust.Inverse() * BaseVehicleTransform);
 }
 
 void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator DeltaRotation)
 {
+	if (!bHaveBasePose)
+	{
+		RebaseToCurrentTransform();
+	}
 	TempMarkerLocationOffset += DeltaLocation;
 	TempMarkerRotationOffset += DeltaRotation;
 
@@ -1241,13 +1254,15 @@ void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator
 		TempMarkerLocationOffset.X, TempMarkerLocationOffset.Y, TempMarkerLocationOffset.Z,
 		TempMarkerRotationOffset.Pitch, TempMarkerRotationOffset.Yaw, TempMarkerRotationOffset.Roll);
 
-	// Recompute placement with new offset.
+	// 현재 기준에 조정값만 적용함.
 	PublishOffset();
-	RecomputeCalibration();
+	ApplyPlacement();
 }
 
 void UCXMRPlacementComponent::SaveMarkerOffsetToProfile()
 {
+	if (bManualAlignment) { SaveAlignment(); return; }
+	bLastCalibrationSaveSucceeded = false;
 	AActor* Root = ResolveVehicleRoot();
 	if (!Root || !MarkerProfile || DetectedCalib.Num() == 0)
 	{
@@ -1261,12 +1276,11 @@ void UCXMRPlacementComponent::SaveMarkerOffsetToProfile()
 		return;
 	}
 
-	// What is on screen is what the next session has to reproduce.
-	//  * Markers in view are recorded against that pose directly. Shifting their old offsets by the adjustment is only
-	//    exact when the solve reproduces the markers exactly; a single marker on a tilted surface is levelled, so the
-	//    saved car came back somewhere else.
-	//  * Markers out of view get the same rigid shift, so the layout stays one piece. Updating only the markers in view
-	//    mixed new offsets with old ones and skewed the fit whenever the next session saw a different set.
+	// 다음 실행에서도 현재 차량 위치를 재현해야 함.
+	// 보이는 마커는 현재 차량 위치에서 다시 기록함.
+
+	// 안 보이는 마커도 같은 변환으로 옮겨서 배치를 유지함.
+
 	const FTransform Shown = Root->GetActorTransform();
 	const FTransform Adjust(TempMarkerRotationOffset, TempMarkerLocationOffset);
 	int32 FromView = 0;
@@ -1294,22 +1308,20 @@ void UCXMRPlacementComponent::SaveMarkerOffsetToProfile()
 		FromView, Shifted, TempMarkerLocationOffset.X, TempMarkerLocationOffset.Y, TempMarkerLocationOffset.Z,
 		TempMarkerRotationOffset.Yaw);
 
-	// Saved/CXMR is where calibration survives: a cooked build cannot write its assets, and in the editor the asset is
-	// handed back unmodified when play ends (so it is no longer marked dirty here).
 	SaveCalibrationToDisk();
-
-	// The pose is now baked into the layout; clearing the temporary offset leaves the vehicle where it is.
-	ResetMarkerOffset();
+	// 저장한 위치를 새 기준으로 사용함.
+	RebaseToCurrentTransform();
 }
 
 void UCXMRPlacementComponent::ResetMarkerOffset()
 {
+	CancelAlignmentCapture();
 	TempMarkerLocationOffset = FVector::ZeroVector;
 	TempMarkerRotationOffset = FRotator::ZeroRotator;
 
 	UE_LOG(LogCXMRPlacement, Log, TEXT("Marker offset adjustments reset"));
 
-	// Recompute with clean offset.
+	// 오프셋만 비우고 현재 기준으로 되돌림.
 	PublishOffset();
-	RecomputeCalibration();
+	ApplyPlacement();
 }

@@ -54,16 +54,21 @@ private:
 			{
 				if (UCXMRDesktopPanelComponent* Panel = FindPlayComponent<UCXMRDesktopPanelComponent>()) { Panel->OpenWindow(); }
 			}), FToolMenuCanExecuteAction::CreateLambda([](const FToolMenuContext&) { return FindPlayComponent<UCXMRDesktopPanelComponent>() != nullptr; }), FToolMenuGetActionCheckState()),
-			LOCTEXT("UserPanel", "User Panel"),
-			LOCTEXT("UserPanelTip", "Open or focus the CXMR user panel. Start Play first."),
+			LOCTEXT("UserPanel", "CXMR Control"),
+			LOCTEXT("UserPanelTip", "Open or focus the unified CXMR control window. Start Play first."),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Visible")));
 		Section.AddEntry(FToolMenuEntry::InitToolBarButton("CXMRDeveloperPanel",
 			FToolUIAction(FToolMenuExecuteAction::CreateLambda([](const FToolMenuContext&)
 			{
-				if (UCXMRTuningWindowComponent* Panel = FindPlayComponent<UCXMRTuningWindowComponent>()) { Panel->OpenWindow(); }
+				if (UCXMRTuningWindowComponent* Panel = FindPlayComponent<UCXMRTuningWindowComponent>())
+				{
+					Panel->SetSetupMode(true);
+					Panel->SelectPage(ECXMRControlPage::Display);
+					Panel->OpenWindow();
+				}
 			}), FToolMenuCanExecuteAction::CreateLambda([](const FToolMenuContext&) { return FindPlayComponent<UCXMRTuningWindowComponent>() != nullptr; }), FToolMenuGetActionCheckState()),
-			LOCTEXT("DeveloperPanel", "Developer Panel"),
-			LOCTEXT("DeveloperPanelTip", "Open or focus CXMR calibration, settings and diagnostics. Start Play first."),
+			LOCTEXT("DeveloperPanel", "CXMR Settings"),
+			LOCTEXT("DeveloperPanelTip", "Open settings in the same CXMR control window. Start Play first."),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Settings")));
 	}
 };

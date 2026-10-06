@@ -17,6 +17,11 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
+#include "TimerManager.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/Pawn.h"
+#include "Camera/PlayerCameraManager.h"
+#include "Engine/Light.h"
 #include "Materials/Material.h"
 
 namespace
@@ -49,7 +54,7 @@ namespace
 	UCXMRMarkerProfile* MakeMarkerProfile()
 	{
 		UCXMRMarkerProfile* Profile = NewObject<UCXMRMarkerProfile>();
-		// 실제 작업에서 저장한 보정값이 테스트에 들어오지 않게 함.
+		// 현장 저장값이 테스트에 섞이지 않게 함.
 		Profile->CalibrationId = FGuid::NewGuid().ToString();
 		FCXMRMarkerEntry Entry;
 		Entry.MarkerId = 1;
@@ -59,7 +64,7 @@ namespace
 
 	void SendMarker(UCXMRPlacementComponent* Placement, int32 Id, FVector Position, float Yaw = 0.f)
 	{
-		// 헤드셋 없이 마커 이벤트를 넣음. 실제 수신 함수는 그대로 사용함.
+		// 헤드셋 없이 실제 수신 함수에 마커 이벤트를 넣음.
 		struct FMarkerParams
 		{
 			int32 MarkerId;
@@ -68,6 +73,11 @@ namespace
 			FVector2D Size;
 		} Params{Id, Position, FRotator(0, Yaw, 0), FVector2D(10, 10)};
 		Placement->ProcessEvent(Placement->FindFunctionChecked(TEXT("HandleMarkerMoved")), &Params);
+	}
+
+	void SendMarkerLost(UCXMRPlacementComponent* Placement, int32 Id)
+	{
+		Placement->ProcessEvent(Placement->FindFunctionChecked(TEXT("HandleMarkerLost")), &Id);
 	}
 }
 
@@ -136,10 +146,201 @@ bool FCXMRDegenerateMarkersTest::RunTest(const FString& Parameters)
 	Second.MarkerId = 2;
 	Profile->Markers.Add(Second);
 	Fixture.Placement->SetMarkerProfile(Profile);
+	Fixture.Placement->CalibrationSettleSeconds = 0.f;
 	SendMarker(Fixture.Placement, 1, FVector(100, 0, 0), 45);
 	SendMarker(Fixture.Placement, 2, FVector(100, 0, 0), 45);
 	TestTrue(TEXT("Coincident markers retain the single-marker heading"),
 		FMath::IsNearlyEqual(Fixture.Anchor->GetActorRotation().Yaw, 45.0, 0.01));
+	TestFalse(TEXT("Fallback placement cannot complete a two-marker calibration"), Fixture.Placement->bCalibrated);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRManualBaseTest, "CXMR.Regression.ManualBase",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRManualBaseTest::RunTest(const FString& Parameters)
+{
+	FTestWorld Fixture;
+	Fixture.Placement->SetMarkerProfile(MakeMarkerProfile());
+	SendMarker(Fixture.Placement, 1, FVector(100, 0, 0));
+	// 새 기준으로 조정할 때 옛 마커 위치로 돌아가면 안 됨.
+	Fixture.Anchor->SetActorLocation(FVector(500, 0, 0));
+	Fixture.Placement->RebaseToCurrentTransform();
+	Fixture.Placement->NudgeVehicleInFrame(FVector(10, 0, 0), 0, 0, FVector::ZeroVector);
+	TestTrue(TEXT("Nudge stays on the manual base"), Fixture.Anchor->GetActorLocation().Equals(FVector(510, 0, 0), 0.01));
+	Fixture.Placement->ResetMarkerOffset();
+	TestTrue(TEXT("Discard returns to the manual base"), Fixture.Anchor->GetActorLocation().Equals(FVector(500, 0, 0), 0.01));
+	Fixture.Placement->AdjustMarkerOffset(FVector(5, 0, 0), FRotator::ZeroRotator);
+	TestTrue(TEXT("Script offset stays on the manual base"), Fixture.Anchor->GetActorLocation().Equals(FVector(495, 0, 0), 0.01));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRPlaceThenNudgeTest, "CXMR.Regression.PlaceThenNudge",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRPlaceThenNudgeTest::RunTest(const FString& Parameters)
+{
+	FTestWorld Fixture;
+	APlayerController* Controller = Fixture.World->SpawnActor<APlayerController>();
+	Fixture.World->AddController(Controller);
+	APawn* Pawn = Fixture.World->SpawnActor<APawn>();
+	USceneComponent* PawnRoot = NewObject<USceneComponent>(Pawn);
+	Pawn->SetRootComponent(PawnRoot);
+	PawnRoot->RegisterComponent();
+	Controller->Possess(Pawn);
+	if (!Controller->PlayerCameraManager)
+	{
+		Controller->PlayerCameraManager = Fixture.World->SpawnActor<APlayerCameraManager>();
+	}
+	Fixture.Placement->SetMarkerProfile(MakeMarkerProfile());
+	SendMarker(Fixture.Placement, 1, FVector(100, 0, 0));
+	Fixture.Placement->PlaceInFrontOfPawn();
+	const FVector Placed = Fixture.Anchor->GetActorLocation();
+	TestTrue(TEXT("Place in front establishes a new base"), Placed.Equals(FVector(350, 0, 0), 0.01));
+	Fixture.Placement->NudgeVehicleInFrame(FVector(10, 0, 0), 0, 0, FVector::ZeroVector);
+	TestTrue(TEXT("Nudge follows the new placement"), Fixture.Anchor->GetActorLocation().Equals(FVector(360, 0, 0), 0.01));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRStaleLearnTest, "CXMR.Regression.StaleLearn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRStaleLearnTest::RunTest(const FString& Parameters)
+{
+	FTestWorld Fixture;
+	UCXMRMarkerProfile* Profile = MakeMarkerProfile();
+	Fixture.Placement->SetMarkerProfile(Profile);
+	SendMarker(Fixture.Placement, 1, FVector(100, 0, 0));
+	Fixture.Anchor->SetActorLocation(FVector(500, 0, 0));
+	Fixture.Placement->RebaseToCurrentTransform();
+	Fixture.World->RealTimeSeconds += 10.0;
+	Fixture.Placement->LearnMarkerLayout();
+	TestTrue(TEXT("Stale observation cannot change the layout"), Profile->Markers[0].LocalOffset.Equals(FTransform::Identity));
+	TestFalse(TEXT("Stale observation cannot create a calibration file"), IFileManager::Get().FileExists(*Fixture.Placement->GetCalibrationFilePath()));
+	TestTrue(TEXT("Rejected learn preserves manual placement"), Fixture.Anchor->GetActorLocation().Equals(FVector(500, 0, 0), 0.01));
+	IFileManager::Get().Delete(*Fixture.Placement->GetCalibrationFilePath());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRLostLearnTest, "CXMR.Regression.LostLearn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRLostLearnTest::RunTest(const FString& Parameters)
+{
+	FTestWorld Fixture;
+	UCXMRMarkerProfile* Profile = MakeMarkerProfile();
+	Fixture.Placement->SetMarkerProfile(Profile);
+	SendMarker(Fixture.Placement, 1, FVector(100, 0, 0));
+	SendMarkerLost(Fixture.Placement, 1);
+	Fixture.Anchor->SetActorLocation(FVector(500, 0, 0));
+	Fixture.Placement->RebaseToCurrentTransform();
+	Fixture.Placement->LearnMarkerLayout();
+	TestTrue(TEXT("Lost marker cannot change its authored offset"), Profile->Markers[0].LocalOffset.Equals(FTransform::Identity));
+	TestFalse(TEXT("Lost marker cannot write calibration"), IFileManager::Get().FileExists(*Fixture.Placement->GetCalibrationFilePath()));
+	// 재관측 좌표에 이전 평균이 섞이면 안 됨.
+	SendMarker(Fixture.Placement, 1, FVector(700, 0, 0));
+	TestTrue(TEXT("Reacquisition discards samples from before loss"), Fixture.Anchor->GetActorLocation().Equals(FVector(700, 0, 0), 0.01));
+	Fixture.Anchor->SetActorLocation(FVector(500, 0, 0));
+	Fixture.Placement->RebaseToCurrentTransform();
+	Fixture.Placement->LearnMarkerLayout();
+	TestTrue(TEXT("Fresh reacquisition learns the new marker position"), Profile->Markers[0].LocalOffset.GetLocation().Equals(FVector(200, 0, 0), 0.01));
+	TestTrue(TEXT("Fresh learning writes calibration"), IFileManager::Get().FileExists(*Fixture.Placement->GetCalibrationFilePath()));
+	TestTrue(TEXT("Fresh learning keeps the aligned vehicle in place"), Fixture.Anchor->GetActorLocation().Equals(FVector(500, 0, 0), 0.01));
+	IFileManager::Get().Delete(*Fixture.Placement->GetCalibrationFilePath());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRExpiredSettleTest, "CXMR.Regression.ExpiredSettle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRExpiredSettleTest::RunTest(const FString& Parameters)
+{
+	FTestWorld Fixture;
+	UCXMRMarkerProfile* Profile = MakeMarkerProfile();
+	FCXMRMarkerEntry Second = Profile->Markers[0];
+	Second.MarkerId = 2;
+	Second.LocalOffset.SetLocation(FVector(100, 0, 0));
+	Profile->Markers.Add(Second);
+	Fixture.Placement->SetMarkerProfile(Profile);
+	Fixture.Placement->CalibrationSettleSeconds = 1.f;
+	SendMarker(Fixture.Placement, 1, FVector(0, 0, 0));
+	SendMarker(Fixture.Placement, 2, FVector(100, 0, 0));
+	TestFalse(TEXT("Calibration waits for settling"), Fixture.Placement->bCalibrated);
+	Fixture.World->RealTimeSeconds += 2.0;
+	Fixture.World->GetTimerManager().Tick(2.f);
+	TestFalse(TEXT("Expired observations cannot complete at the end of settling"), Fixture.Placement->bCalibrated);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRTrackingStoppedLearnTest, "CXMR.Regression.TrackingStoppedLearn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRTrackingStoppedLearnTest::RunTest(const FString& Parameters)
+{
+	FTestWorld Fixture;
+	UCXMRMarkerProfile* Profile = MakeMarkerProfile();
+	Fixture.Placement->SetMarkerProfile(Profile);
+	SendMarker(Fixture.Placement, 1, FVector(100, 0, 0));
+	bool bEnabled = false;
+	Fixture.Placement->ProcessEvent(Fixture.Placement->FindFunctionChecked(TEXT("HandleMarkerTrackingChanged")), &bEnabled);
+	Fixture.Anchor->SetActorLocation(FVector(500, 0, 0));
+	Fixture.Placement->LearnMarkerLayout();
+	TestTrue(TEXT("Stopping tracking invalidates previous observations"), Profile->Markers[0].LocalOffset.Equals(FTransform::Identity));
+	TestFalse(TEXT("Tracking stop cannot save old observations"), IFileManager::Get().FileExists(*Fixture.Placement->GetCalibrationFilePath()));
+	IFileManager::Get().Delete(*Fixture.Placement->GetCalibrationFilePath());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRFitQualityTest, "CXMR.Regression.FitQuality",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRFitQualityTest::RunTest(const FString& Parameters)
+{
+	FTestWorld Fixture;
+	UCXMRMarkerProfile* Profile = MakeMarkerProfile();
+	FCXMRMarkerEntry Second = Profile->Markers[0];
+	Second.MarkerId = 2;
+	Second.LocalOffset.SetLocation(FVector(100, 0, 0));
+	Profile->Markers.Add(Second);
+	Fixture.Placement->SetMarkerProfile(Profile);
+	Fixture.Placement->CalibrationSettleSeconds = 0.f;
+	SendMarker(Fixture.Placement, 1, FVector(0, 0, 0));
+	SendMarker(Fixture.Placement, 2, FVector(200, 0, 0));
+	TestFalse(TEXT("A successful fit with large residual cannot calibrate"), Fixture.Placement->bCalibrated);
+	Fixture.Placement->Recalibrate();
+	SendMarker(Fixture.Placement, 1, FVector(0, 0, 0));
+	SendMarker(Fixture.Placement, 2, FVector(100, 0, 0));
+	TestTrue(TEXT("A valid fit completes calibration"), Fixture.Placement->bCalibrated);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRFailedVehicleSwapTest, "CXMR.Regression.FailedVehicleSwap",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRFailedVehicleSwapTest::RunTest(const FString& Parameters)
+{
+	FTestWorld Fixture;
+	UCXMRVehicleLoaderComponent* Loader = NewObject<UCXMRVehicleLoaderComponent>(Fixture.Anchor);
+	Loader->RegisterComponent();
+	UCXMRVehicleProfile* Good = NewObject<UCXMRVehicleProfile>();
+	Good->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	Good->Trims.SetNum(2);
+	Good->Trims[1].CMFOptions.SetNum(2);
+	UCXMRVehicleProfile* Bad = NewObject<UCXMRVehicleProfile>();
+	Loader->Catalog = NewObject<UCXMRVehicleCatalog>();
+	Loader->Catalog->Vehicles = {Good, Bad};
+	Loader->LoadVehicle(Good);
+	Loader->SetTrim(1);
+	Loader->SetCMF(1);
+	AActor* Original = Loader->GetSpawnedVehicle();
+	if (!TestNotNull(TEXT("Initial vehicle spawned"), Original)) { return false; }
+	Loader->NextVehicle();
+	TestTrue(TEXT("Failed cycle preserves the actor"), Loader->GetSpawnedVehicle() == Original && IsValid(Original));
+	TestTrue(TEXT("Failed cycle preserves the profile"), Loader->Profile == Good);
+	TestEqual(TEXT("Failed cycle preserves the catalog index"), Loader->GetVehicleIndex(), 0);
+	TestEqual(TEXT("Failed cycle preserves trim"), Loader->GetTrimIndex(), 1);
+	TestEqual(TEXT("Failed cycle preserves CMF"), Loader->GetCMFIndex(), 1);
+	Loader->LoadVehicle(nullptr);
+	TestTrue(TEXT("Null replacement preserves the actor"), Loader->GetSpawnedVehicle() == Original && IsValid(Original));
+	Bad->VehicleActor = ALight::StaticClass();
+	Loader->LoadVehicle(Bad);
+	TestTrue(TEXT("Spawn failure preserves the actor and profile"), Loader->GetSpawnedVehicle() == Original && IsValid(Original) && Loader->Profile == Good);
+	Bad->VehicleActor = AActor::StaticClass();
+	Loader->LoadVehicle(Bad);
+	TestTrue(TEXT("Attachment failure preserves the actor and profile"), Loader->GetSpawnedVehicle() == Original && IsValid(Original) && Loader->Profile == Good);
+	Loader->UnloadVehicle();
 	return true;
 }
 
@@ -152,7 +353,7 @@ bool FCXMRVehicleSelectionsTest::RunTest(const FString& Parameters)
 	UCXMRVehicleLoaderComponent* Loader = NewObject<UCXMRVehicleLoaderComponent>(Fixture.Anchor);
 	Loader->RegisterComponent();
 	UCXMRVehicleProfile* Profile = NewObject<UCXMRVehicleProfile>();
-	// 프로젝트 에셋 없이 재질 복원을 확인하려고 플러그인 액터를 사용함.
+	// 프로젝트 애셋 없이 재질 복원 확인함.
 	Profile->VehicleActor = ACXMRUsbPortTarget::StaticClass();
 	Profile->Trims.SetNum(2);
 	Profile->Trims[0].CMFOptions.SetNum(2);
@@ -186,7 +387,7 @@ bool FCXMRPinchThresholdsTest::RunTest(const FString& Parameters)
 	Grab->RegisterComponent();
 	Grab->SetSimulatedPinch(EControllerHand::Left, false, FTransform::Identity);
 	Grab->SetSimulatedPinch(EControllerHand::Right, false, FTransform::Identity);
-	// BP에서 직접 넣은 값도 처리되는지 확인함. 에디터 범위 제한만 믿으면 안 됨.
+	// BP에서 넣은 값도 범위 보정하는지 확인함.
 	Grab->PinchCloseDistance = 4.f;
 	Grab->PinchOpenDistance = 2.f;
 	Grab->TickComponent(0.016f, LEVELTICK_All, nullptr);

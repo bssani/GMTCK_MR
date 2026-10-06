@@ -7,6 +7,20 @@ C++ 쪽은 전부 반영됐다. 여기 있는 것은 **`.uasset` 편집이라 �
 
 순서는 우선순위 순이다. 1번이 다른 모든 MR 검증의 전제조건이다.
 
+**통합 창 안내**: C++ 변경 후 에디터를 종료하고 Editor 타깃을 빌드한 뒤 다시 연다.
+Play 중 `CXMR Control` / `CXMR Settings` 버튼은 같은 창을 연다.
+상단 사용/설정 전환과 배치·보정의 시작→정렬 확인→저장 흐름은
+[Operating-Guide §7](Operating-Guide.md#7-컨트롤-패널-조정)을 따른다.
+자동 검사는 파일 저장·확인 상태와 창 수명/렌더를 확인하지만, 헤드셋 정합과 실물 케이블 가림은 실기 확인이 필요하다.
+
+**눈 기준 초기 정렬 (2026-10-07)**: 차량 Data Asset의 `Alignment`에서 `Has Driver Eye Reference`를 켜고
+원본 차량 액터 로컬 좌표로 운전자 눈 위치와 정면(+X)을 넣는다. `VehicleRootOffset`을 중복 적용하지 않는다.
+실제 눈 좌표는 아직 입력하지 않았다. 메시를 각각 옮기거나 차량 기반 Blueprint를 새로 만들 필요는 없다.
+`Placement`에서 초기 맞추기 → 미세조정 → 확인 → 마커 관측 → 저장 순으로 진행한다.
+미세조정의 Turn은 눈 기준점 중심이다. Pawn과 개별 메시 위치는 유지한다.
+다음 실행에는 저장값을 마커로 복원한다. 한 개만 보이면 `Use Restored Alignment`로 확인한다.
+같은 마커 프로필을 쓰는 차량도 파일은 각각 저장한다. 차량 보정 초기화는 해당 차량의 원본값을 저장한다.
+
 ---
 
 ## 1. ✅ PP_MR 알파 — 적용됨 (2026-09-13), XR-4 확인만 남음
@@ -93,7 +107,7 @@ asset registry 의존성은 `/CXMR/Core/Materials/PP_MRParameters` 하나뿐이�
 
 - 예전 WBP 방식은 위젯 이름(`Btn_*` / `Txt_*`)으로 C++과 연결돼 있었고, `BindWidgetOptional`이라 위젯이 사라지거나
   이름이 틀려도 **조용히** 동작을 멈췄다(실제로 `Btn_ViewOffset` 행이 소실된 적이 있다)
-- 착좌(매니킨) 행은 이제 Viewer 탭에 있다 — WBP에 위젯 4개를 추가할 필요가 없다
+- 착좌(매니킨) 행은 통합 창의 `View → Eye Position`에 있다 — WBP에 위젯 4개를 추가할 필요가 없다
 - 행을 추가하려면 `CXMRControlPanelWidget.cpp`의 해당 탭 함수에 한 줄을 넣는다. 레이아웃 계산도, DrawSize 맞추기도 필요 없다
   (내용이 길면 스크롤된다)
 - `BP_CXMRPawn`이 옛 WBP를 `Control Panel Class`로 덮어쓰고 있어도 같은 모양이 나온다(WBP의 부모가 C++ 패널이라서).

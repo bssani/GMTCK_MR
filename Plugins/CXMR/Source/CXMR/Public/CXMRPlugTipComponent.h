@@ -1,22 +1,16 @@
 // Copyright GMTCK CX.
-//
-// UCXMRPlugTipComponent — where the plug held in the tracked hand has its tip, for USB ports to judge.
-//
-// Nothing is drawn. The hand cut-out this component used to carry was removed on 2026-09-21: the mask was built from
-// the tracked joints, so it trailed a moving hand by the tracker's latency, and a hole that lags the hand reads worse
-// than no hole at all. So a real hand passing over a virtual console is hidden in mixed reality, like any other real
-// object behind virtual content, and what tells the wearer they are lined up is the port marker lighting up
-// (ACXMRUsbPortTarget). If the hands must be visible again, the path to try is Varjo Base's own Occlusion > Hands
-// (Pro licence, Base 4.16+), not rebuilding the mask here; the removed cut-out is in git history.
-//
-// Joint ORIENTATIONS are never read: the grip frame comes from joint POSITIONS alone, so no OpenXR-to-UE axis
-// convention can turn the plug sideways.
-//
-// CXMR.PlugTip.Preview 1 feeds a canned hand pose in front of the camera, so PlugOffset can be dialled in during PIE
-// without a headset. CXMR.PlugTipDebug 1 draws the estimated tip. Both are rows in the tuning window under "Plug tip".
-//
-// Not here on purpose: any drawn hand, a forearm (the tracker reports no elbow — EHandKeypoint stops at the wrist),
-// wrist angle readouts, pose smoothing.
+
+// 손 관절로 실물 플러그의 끝과 방향 추정함.
+
+// 손 마스크는 추적 지연이 있어 사용하지 않음.
+// 가림은 런타임 깊이 합성에서 처리함.
+// 플러그 끝 추정용이며 실제 삽입은 측정하지 않음.
+
+// 관절 방향 대신 위치로 잡는 축 계산함.
+
+// 헤드셋 없이 Preview로 손 자세 확인함. PlugTipDebug로 추정 끝 표시함.
+
+// 추정 위치만 담당함. 손 메시와 포즈 보정은 별도로 처리함.
 
 #pragma once
 
@@ -37,27 +31,21 @@ public:
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	/**
-	 * Front end of the held plug's metal tip and the direction it points, from the tracker (or the preview pose),
-	 * PlugOffset and PlugTipReach. False = the plug hand is not tracked.
-	 */
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Plug Tip") bool GetPlugTip(FVector& OutTipLocation, FVector& OutDirection) const;
+	/** 플러그 끝과 방향 반환함. 손 추적이 없으면 false. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Plug Tip", meta=(ToolTip="Front end of the held plug's metal tip and the direction it points, from the tracker (or the preview pose), PlugOffset and PlugTipReach. False = the plug hand is not tracked.")) bool GetPlugTip(FVector& OutTipLocation, FVector& OutDirection) const;
 
-	/** True while the plug hand is tracked, so GetPlugTip has something to answer with. */
-	UFUNCTION(BlueprintPure, Category = "CXMR|Plug Tip") bool IsPlugHandTracked() const;
+	/** 손 추적 유효 여부. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Plug Tip", meta=(ToolTip="True while the plug hand is tracked, so GetPlugTip has something to answer with.")) bool IsPlugHandTracked() const;
 
-	/** Left or Right. The console sits to the driver's right in a left-hand-drive car. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Plug Tip") EControllerHand PlugHand = EControllerHand::Right;
+	/** 플러그를 잡는 손 선택함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Plug Tip", meta=(ToolTip="Left or Right. The console sits to the driver's right in a left-hand-drive car.")) EControllerHand PlugHand = EControllerHand::Right;
 
-	/** cm from the pinch point to the plug's metal tip, along the index finger. A USB-C cable end is about 1.75. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Plug Tip", meta = (ClampMin = "0.0", ClampMax = "15.0"))
+	/** 핀치 위치에서 금속 끝까지 거리(cm). USB-C 기본값은 1.75cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Plug Tip", meta = (ToolTip="cm from the pinch point to the plug's metal tip, along the index finger. A USB-C cable end is about 1.75.", ClampMin = "0.0", ClampMax = "15.0"))
 	float PlugTipReach = 1.75f;
 
-	/**
-	 * Applied in the grip frame: origin between the thumb tip and index tip, X along the index finger, Z from the index
-	 * tip toward the thumb tip. Tune with the headset on and CXMR.PlugTipDebug 1 — people pinch a plug differently.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Plug Tip") FTransform PlugOffset = FTransform::Identity;
+	/** 엄지·검지 사이가 원점, X는 검지 방향, Z는 엄지 방향. 손을 잡는 방식에 맞춰 조정함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Plug Tip", meta=(ToolTip="Grip-local offset: origin between thumb and index tips, X along the index, Z toward the thumb.")) FTransform PlugOffset = FTransform::Identity;
 
 protected:
 	virtual void BeginPlay() override;
@@ -66,16 +54,16 @@ protected:
 private:
 	UCXMRTuningSubsystem* GetTuning() const;
 
-	/** Rows in the tuning window: the plug tip reach and the two switches, so they can be dialled in during a session. */
+	/** 플러그 거리와 표시 설정 등록함. */
 	void RegisterTunables();
 
-	/** What the tuning window shows as the state, and why there is no plug tip when there is none. */
+	/** 플러그 추적 상태와 미추적 이유 표시함. */
 	FText DescribeState() const;
 
-	/** Tracker joint positions for the plug hand, or the canned preview pose. False = nothing for this hand. */
+	/** 추적 관절이나 미리보기 좌표 반환함. */
 	bool GetJoints(bool bPreview, TArray<FVector>& OutPositions) const;
 
-	/** Grip frame between thumb tip and index tip, PlugOffset applied. Shared by the plug tip and its debug draw. */
+	/** 잡는 좌표계에 PlugOffset 적용함. 끝 계산과 디버그 표시에서 공유함. */
 	bool ComputeGrip(const TArray<FVector>& Positions, FTransform& OutGrip) const;
 
 	void DrawPlugTipDebug() const;
