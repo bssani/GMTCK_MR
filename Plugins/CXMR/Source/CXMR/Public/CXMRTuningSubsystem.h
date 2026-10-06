@@ -1,14 +1,10 @@
 // Copyright GMTCK CX.
-//
-// UCXMRTuningSubsystem — the live values an operator may tune during a session, and their saved state.
-//
-// A feature registers what it wants tunable (a getter, a setter, a range) and the tuning window draws whatever is
-// registered. The window knows no feature and no feature knows the window, so a project branch adds its own rows
-// (virtual hands, a program-specific rig) by registering them — without touching the template.
-//
-// Rows marked persistent are written to Saved/CXMR/Tuning.json when changed and re-applied the moment the same row
-// registers again next session. Per PC, like the marker calibration: they describe one physical setup (the depth
-// range that suits this room, the exposure that suits this lighting).
+
+// 실시간 조정값과 저장값 관리함.
+
+// 기능이 항목을 등록하면 창에서 표시함.
+
+// 영속화 항목은 Tuning.json에 저장하고 다음 등록 때 적용함.
 
 #pragma once
 
@@ -18,41 +14,43 @@
 
 enum class ECXMRTunableKind : uint8
 {
-	Bool,       // checkbox; value 0 or 1
-	Float,      // spin box within [Min, Max]
-	Choice,     // button cycling through Options; value = option index
-	Stepper,    // [-] [+] buttons calling Step(-1 / +1)
-	Action,     // button calling Invoke()
-	Readout     // live text from Text()
+	Bool,       // 체크박스. 값은 0 또는 1.
+	Float,      // 범위 안에서 숫자 조정함.
+	Choice,     // 목록 선택. 값은 옵션 순번.
+	Stepper,    // - / + 버튼으로 Step 호출함.
+	Action,     // 버튼으로 Invoke 호출함.
+	Readout     // Text의 현재 값 표시함.
 };
 
-/** One tunable row. Plain C++ because it holds lambdas; registered by the feature that owns the value. */
+/** 값을 소유한 기능이 등록하는 조작 항목. */
 struct CXMR_API FCXMRTunable
 {
-	/** Stable key, also the key in Tuning.json. Dotted by area: "Depth.FarZ". */
+	/** 저장 키. 기능별 ID는 유지해야 함. */
 	FName Id;
 	FText Category;
 	FText Label;
+	/** 항목 설명용 도움말. */
+	FText Help;
 	FText Unit;
 	ECXMRTunableKind Kind = ECXMRTunableKind::Float;
 
 	float Min = 0.0f;
 	float Max = 1.0f;
-	/** Spin-box drag / arrow increment. */
+	/** 숫자 조정 간격. */
 	float Delta = 0.01f;
 	float Default = 0.0f;
-	/** Saved on change and re-applied on the next registration. */
+	/** 변경 후 저장하고 다음 등록 때 복원함. */
 	bool bPersist = false;
 
-	TArray<FText> Options;                  // Choice
-	TFunction<float()> Get;                 // Bool, Float, Choice
-	TFunction<void(float)> Set;             // Bool, Float, Choice
-	TFunction<void(float)> Step;            // Stepper: direction +1 / -1
-	TFunction<void()> Invoke;               // Action
-	TFunction<FText()> Text;                // Readout; a Stepper shows it beside its buttons
-	TFunction<bool()> IsEnabled;            // optional: the row greys out while false
+	TArray<FText> Options;                  // 선택 목록
+	TFunction<float()> Get;                 // 숫자 읽기
+	TFunction<void(float)> Set;             // 숫자 변경
+	TFunction<void(float)> Step;            // 순환 방향은 +1 또는 -1.
+	TFunction<void()> Invoke;               // 버튼 동작
+	TFunction<FText()> Text;                // 상태 표시. 순환 버튼 옆에도 표시함.
+	TFunction<bool()> IsEnabled;            // false면 조작 비활성화함.
 
-	/** A row lives only as long as its owner — its lambdas normally capture the owner. */
+	/** 소유자가 살아 있는 동안만 항목 유지함. */
 	TWeakObjectPtr<const UObject> Owner;
 };
 
@@ -66,35 +64,35 @@ class CXMR_API UCXMRTuningSubsystem : public UGameInstanceSubsystem
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 
-	/** Adds a row; a persistent row gets its saved value applied right away. False if the id is already taken. */
+	/** 항목 등록하고 저장값 적용함. ID가 겹치면 false. */
 	bool Register(FCXMRTunable Tunable);
 
-	/** Removes every row registered by Owner. Call from the owner's EndPlay. */
+	/** EndPlay에서 소유자 항목 모두 해제함. */
 	void UnregisterOwner(const UObject* Owner);
 
-	/** Live rows in registration order. Pointers are valid until the next Register / UnregisterOwner. */
+	/** 등록 순서대로 반환함. 등록이 바뀌면 포인터를 다시 받아야 함. */
 	TArray<const FCXMRTunable*> GetTunables() const;
 
-	/** Applies a value (clamped for Bool / Float / Choice). The window passes bSave=false while a slider moves. */
+	/** 범위 보정 후 적용함. 슬라이더 조작 중에는 bSave=false. */
 	bool ApplyValue(FName Id, float Value, bool bSave);
 
-	/** Back to the row's default, and the saved value is forgotten. */
+	/** 기본값으로 되돌리고 저장값 지움. */
 	bool ResetToDefault(FName Id);
 
-	/** False while the row's IsEnabled says so (windows grey it out). Unknown ids count as enabled. */
+	/** IsEnabled가 false면 비활성화함. 없는 ID는 활성 상태로 처리함. */
 	bool IsTunableEnabled(FName Id) const;
 
-	/** Fires when rows are added or removed, so an open window can rebuild. */
+	/** 등록 변경 시 열린 창 갱신 요청함. */
 	FCXMROnTunablesChanged OnTunablesChanged;
 
-	// --- Scriptable surface (Blueprint / Python) ---
+	// BP·Python 호출
 
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Tuning") TArray<FName> GetTunableIds() const;
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Tuning") float GetTunableValue(FName Id) const;
-	/** Applies and saves, as a committed edit in the window would. */
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Tuning") bool SetTunableValue(FName Id, float Value);
-	/** Runs an Action row, or steps a Stepper row by Direction (+1 / -1). */
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Tuning") bool InvokeTunable(FName Id, float Direction = 1.0f);
+	/** 값 적용 후 저장함. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Tuning", meta=(ToolTip="Applies and saves, as a committed edit in the window would.")) bool SetTunableValue(FName Id, float Value);
+	/** 버튼 동작이나 순환 조작 실행함. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Tuning", meta=(ToolTip="Runs an Action row, or steps a Stepper row by Direction (+1 / -1).")) bool InvokeTunable(FName Id, float Direction = 1.0f);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Tuning") FString GetTunableText(FName Id) const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|Tuning") FString GetTuningFilePath() const;
 

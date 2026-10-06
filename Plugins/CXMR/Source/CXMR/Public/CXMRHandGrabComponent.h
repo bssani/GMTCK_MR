@@ -58,7 +58,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Grab", meta = (ClampMin = "0.5", ClampMax = "10.0"))
 	float PinchCloseDistance = 2.0f;
 
-	/** ...and must open past this to end it (cm). Keep it above the close distance. */
+	/** 이 거리보다 벌리면 놓음(cm). 집는 거리보다 크게 유지함. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Grab", meta = (ClampMin = "0.5", ClampMax = "15.0"))
 	float PinchOpenDistance = 3.5f;
 
@@ -103,6 +103,7 @@ private:
 	void Release(EControllerHand Hand, bool bRestorePhysics);
 
 	void RegisterTunables();
+	void NormalizePinchDistances();
 	FText DescribeHand(EControllerHand Hand) const;
 
 	FCXMRGrabHand LeftHand;

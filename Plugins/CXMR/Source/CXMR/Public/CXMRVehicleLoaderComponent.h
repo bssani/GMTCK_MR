@@ -1,13 +1,6 @@
 // Copyright GMTCK CX.
-//
-// UCXMRVehicleLoaderComponent (Viewer) — loads / swaps the vehicle under the calibrated anchor.
-//
-// The alignment guarantee lives here: the vehicle is spawned as a CHILD of the anchor, and swapping
-// only ever destroys and respawns that child. The anchor's transform — the thing calibration wrote —
-// is never touched, so changing vehicle or trim never costs a recalibration.
-//
-// Trim and CMF address parts by component TAG (see FCXMRTrim). Untagged components are always
-// visible, so shared body geometry needs no marking.
+// 앵커 아래 차량을 교체함. 앵커 위치는 유지함.
+// 트림 태그가 있는 부품만 변경하고 공용 형상은 유지함.
 
 #pragma once
 
@@ -20,6 +13,18 @@ class UCXMRVehicleProfile;
 class UCXMRVehicleCatalog;
 class UMaterialInterface;
 class UCXMRSubsystem;
+class UPrimitiveComponent;
+
+/** CMF 변경 전 재질을 보관함. */
+USTRUCT(meta=(ToolTip="Original materials retained while a CMF is applied."))
+struct FCXMRCMFOriginalMaterial
+{
+	GENERATED_BODY()
+
+	UPROPERTY() TWeakObjectPtr<UPrimitiveComponent> Component;
+	UPROPERTY() int32 Slot = 0;
+	UPROPERTY() TObjectPtr<UMaterialInterface> Material;
+};
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnVehicleLoaded, UCXMRVehicleProfile*, Profile);
 
@@ -31,26 +36,26 @@ class CXMR_API UCXMRVehicleLoaderComponent : public UActorComponent
 public:
 	UCXMRVehicleLoaderComponent();
 
-	/** Vehicle to load. Project asset (/Game/Vehicle/[program]/). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Vehicle") TObjectPtr<UCXMRVehicleProfile> Profile;
+	/** 로드할 차량 프로필. 프로젝트 애셋 사용함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Vehicle", meta=(ToolTip="Use the vehicle's horizontal forward and right axes.")) TObjectPtr<UCXMRVehicleProfile> Profile;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Vehicle") bool bLoadOnBeginPlay = true;
 
-	/** Vehicles this program offers. Drives NextVehicle / PreviousVehicle. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Vehicle") TObjectPtr<UCXMRVehicleCatalog> Catalog;
+	/** 차량 순환에 사용할 목록. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Vehicle", meta=(ToolTip="Use the vehicle's horizontal forward and right axes.")) TObjectPtr<UCXMRVehicleCatalog> Catalog;
 
-	/** Spawn parent. Defaults to the owner's root — on ACXMRVehicleRoot that is the calibrated anchor. */
-	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category = "CXMR|Vehicle") TObjectPtr<USceneComponent> AttachTarget;
+	/** 차량 부착 대상. 비우면 소유자의 루트 사용함. */
+	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category = "CXMR|Vehicle", meta=(ToolTip="Use the vehicle's horizontal forward and right axes.")) TObjectPtr<USceneComponent> AttachTarget;
 
-	/** Swaps the vehicle in place. The anchor transform is untouched, so calibration survives. */
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle") void LoadVehicle(UCXMRVehicleProfile* NewProfile);
+	/** 새 차량 준비 후 교체함. 앵커는 유지함. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle", meta=(ToolTip="Use the vehicle's horizontal forward and right axes.")) void LoadVehicle(UCXMRVehicleProfile* NewProfile);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle") void UnloadVehicle();
 
-	/** Applies a trim (part visibility) and its default CMF. */
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle") void SetTrim(int32 TrimIndex);
+	/** 트림과 기본 CMF 적용함. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle", meta=(ToolTip="Use the vehicle's horizontal forward and right axes.")) void SetTrim(int32 TrimIndex);
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle") void SetCMF(int32 CMFIndex);
 
-	// Cycling wraps in both directions (3 -> 1 forward, 1 -> 3 back) so a stick flick never dead-ends.
+	// 목록 끝에서는 처음 항목으로 돌아감.
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle") void NextVehicle();
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle") void PreviousVehicle();
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle") void NextTrim();
@@ -71,25 +76,23 @@ protected:
 private:
 	USceneComponent* ResolveAttachTarget();
 
-	/** Pushes the marker profile from the vehicle profile onto the placement component, if present. */
+	/** 새 마커 프로필 적용함. 없으면 이전 값도 비움. */
 	void SyncMarkerProfile();
 
-	/** Points VehicleIndex at wherever the loaded profile sits in the catalog. Without this, loading a
-	 *  profile directly (BeginPlay, or LoadVehicle from BP) leaves the index at 0 — the panel then shows
-	 *  the wrong "n / m" and the first NextVehicle jumps to entry 1 instead of the next one. */
+	/** 로드한 프로필에 맞춰 목록 순번 갱신함. */
 	void SyncVehicleIndex();
 
-	/** The trim's DefaultCMF, or 0 when the data points outside CMFOptions. Authored data can be stale;
-	 *  ApplyCMF would silently skip an out-of-range index while the panel kept displaying it. */
+	/** 유효한 기본 CMF 반환함. 범위를 벗어나면 0 사용함. */
 	int32 ResolveDefaultCMF(int32 InTrimIndex) const;
 
 	void ApplyTrim();
 	void ApplyCMF();
 
-	/** Pushes the current selection to the subsystem so the control panel can display it. */
+	/** 현재 선택을 Subsystem에 게시함. */
 	void ReportStatus();
 
 	UPROPERTY(Transient) TObjectPtr<AActor> SpawnedVehicle;
+	UPROPERTY(Transient) TArray<FCXMRCMFOriginalMaterial> OriginalMaterials;
 	UPROPERTY(Transient) TObjectPtr<UCXMRSubsystem> Subsystem;
 
 	UFUNCTION() void HandleViewerAction(ECXMRViewerAction Action);

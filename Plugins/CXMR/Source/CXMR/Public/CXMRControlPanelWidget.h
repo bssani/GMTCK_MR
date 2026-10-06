@@ -1,13 +1,9 @@
 // Copyright GMTCK CX.
-//
-// UCXMRControlPanelWidget — the operator's control panel: the session's switches and actions on three tabs
-// (Display / Calibration / Viewer), in the desktop control window and, when enabled, on the wearer's hand.
-//
-// Drawn with the same rows as the tuning window (CXMRPanelUI), so the two operator windows look and behave alike.
-// Built in C++ instead of a widget-blueprint layout: that layout was bound to C++ by widget names and broke silently
-// whenever a widget was renamed or lost. The panel talks only to the subsystem, and shows readouts other features
-// publish through the tuning registry, so the desktop copy and the hand-held copy mirror each other with no wiring.
 
+// 차량 선택과 보기 조작 담당함.
+// 데스크톱은 같은 바인딩을 쓰고 손목은 간단한 탭을 유지함.
+// 보정과 설정은 통합 창에서 조작함.
+// Subsystem 값을 읽고 씀.
 #pragma once
 
 #include "CoreMinimal.h"
@@ -25,9 +21,12 @@ class CXMR_API UCXMRControlPanelWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	/** 0 Display, 1 Calibration, 2 Viewer. */
-	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void SetActiveTab(int32 TabIndex);
+	/** 0은 차량, 1은 보기. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI", meta=(ToolTip="0 Vehicle, 1 View.")) void SetActiveTab(int32 TabIndex);
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") int32 GetActiveTab() const { return ActiveTab; }
+	/** 통합 창에서도 같은 바인딩 사용함. */
+	TSharedRef<SWidget> BuildDisplayPage();
+	TSharedRef<SWidget> BuildViewerPage();
 
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -36,10 +35,6 @@ protected:
 private:
 	UCXMRSubsystem* GetCXMR() const;
 	UCXMRTuningSubsystem* GetTuning() const;
-
-	TSharedRef<SWidget> BuildDisplayPage();
-	TSharedRef<SWidget> BuildCalibrationPage();
-	TSharedRef<SWidget> BuildViewerPage();
 
 	int32 ActiveTab = 0;
 	TSharedPtr<SWidgetSwitcher> Pages;

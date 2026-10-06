@@ -1,13 +1,6 @@
 // Copyright GMTCK CX.
 //
-// UCXMRVehicleProfile — one vehicle, authored per program.
-// UCXMRVehicleCatalog — the list of vehicles a project offers.
-//
-// TYPE lives in the plugin; INSTANCES live in the project (/Game/Vehicle/[program]/), same split as
-// UCXMRMarkerProfile. The plugin never references a project asset, which is the whole of portability:
-// the vehicle is something CXMR LOADS, not something CXMR knows.
-//
-// The profile links its own marker profile, so switching vehicle switches calibration config with it.
+// 차량별 모델과 보정 기준 보관함.
 
 #pragma once
 
@@ -28,23 +21,29 @@ class CXMR_API UCXMRVehicleProfile : public UPrimaryDataAsset
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle") FText DisplayName;
 
-	/** Actor holding the vehicle geometry. Spawned under the calibrated anchor, never at world root. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle") TSoftClassPtr<AActor> VehicleActor;
+	/** 앵커 아래에 생성할 차량 클래스. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle", meta=(ToolTip="Vehicle geometry class spawned under the calibrated anchor.")) TSoftClassPtr<AActor> VehicleActor;
 
-	/** Calibration config for THIS vehicle (marker IDs / offsets differ per program). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle") TSoftObjectPtr<UCXMRMarkerProfile> MarkerProfile;
+	/** 차량별 마커 설정. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle", meta=(ToolTip="Calibration marker IDs and offsets for this vehicle.")) TSoftObjectPtr<UCXMRMarkerProfile> MarkerProfile;
 
-	/** Corrects the authored pivot so the calibrated anchor lands where the marker offsets assume. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle") FTransform VehicleRootOffset = FTransform::Identity;
+	/** 원본 차량 전체에 적용할 로컬 오프셋. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle", meta=(ToolTip="Local transform applied once to the entire imported vehicle.")) FTransform VehicleRootOffset = FTransform::Identity;
 
-	/** Trim levels. Empty = single-configuration vehicle, which is a valid and common case. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle") TArray<FCXMRTrim> Trims;
+	/** 눈 기준점을 지정한 차량만 초기 정렬 허용함. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Alignment", meta=(ToolTip="Enable after authoring the driver eye reference for this vehicle.")) bool bHasDriverEyeReference = false;
 
-	/** Percentile seating references (HF). Swaps with the vehicle so eye/hip points follow the car. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle") TSoftObjectPtr<UCXMRErgonomicsProfile> Ergonomics;
+	/** 원본 차량 로컬 좌표. +X는 운전자 정면 방향. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Alignment", meta=(EditCondition="bHasDriverEyeReference", ToolTip="Driver eye position and forward direction in the imported vehicle actor's local space. Do not apply VehicleRootOffset twice.")) FTransform DriverEyeReference = FTransform::Identity;
 
-	/** Every part tag mentioned by any trim — these are the components trim switching manages. */
-	UFUNCTION(BlueprintPure, Category = "CXMR|Vehicle") TSet<FName> GetManagedPartTags() const;
+	/** 트림이 없으면 기본 구성 사용함. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle", meta=(ToolTip="Optional trim configurations.")) TArray<FCXMRTrim> Trims;
+
+	/** HF 평가용 착좌 프로필. 초기 정렬과 별도로 사용함. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle", meta=(ToolTip="Optional HF seating references, separate from initial driver eye alignment.")) TSoftObjectPtr<UCXMRErgonomicsProfile> Ergonomics;
+
+	/** 트림에서 관리하는 부품 태그 모음. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Vehicle", meta=(ToolTip="All component tags controlled by the trim configurations.")) TSet<FName> GetManagedPartTags() const;
 
 	UFUNCTION(BlueprintPure, Category = "CXMR|Vehicle") bool IsValidTrim(int32 TrimIndex) const;
 };

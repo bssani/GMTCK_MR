@@ -64,7 +64,7 @@ namespace VarjoOpenXR
             const auto& markerUpdate = *reinterpret_cast<const XrEventDataMarkerTrackingUpdateVARJO*>(InHeader);
             auto id = markerUpdate.markerId;
             if (!markers.Contains(id) && markerUpdate.isActive) {
-                XrMarkerSpaceCreateInfoVARJO spaceInfo;
+                XrMarkerSpaceCreateInfoVARJO spaceInfo{};
                 spaceInfo.type = XR_TYPE_MARKER_SPACE_CREATE_INFO_VARJO;
                 spaceInfo.markerId = id;
                 spaceInfo.poseInMarkerSpace = XrPosef{ 0 };

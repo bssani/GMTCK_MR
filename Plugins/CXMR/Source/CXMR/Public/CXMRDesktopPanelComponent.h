@@ -1,18 +1,13 @@
 // Copyright GMTCK CX.
-//
-// UCXMRDesktopPanelComponent — the operator's window on the desktop monitor.
-//
-// In a CXR session the person wearing the headset is a decision maker looking at a clay model, not
-// an operator: they will not aim a laser at a panel strapped to their wrist. Someone else runs the
-// session from the desk. This puts the same control panel in a normal OS window on the monitor,
-// beside (not inside) the headset view — the way Varjo Lab sits next to the running app.
-//
-// It hosts the SAME widget class the hand panel uses. Both read and write the subsystem, so two
-// live instances stay in sync for free: toggling MR here updates the readout on the wrist.
-//
-// Headset and controller input is unaffected by which window has focus (it comes from the OpenXR
-// runtime), so the operator can click here while the wearer keeps using the controllers. Keyboard
-// shortcuts DO follow focus — that is the trade, and it splits the roles cleanly.
+
+// 진행자용 데스크톱 창.
+
+// 헤드셋 착용 중에도 데스크톱에서 조작할 수 있게 함.
+
+// 같은 액터의 Tuning Window로 창 조작을 넘김.
+// Tuning Window가 없으면 기존 간단한 창 사용함.
+
+// HMD 입력은 포커스와 무관함. 키보드 단축키는 포커스를 따름.
 
 #pragma once
 
@@ -31,12 +26,12 @@ class CXMR_API UCXMRDesktopPanelComponent : public UActorComponent
 public:
 	UCXMRDesktopPanelComponent();
 
-	/** Widget shown in the window. Defaults to the same panel the hand holds. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Desktop Panel")
+	/** Tuning Window가 없을 때 사용할 위젯. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Desktop Panel", meta=(ToolTip="Widget used when the actor has no Tuning Window component."))
 	TSubclassOf<UUserWidget> PanelClass;
 
-	/** Open automatically on BeginPlay. Off if the session should start with a clean desktop. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Desktop Panel")
+	/** 시작 시 창 자동으로 열음. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Desktop Panel", meta=(ToolTip="Open automatically on BeginPlay. Off if the session should start with a clean desktop."))
 	bool bOpenOnBeginPlay = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Desktop Panel")
@@ -55,8 +50,7 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
 private:
-	/** Slate window is not a UObject — held by shared ptr and destroyed explicitly in EndPlay,
-	 *  or it outlives PIE and stays on the editor desktop. */
+	/** Slate 창은 GC가 정리하지 않으므로 EndPlay에서 닫음. */
 	TSharedPtr<SWindow> Window;
 
 	UPROPERTY(Transient) TObjectPtr<UUserWidget> PanelWidget;

@@ -5,6 +5,7 @@
 #include "CXMRMaskingComponent.h"
 #include "CXMRMarkerDebugComponent.h"
 #include "CXMRHandDebugComponent.h"
+#include "CXMRPlugTipComponent.h"
 #include "CXMRGazeDebugComponent.h"
 #include "CXMRFoveationOverlayComponent.h"
 #include "CXMRHandGrabComponent.h"
@@ -65,6 +66,9 @@ ACXMRPawn::ACXMRPawn()
 
 	// Off unless chosen: a second camera renders the whole scene again.
 	Spectator = CreateDefaultSubobject<UCXMRSpectatorComponent>(TEXT("Spectator"));
+
+	// Costs a joint read per frame only while something asks for the tip, or the debug line is on.
+	PlugTip = CreateDefaultSubobject<UCXMRPlugTipComponent>(TEXT("PlugTip"));
 
 	// --- Control panel: world-space quad on the left hand ---
 	ControlPanel = CreateDefaultSubobject<UWidgetComponent>(TEXT("ControlPanel"));

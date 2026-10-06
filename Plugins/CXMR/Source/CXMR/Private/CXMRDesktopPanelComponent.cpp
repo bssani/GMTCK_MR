@@ -2,6 +2,8 @@
 
 #include "CXMRDesktopPanelComponent.h"
 #include "CXMRControlPanelWidget.h"
+#include "CXMRTuningWindowComponent.h"
+#include "GameFramework/Actor.h"
 
 #include "Blueprint/UserWidget.h"
 #include "Framework/Application/SlateApplication.h"
@@ -17,9 +19,8 @@ UCXMRDesktopPanelComponent::UCXMRDesktopPanelComponent()
 
 	WindowTitle = NSLOCTEXT("CXMR", "DesktopPanelTitle", "CXMR Control");
 
-	// Same reason the pawn resolves its panel class in C++: a Blueprint class default silently
-	// reverts to null when PIE reinstances the Blueprint, and a panel that fails to appear looks
-	// like the feature was never built. The panel is a C++ widget, so there is no asset to find.
+	// PIE에서 BP 기본값이 비워질 수 있어 C++에서 패널 클래스를 지정함.
+
 	PanelClass = UCXMRControlPanelWidget::StaticClass();
 }
 
@@ -35,8 +36,8 @@ void UCXMRDesktopPanelComponent::BeginPlay()
 
 void UCXMRDesktopPanelComponent::EndPlay(const EEndPlayReason::Type Reason)
 {
-	// Must happen here. A Slate window is not garbage collected, so skipping this leaves the panel
-	// floating on the editor desktop after PIE stops — and the next run opens a second one.
+	// PIE 종료 시 창도 닫음. Slate 창은 GC가 정리하지 않음.
+
 	CloseWindow();
 
 	Super::EndPlay(Reason);
@@ -44,18 +45,27 @@ void UCXMRDesktopPanelComponent::EndPlay(const EEndPlayReason::Type Reason)
 
 bool UCXMRDesktopPanelComponent::IsWindowOpen() const
 {
+	if (const UCXMRTuningWindowComponent* Control = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRTuningWindowComponent>() : nullptr)
+	{
+		return Control->IsWindowOpen();
+	}
 	return Window.IsValid();
 }
 
 void UCXMRDesktopPanelComponent::OpenWindow()
 {
+	if (UCXMRTuningWindowComponent* Control = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRTuningWindowComponent>() : nullptr)
+	{
+		Control->OpenWindow();
+		return;
+	}
 	if (Window.IsValid())
 	{
 		Window->BringToFront();
 		return;
 	}
 
-	// Commandlets and dedicated servers have no Slate. Asking for a window there is a crash.
+	// Slate를 사용할 수 없으면 창을 열지 않음.
 	if (!FApp::CanEverRender() || !FSlateApplication::IsInitialized())
 	{
 		UE_LOG(LogCXMRDesktop, Log, TEXT("Desktop panel skipped: this build has no Slate application."));
@@ -69,8 +79,8 @@ void UCXMRDesktopPanelComponent::OpenWindow()
 		return;
 	}
 
-	// A second instance of the same widget class. Both talk only to the subsystem, so this one and
-	// the hand-held one mirror each other without any wiring between them.
+	// 손목 패널과 같은 Subsystem을 사용함.
+
 	PanelWidget = CreateWidget<UUserWidget>(GetWorld(), PanelClass);
 	if (!PanelWidget)
 	{
@@ -88,8 +98,8 @@ void UCXMRDesktopPanelComponent::OpenWindow()
 
 	Window->SetContent(PanelWidget->TakeWidget());
 
-	// Closing from the title bar must clear our handle, or IsWindowOpen lies and OpenWindow tries
-	// to bring a destroyed window to the front.
+	// X로 닫으면 창 참조도 비움. 다시 열 때 필요함.
+
 	Window->SetOnWindowClosed(FOnWindowClosed::CreateWeakLambda(this,
 		[this](const TSharedRef<SWindow>&)
 		{
@@ -97,7 +107,7 @@ void UCXMRDesktopPanelComponent::OpenWindow()
 			PanelWidget = nullptr;
 		}));
 
-	// bShowImmediately = false: let Slate place it normally rather than forcing it over the game.
+	// 게임 창을 가리지 않게 기본 위치로 열음.
 	FSlateApplication::Get().AddWindow(Window.ToSharedRef(), /*bShowImmediately*/ true);
 
 	UE_LOG(LogCXMRDesktop, Log, TEXT("Desktop panel opened (%s, %.0fx%.0f)."),
@@ -106,9 +116,13 @@ void UCXMRDesktopPanelComponent::OpenWindow()
 
 void UCXMRDesktopPanelComponent::CloseWindow()
 {
+	if (UCXMRTuningWindowComponent* Control = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRTuningWindowComponent>() : nullptr)
+	{
+		Control->CloseWindow();
+	}
 	if (Window.IsValid())
 	{
-		Window->SetOnWindowClosed(FOnWindowClosed());   // do not re-enter the lambda while tearing down
+		Window->SetOnWindowClosed(FOnWindowClosed());   // 종료 중 콜백 재진입 방지함.
 		Window->RequestDestroyWindow();
 		Window.Reset();
 	}
@@ -117,7 +131,7 @@ void UCXMRDesktopPanelComponent::CloseWindow()
 
 void UCXMRDesktopPanelComponent::ToggleWindow()
 {
-	if (Window.IsValid())
+	if (IsWindowOpen())
 	{
 		CloseWindow();
 	}
