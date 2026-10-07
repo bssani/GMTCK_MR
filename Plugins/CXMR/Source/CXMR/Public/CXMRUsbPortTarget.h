@@ -8,14 +8,14 @@
 
 // 포트 중심은 액터 위치임.
 
-// 손 관절로 추정한 플러그 끝 사용함.
+// 기본은 생성 손의 관절·뼈 접촉으로 반응함.
 
 // 포트 크기의 테두리와 위치 기반 소리로 반응함.
 
 // Idle은 대기. bShowWhenIdle이 꺼져 있으면 숨김.
 // Approach는 가까워질수록 테두리가 밝아짐.
-// Near는 방향과 관계없이 가까워지면 반응함.
-// Aligned는 거리·각도를 일정 시간 유지하면 반응함.
+// Near는 손 접촉으로 반응함. 기본 모드에서는 Aligned 사용하지 않음.
+// 기존 플러그 모드에서는 거리·각도를 유지하면 Aligned가 됨.
 // 안내 빔과 확대 효과는 기본값에서 꺼둠.
 // 가장 가까운 포트만 반응함. Unlit으로 카메라 배경에서도 보이게 함.
 
@@ -27,6 +27,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "InputCoreTypes.h"
 #include "CXMRUsbPortTarget.generated.h"
 
 class UArrowComponent;
@@ -58,6 +59,16 @@ class CXMR_API ACXMRUsbPortTarget : public AActor
 
 public:
 	ACXMRUsbPortTarget();
+
+	/** 켜면 생성 손 접촉 사용함. 끄면 기존 플러그 정렬 사용함. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Contact", meta=(ToolTip="React to the generated tracked hand surface. Off uses legacy estimated-plug alignment.")) bool bUseHandContact = true;
+	/** 손 표면과 포트 사이의 접촉 여유(cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Contact", meta=(ClampMin="0.0", ToolTip="Contact margin beyond the generated hand surface, cm.")) float HandContactDistance = 0.25f;
+	/** 접촉 해제 거리(cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Port|Contact", meta=(ClampMin="0.0", ToolTip="Release margin beyond the hand surface, cm. Kept larger than the contact margin.")) float HandReleaseDistance = 0.75f;
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetHandContactDistance() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetHandReleaseDistance() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port", meta=(ToolTip="Distance from the tracked hand surface in hand-contact mode; negative without a current observation.")) float GetHandDistance() const { return LastDistance; }
 
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void OnConstruction(const FTransform& Transform) override;
@@ -178,8 +189,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetMaxAngle() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port") float GetApproachDistance() const;
 
-	/** 포트와 추정 끝 거리(cm). 추적 유예가 지나면 음수. */
-	UFUNCTION(BlueprintPure, Category = "CXMR|Port", meta=(ToolTip="Estimated tip-to-port distance in cm. Uses the last pose during tracking grace; negative afterwards.")) float GetPlugDistance() const { return LastDistance; }
+	/** 기존 호출 호환용. 손 접촉 모드에서는 손 표면 거리 반환함. */
+	UFUNCTION(BlueprintPure, Category = "CXMR|Port", meta=(ToolTip="Distance from the active input: hand surface or legacy plug tip, in cm.")) float GetPlugDistance() const { return LastDistance; }
 
 	/** 삽입 축과 추정 방향 각도(deg). 추적 유예가 지나면 음수. */
 	UFUNCTION(BlueprintPure, Category = "CXMR|Port", meta=(ToolTip="Estimated plug angle to the insertion axis in degrees. Negative after tracking grace.")) float GetPlugAngle() const { return LastAngleDeg; }
@@ -201,6 +212,10 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
 private:
+	void TickHandContact(float DeltaSeconds);
+	void RegisterHandContactTunables();
+	bool bPreviousHandContactMode = true;
+	EControllerHand LastContactHand = EControllerHand::AnyHand;
 	/** 메시 회전과 AxisTurn을 합친 포트 방향. */
 	FQuat GetPortTurn() const;
 

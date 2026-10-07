@@ -16,17 +16,6 @@ DEFINE_LOG_CATEGORY_STATIC(LogCXMRHands, Log, All);
 
 namespace
 {
-	/** Contiguous keypoint runs, one per finger — EHandKeypoint orders each finger metacarpal->tip. */
-	struct FFingerRun { int32 First; int32 Last; };
-
-	static const FFingerRun FingerRuns[] = {
-		{ static_cast<int32>(EHandKeypoint::ThumbMetacarpal),  static_cast<int32>(EHandKeypoint::ThumbTip)  },
-		{ static_cast<int32>(EHandKeypoint::IndexMetacarpal),  static_cast<int32>(EHandKeypoint::IndexTip)  },
-		{ static_cast<int32>(EHandKeypoint::MiddleMetacarpal), static_cast<int32>(EHandKeypoint::MiddleTip) },
-		{ static_cast<int32>(EHandKeypoint::RingMetacarpal),   static_cast<int32>(EHandKeypoint::RingTip)   },
-		{ static_cast<int32>(EHandKeypoint::LittleMetacarpal), static_cast<int32>(EHandKeypoint::LittleTip) },
-	};
-
 	// Named for what it indexes: a bare "IndexTip" collides with locals in other files of the same unity blob.
 	const int32 IndexTipKeypoint = static_cast<int32>(EHandKeypoint::IndexTip);
 
@@ -216,20 +205,20 @@ bool UCXMRHandDebugComponent::DrawHand(EControllerHand Hand, const FLinearColor&
 	// in cm (scaled by WorldToMeters), so nothing here converts units.
 	for (int32 i = 0; i < EHandKeypointCount; ++i)
 	{
-		const float Radius = FMath::Max(Radii.IsValidIndex(i) ? Radii[i] : 0.5f, 0.15f) * RadiusScale;
+		const float Radius = CXMRHands::GetJointRadius(Radii, i, RadiusScale);
 		DrawDebugSphere(World, Positions[i], Radius, 8, DrawColor, false, -1.0f, 0, 0.0f);
 	}
 
 	if (bDrawBones)
 	{
-		const FVector& Wrist = Positions[static_cast<int32>(EHandKeypoint::Wrist)];
-		for (const FFingerRun& Run : FingerRuns)
+		for (const CXMRHands::FBone& Bone : CXMRHands::GetBones())
 		{
-			DrawDebugLine(World, Wrist, Positions[Run.First], DrawColor, false, -1.0f, 0, 0.2f);
-			for (int32 i = Run.First; i < Run.Last; ++i)
-			{
-				DrawDebugLine(World, Positions[i], Positions[i + 1], DrawColor, false, -1.0f, 0, 0.2f);
-			}
+			DrawDebugLine(World, Positions[Bone.Start], Positions[Bone.End], DrawColor, false, -1.0f, 0, 0.2f);
+			// 손가락 접촉 범위도 표시해서 보이는 손과 판정을 맞춤.
+			const FVector Delta = Positions[Bone.End] - Positions[Bone.Start];
+			const float Radius = FMath::Max(CXMRHands::GetJointRadius(Radii, Bone.Start, RadiusScale), CXMRHands::GetJointRadius(Radii, Bone.End, RadiusScale));
+			const FQuat Turn = Delta.IsNearlyZero() ? FQuat::Identity : FQuat::FindBetweenNormals(FVector::UpVector, Delta.GetSafeNormal());
+			DrawDebugCapsule(World, (Positions[Bone.Start] + Positions[Bone.End]) * 0.5f, Delta.Size() * 0.5f + Radius, Radius, Turn, DrawColor, false, -1.f);
 		}
 	}
 

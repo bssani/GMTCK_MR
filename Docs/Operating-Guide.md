@@ -487,7 +487,7 @@ Varjo Lab Tools의 Use/Edit 흐름을 참고했다([공식 소개](https://devel
 | View | 눈 기준, 실물 화면, 모니터 화면, 착좌 선택 | Use / Setup |
 | Placement | 보정 안내, 마커 상태·정렬 오차, 위치·회전 미세조정 | Use / Setup |
 | Display / Depth | 실물 화면·배경, 깊이 범위, 시점 전환, 가상 화면 밝기, 모니터 세부 설정 | Setup |
-| USB / Hands | 플러그 추정 위치와 USB 거리·각도·근접 반응 | Setup |
+| USB / Hands | 생성 손 접촉 상태·접촉 여유·해제 여유 | Setup |
 | Diagnostics | 마커·손·시선·잡기 상태와 진단 표시 | Setup |
 
 **보정 순서**:
@@ -534,7 +534,13 @@ MR·배경·깊이 비교 등 세션용 스위치는 매 실행마다 다시 설
 차량 보정은 별도 파일 `Saved/CXMR/MarkerCalib_*.json`에 저장한다.
 파일은 마커 프로필 ID와 차량 Data Asset 경로로 구분한다. 같은 마커 프로필을 쓰는 차량도 각각 저장한다.
 차량 모델 클래스나 오프셋이 바뀌면 이전 정렬을 적용하지 않는다. 모델 설정 변경 뒤 차량을 다시 로드하고 정렬한다.
-USB 화면의 거리·각도는 손으로 추정한 플러그 기준이며 실제 삽입 여부를 측정하지 않는다.
+USB의 기본 입력은 생성되는 손의 접촉이다. 양손의 관절 구와 손가락 뼈 범위를 같은 추적 좌표로 계산한다.
+`USB / Hands → Hand Contact Margin`은 손 표면 밖의 접촉 여유(cm), `Hand Release Margin`은 해제 여유다.
+기본값은 0.25cm와 0.75cm다. 손이 포트 중심에 닿으면 테두리 빛과 지정한 `Near Sound`가 나오고, 떨어지면 해제된다.
+`Show USB Contact Bounds`로 포트 중심과 범위를 확인한다. 손 표시 크기와 손 좌표 보정은 접촉에도 적용된다.
+H키로 손 표시를 꺼도 접촉 판정은 계속된다. 추적 유예는 이미 켜진 반응만 잠깐 유지하며 새 접촉을 만들지 않는다.
+차량의 USB 메시·재질은 유지하며, 접촉을 케이블 삽입 완료로 표시하지 않는다.
+기존 플러그 정렬이 필요한 Blueprint는 USB 액터의 `Use Hand Contact`를 끈다. 이때만 Reach·각도 설정을 사용한다.
 실물 케이블·금속 플러그의 깊이 인식은 헤드셋에서 별도로 확인해야 한다.
 
 **창 설정**: `BP_CXMRPawn → Desktop Panel → Open On Begin Play`가 자동 열기를 담당한다.
@@ -545,7 +551,7 @@ USB 화면의 거리·각도는 손으로 추정한 플러그 기준이며 실�
 아래 기존 절차에서 말하는 “튜닝 창”은 이 통합 창의 해당 메뉴다.
 `Vehicle placement / Alignment box / Input`은 배치·보정의 상세 설정,
 `Mixed reality / Depth / Display / Monitor`는 화면·깊이,
-`Plug tip / USB port`는 USB·손, `Hands / Eyes / Grab`은 진단에 있다.
+USB 접촉 설정은 USB·손에 있다. 기존 `Plug tip / USB port` 추정·정렬 설정과 `Hands / Eyes / Grab`은 진단에 있다.
 
 **프로젝트 브랜치에서 항목 추가하기** — 창은 기능을 모르고, 기능이 스스로 등록한다. 템플릿을 고칠 필요가 없다.
 

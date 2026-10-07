@@ -55,8 +55,10 @@ namespace
 			{TEXT("Depth.FarZ"), TEXT("Depth Far"), TEXT("Real-object occlusion may stop beyond this range.")},
 			{TEXT("Depth.EnvEstimation"), TEXT("Environment Depth"), TEXT("Runtime environment depth estimation. Requires a headset session.")},
 			{TEXT("Display.Exposure"), TEXT("Virtual Exposure"), TEXT("Virtual scene exposure. Adjust camera exposure in Varjo Base.")},
-			{TEXT("Port.Live"), TEXT("Nearest USB Status"), TEXT("Plug distance and angle estimated from hand joints. Does not measure insertion.")},
-			{TEXT("Port.Debug"), TEXT("Show USB Detection Bounds"), TEXT("Draw the distance and angle limits.")},
+			{TEXT("Port.Live"), TEXT("Hand Contact Status"), TEXT("Contact with the generated tracked hand. Does not measure cable insertion.")},
+			{TEXT("Port.Debug"), TEXT("Show USB Contact Bounds"), TEXT("Draw contact and release margins at the USB centre.")},
+			{TEXT("Port.HandContactDistance"), TEXT("Hand Contact Margin"), TEXT("Extra distance beyond the generated hand surface that counts as touch.")},
+			{TEXT("Port.HandReleaseDistance"), TEXT("Hand Release Margin"), TEXT("Release when the hand moves beyond this margin. Keep larger than the contact margin.")},
 			{TEXT("Port.NearDistance"), TEXT("USB Near Distance"), TEXT("Give near feedback within this distance, regardless of orientation.")},
 			{TEXT("Port.EnterDistance"), TEXT("Alignment Enter Distance"), TEXT("Hold the distance and angle conditions briefly to confirm alignment.")},
 			{TEXT("Port.ExitDistance"), TEXT("Alignment Exit Distance"), TEXT("Keep larger than the enter distance to reduce flicker.")},
@@ -96,7 +98,9 @@ TSharedRef<SWidget> SCXMRControlPanel::RegistryPage(ECXMRControlPage Page, bool 
 			const FString Id = Registered->Id.ToString();
 			const bool bPlacement = Id.StartsWith(TEXT("Vehicle.")) || Id.StartsWith(TEXT("Box.")) || Id.StartsWith(TEXT("Input."));
 			const bool bDisplay = Id.StartsWith(TEXT("MR.")) || Id.StartsWith(TEXT("Depth.")) || Id.StartsWith(TEXT("Display.")) || Id.StartsWith(TEXT("Spectator."));
-			const bool bUSB = Id.StartsWith(TEXT("Port.")) || Id.StartsWith(TEXT("PlugTip."));
+			// 일상 USB 화면은 손 접촉 설정만 표시함. 기존 플러그 설정은 진단에 둠.
+			const bool bUSB = Id == TEXT("Port.Live") || Id == TEXT("Port.Debug")
+				|| Id == TEXT("Port.HandContactDistance") || Id == TEXT("Port.HandReleaseDistance");
 			bool bInclude = Page == ECXMRControlPage::Display ? bDisplay
 				: Page == ECXMRControlPage::USB ? bUSB
 				: Page == ECXMRControlPage::Diagnostics ? !bPlacement && !bDisplay && !bUSB

@@ -70,9 +70,6 @@ namespace
 	/** 접근 해제 거리에 더할 여유(cm). */
 	constexpr float PortApproachHysteresis = 2.f;
 
-	/** 옆 포트로 반응이 자주 바뀌지 않게 거리 차이를 둠(cm). */
-	constexpr float PortNearestLead = 0.5f;
-
 	/** 대기 상태와 접근 반응의 최소 밝기. */
 	constexpr float PortRestGlow = 1.f;
 }
@@ -291,30 +288,19 @@ UCXMRPlugTipComponent* ACXMRUsbPortTarget::FindPlugTip()
 	return PlugTip.Get();
 }
 
-bool ACXMRUsbPortTarget::IsNearestPort(const FVector& Tip, float Distance) const
-{
-	// 가장 가까운 포트만 반응함. 이미 반응 중인 포트에 작은 우선권을 둠.
-
-	const float Mine = Distance - (State != ECXMRPortState::Idle ? PortNearestLead : 0.f);
-	for (TActorIterator<ACXMRUsbPortTarget> It(GetWorld()); It; ++It)
-	{
-		const ACXMRUsbPortTarget* Other = *It;
-		if (Other == this || Other->IsActorBeingDestroyed() || Other->IsHidden())
-		{
-			continue;
-		}
-		const float Theirs = FVector::Distance(Tip, Other->GetActorLocation()) - (Other->State != ECXMRPortState::Idle ? PortNearestLead : 0.f);
-		if (Theirs < Mine || (Theirs == Mine && Other < this))
-		{
-			return false;
-		}
-	}
-	return true;
-}
-
 void ACXMRUsbPortTarget::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (bPreviousHandContactMode != bUseHandContact)
+	{
+		SetState(ECXMRPortState::Idle);
+		bHaveTrackedPose = false;
+		AlignmentElapsed = 0.f;
+		bHadAlignmentObservation = false;
+		bPreviousHandContactMode = bUseHandContact;
+		ApplyState();
+	}
+	if (bUseHandContact) { TickHandContact(DeltaSeconds); return; }
 
 	FVector Tip = FVector::ZeroVector;
 	FVector Direction = FVector::ForwardVector;
@@ -338,7 +324,8 @@ void ACXMRUsbPortTarget::Tick(float DeltaSeconds)
 		Tip = LastTrackedTip;
 		Direction = LastTrackedDirection;
 	}
-	const bool bHavePlug = bFreshPlug || (bHaveTrackedPose && TrackingLostSeconds <= FMath::Max(0.f, TrackingGraceSeconds));
+	const bool bHavePlug = bFreshPlug || (bHaveTrackedPose && State != ECXMRPortState::Idle
+		&& TrackingLostSeconds <= FMath::Max(0.f, TrackingGraceSeconds));
 
 	// 반응 여부와 관계없이 거리와 각도 측정함. 삽입 방향은 포트 화살표의 반대임.
 
@@ -411,6 +398,14 @@ void ACXMRUsbPortTarget::DrawDebug(const FVector& Tip, bool bHavePlug) const
 	}
 
 	const FVector Centre = GetActorLocation();
+	if (bUseHandContact)
+	{
+		const FColor ContactColor = State == ECXMRPortState::Near ? FColor::Cyan : FColor::Silver;
+		DrawDebugSphere(World, Centre, GetHandContactDistance(), 16, ContactColor, false, -1.f, SDPG_World, 0.05f);
+		DrawDebugSphere(World, Centre, GetHandReleaseDistance(), 16, FColor::Silver, false, -1.f, SDPG_World, 0.03f);
+		if (bHavePlug) { DrawDebugLine(World, Tip, Centre, ContactColor, false, -1.f, SDPG_World, 0.05f); }
+		return;
+	}
 	const FColor Colour = State == ECXMRPortState::Aligned  ? FColor(40, 240, 70)
 	                    : State == ECXMRPortState::Approach ? FColor(255, 185, 20)
 	                                                        : FColor(120, 120, 135);
@@ -449,7 +444,12 @@ FText ACXMRUsbPortTarget::DescribeNearest() const
 	}
 	if (!Near)
 	{
-		return LOCTEXT("PlugUntracked", "no plug hand tracked");
+		return bUseHandContact ? LOCTEXT("HandUntracked", "No tracked hand") : LOCTEXT("PlugUntracked", "no plug hand tracked");
+	}
+	if (Near->bUseHandContact)
+	{
+		return FText::FromString(FString::Printf(TEXT("%s: %.2f cm from hand surface - %s"), *Near->Label, Near->LastDistance,
+			Near->State == ECXMRPortState::Near ? TEXT("touching") : TEXT("not touching")));
 	}
 
 	const FText Verdict = Near->State == ECXMRPortState::Aligned  ? LOCTEXT("VerdictAligned", "lined up")
@@ -498,6 +498,7 @@ void ACXMRUsbPortTarget::RegisterTunables()
 		T.Set = [](float Value) { CVarPortDebug->Set(Value > 0.5f ? 1 : 0, ECVF_SetByConsole); };
 		Tuning->Register(MoveTemp(T));
 	}
+	RegisterHandContactTunables();
 	{
 		FCXMRTunable T = Make("Port.EnterDistance", LOCTEXT("Enter", "Lines up within"), ECXMRTunableKind::Float);
 		T.Unit = LOCTEXT("cm", "cm"); T.Min = 0.2f; T.Max = 10.0f; T.Delta = 0.1f; T.Default = 1.5f; T.bPersist = true;
@@ -586,13 +587,14 @@ void ACXMRUsbPortTarget::ApplyState()
 	}
 
 	const bool bVisible = bActive || bShowWhenIdle;
+	const bool bFeedbackVisible = bActive || (!bUseHandContact && bShowWhenIdle);
 	const bool bCustomMesh = IndicatorMesh != nullptr;
 
 	for (UStaticMeshComponent* Bar : { BarTop.Get(), BarBottom.Get(), BarLeft.Get(), BarRight.Get() })
 	{
 		if (Bar)
 		{
-			Bar->SetVisibility(bVisible && (!bCustomMesh || bActive));
+			Bar->SetVisibility(bFeedbackVisible && (!bCustomMesh || bActive));
 		}
 	}
 
