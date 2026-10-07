@@ -30,6 +30,9 @@ public:
 	/** 원본 차량 전체에 적용할 로컬 오프셋. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle", meta=(ToolTip="Local transform applied once to the entire imported vehicle.")) FTransform VehicleRootOffset = FTransform::Identity;
 
+	/** 그룹이 같으면 저장된 앵커 정렬 공유함. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Alignment", meta=(ToolTip="Vehicles with the same group share one saved anchor alignment and calibration marker IDs. None keeps vehicle-specific saves. Model offsets and driver eye references remain per vehicle.")) FName AlignmentGroup = NAME_None;
+
 	/** 눈 기준점을 지정한 차량만 초기 정렬 허용함. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Alignment", meta=(ToolTip="Enable after authoring the driver eye reference for this vehicle.")) bool bHasDriverEyeReference = false;
 

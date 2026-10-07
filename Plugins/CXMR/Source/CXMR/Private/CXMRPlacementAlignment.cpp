@@ -107,6 +107,7 @@ bool UCXMRPlacementComponent::BeginAlignmentCapture()
 	}
 	CaptureModelOffset = Loader->Profile->VehicleRootOffset;
 	CaptureModelClass = Loader->Profile->VehicleActor.ToSoftObjectPath();
+	CaptureAlignmentGroup = GetAlignmentGroup();
 	CapturePose = Root->GetActorTransform();
 	CaptureVehicle = Loader->GetSpawnedVehicle();
 	CaptureVehicleProfile = Loader->Profile;
@@ -134,6 +135,7 @@ bool UCXMRPlacementComponent::IsCapturePoseCurrent() const
 		|| !CaptureVehicle->GetActorTransform().GetRelativeTransform(CapturePose).Equals(CaptureVehicleRelativePose, 0.001f)
 		|| !Loader->Profile->VehicleRootOffset.Equals(CaptureModelOffset, 0.001f)
 		|| Loader->Profile->VehicleActor.ToSoftObjectPath() != CaptureModelClass
+		|| GetAlignmentGroup() != CaptureAlignmentGroup
 		|| !Loader->Profile->DriverEyeReference.Equals(CaptureEyeReference, 0.001f)
 		|| Loader->Profile->bHasDriverEyeReference != bCaptureHasEyeReference
 		|| GetRequiredAlignmentMarkerCount() != CaptureMarkerIds.Num()) { return false; }
@@ -173,7 +175,8 @@ bool UCXMRPlacementComponent::SaveAlignment()
 	// 파일 저장에 성공한 뒤 프로필과 기준 위치를 확정함.
 	if (!WriteCalibrationData(Entries, CaptureMarkerIds))
 	{
-		AlignmentSaveMessage = LOCTEXT("SaveFailed", "Save failed. Previous alignment kept. Check the save location, then retry.");
+		AlignmentSaveMessage = AlignmentStorageMessage.IsEmpty()
+			? LOCTEXT("SaveFailed", "Save failed. Previous alignment kept. Check the save location, then retry.") : AlignmentStorageMessage;
 		return false;
 	}
 	MarkerProfile->Markers = MoveTemp(Entries);

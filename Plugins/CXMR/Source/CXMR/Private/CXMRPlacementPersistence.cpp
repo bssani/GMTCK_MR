@@ -14,8 +14,42 @@
 #include "Windows/WindowsHWrapper.h"
 #endif
 
+#define LOCTEXT_NAMESPACE "CXMRAlignmentStorage"
+
 namespace
 {
+	bool CollectCalibrationIds(const TArray<FCXMRMarkerEntry>& Entries, TSet<int32>& Ids)
+	{
+		Ids.Reset();
+		for (const FCXMRMarkerEntry& Entry : Entries)
+		{
+			if (Entry.Role != ECXMRMarkerRole::Calibration) { continue; }
+			if (Entry.MarkerId <= 0 || Ids.Contains(Entry.MarkerId)) { return false; }
+			Ids.Add(Entry.MarkerId);
+		}
+		return !Ids.IsEmpty();
+	}
+
+	bool ReadGroupIdentity(const TSharedPtr<FJsonObject>& Data, FName Group, TSet<int32>& Ids)
+	{
+		FString StoredGroup;
+		double GroupVersion = 0, AlignmentVersion = 0;
+		const TArray<TSharedPtr<FJsonValue>>* Validated = nullptr;
+		if (!Data.IsValid() || !Data->TryGetStringField(TEXT("alignmentGroup"), StoredGroup)
+			|| FName(*StoredGroup) != Group || !Data->TryGetNumberField(TEXT("alignmentGroupVersion"), GroupVersion) || GroupVersion != 1
+			|| !Data->TryGetNumberField(TEXT("alignmentVersion"), AlignmentVersion) || AlignmentVersion != 1
+			|| !Data->TryGetArrayField(TEXT("alignmentMarkers"), Validated)) { return false; }
+		Ids.Reset();
+		for (const TSharedPtr<FJsonValue>& Value : *Validated)
+		{
+			double Id = 0;
+			if (!Value.IsValid() || !Value->TryGetNumber(Id) || !FMath::IsFinite(Id) || Id <= 0 || Id > MAX_int32
+				|| Id != FMath::FloorToDouble(Id) || Ids.Contains(static_cast<int32>(Id))) { return false; }
+			Ids.Add(static_cast<int32>(Id));
+		}
+		return !Ids.IsEmpty();
+	}
+
 	bool ReplaceCalibrationFile(const FString& Path, const FString& Pending)
 	{
 #if PLATFORM_WINDOWS
@@ -41,11 +75,38 @@ namespace
 bool UCXMRPlacementComponent::WriteCalibrationData(const TArray<FCXMRMarkerEntry>& Entries, const TSet<int32>& ValidatedIds, int32 PrimaryMarker)
 {
 	bLastCalibrationSaveSucceeded = false;
+	AlignmentStorageMessage = FText::GetEmpty();
 	const FString Path = GetCalibrationFilePath();
 	if (Path.IsEmpty() || !MarkerProfile) { return false; }
+	const FName Group = GetAlignmentGroup();
+	if (!Group.IsNone())
+	{
+		TSet<int32> ConfiguredIds;
+		if (!CollectCalibrationIds(Entries, ConfiguredIds) || ConfiguredIds.Num() != ValidatedIds.Num() || !ConfiguredIds.Includes(ValidatedIds))
+		{
+			AlignmentStorageMessage = LOCTEXT("IncompleteGroup", "Not saved. Shared alignment requires a fresh, complete capture of all calibration markers.");
+			return false;
+		}
+		// 다른 마커 구성으로 기존 그룹 파일을 덮어쓰지 않음.
+		if (IFileManager::Get().FileExists(*Path))
+		{
+			FString Previous;
+			TSharedPtr<FJsonObject> PreviousData;
+			TSet<int32> PreviousIds;
+			if (!FFileHelper::LoadFileToString(Previous, *Path)
+				|| !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Previous), PreviousData)
+				|| !ReadGroupIdentity(PreviousData, Group, PreviousIds)
+				|| PreviousIds.Num() != ConfiguredIds.Num() || !PreviousIds.Includes(ConfiguredIds))
+			{
+				AlignmentStorageMessage = LOCTEXT("IncompatibleGroup", "Not saved. The group file has incompatible calibration markers or metadata. Reload a compatible profile, or reset this group's alignment before changing its layout.");
+				return false;
+			}
+		}
+	}
 	TArray<TSharedPtr<FJsonValue>> Markers;
 	for (const FCXMRMarkerEntry& Entry : Entries)
 	{
+		if (!Group.IsNone() && Entry.Role != ECXMRMarkerRole::Calibration) { continue; }
 		if (Entry.LocalOffset.ContainsNaN()) { return false; }
 		const FVector Location = Entry.LocalOffset.GetLocation();
 		const FRotator Rotation = Entry.LocalOffset.Rotator();
@@ -66,7 +127,12 @@ bool UCXMRPlacementComponent::WriteCalibrationData(const TArray<FCXMRMarkerEntry
 	Data->SetStringField(TEXT("units"), TEXT("cm, degrees; marker pose in anchor-local space"));
 	Data->SetArrayField(TEXT("markers"), Markers);
 	const UCXMRVehicleLoaderComponent* Loader = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
-	if (Loader && Loader->Profile)
+	if (!Group.IsNone())
+	{
+		Data->SetStringField(TEXT("alignmentGroup"), Group.ToString());
+		Data->SetNumberField(TEXT("alignmentGroupVersion"), 1);
+	}
+	else if (Loader && Loader->Profile)
 	{
 		Data->SetStringField(TEXT("vehicleProfile"), Loader->Profile->GetPathName());
 		Data->SetStringField(TEXT("vehicleOffset"), Loader->Profile->VehicleRootOffset.ToString());
@@ -95,13 +161,20 @@ bool UCXMRPlacementComponent::WriteCalibrationData(const TArray<FCXMRMarkerEntry
 		return false;
 	}
 	bLastCalibrationSaveSucceeded = true;
+	LoadedAlignmentGroup = Group;
 	return true;
 }
 
 bool UCXMRPlacementComponent::SaveCalibrationToDisk()
 {
 	if (!MarkerProfile) { bLastCalibrationSaveSucceeded = false; return false; }
-	if (bManualAlignment) { return RequestAlignmentSave(); }
+	if (bManualAlignment || bCapturingAlignment || (!GetAlignmentGroup().IsNone() && !HasSavedAlignment())) { return RequestAlignmentSave(); }
+	if (GetAlignmentGroup() != LoadedAlignmentGroup)
+	{
+		bLastCalibrationSaveSucceeded = false;
+		AlignmentStorageMessage = LOCTEXT("ScopeChanged", "Not saved. Alignment Group changed. Reload the vehicle, then confirm and save alignment again.");
+		return false;
+	}
 	TSet<int32> CurrentIds;
 	for (const FCXMRMarkerEntry& Entry : MarkerProfile->Markers)
 	{
@@ -119,10 +192,18 @@ bool UCXMRPlacementComponent::SaveCalibrationToDisk()
 
 bool UCXMRPlacementComponent::LoadCalibrationFromDisk()
 {
+	const FName Group = GetAlignmentGroup();
+	AlignmentStorageMessage = Group.IsNone() ? FText::GetEmpty()
+		: LOCTEXT("GroupLoadRejected", "Shared alignment not loaded. Check the group's calibration marker IDs and saved file.");
 	FString Path = GetCalibrationFilePath();
 	if (Path.IsEmpty() || !MarkerProfile) { return false; }
 	if (!IFileManager::Get().FileExists(*Path))
 	{
+		if (!Group.IsNone())
+		{
+			AlignmentStorageMessage = LOCTEXT("NoGroupSave", "No saved alignment for this group. Align, confirm and save once.");
+			return false;
+		}
 		// 기존 공용 파일은 차량별 저장이 없을 때만 읽음.
 		Path = FPaths::ProjectSavedDir() / TEXT("CXMR")
 			/ FString::Printf(TEXT("MarkerCalib_%s.json"), *MarkerProfile->GetCalibrationId());
@@ -131,14 +212,21 @@ bool UCXMRPlacementComponent::LoadCalibrationFromDisk()
 	if (!FFileHelper::LoadFileToString(Text, *Path)) { return false; }
 	TSharedPtr<FJsonObject> Data;
 	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Data) || !Data.IsValid()) { return false; }
+	TSet<int32> GroupIds;
+	if (!Group.IsNone())
+	{
+		TSet<int32> ConfiguredIds;
+		if (!CollectCalibrationIds(MarkerProfile->Markers, ConfiguredIds) || !ReadGroupIdentity(Data, Group, GroupIds)
+			|| GroupIds.Num() != ConfiguredIds.Num() || !GroupIds.Includes(ConfiguredIds)) { return false; }
+	}
 	const UCXMRVehicleLoaderComponent* Loader = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
 	FString VehicleProfile, Offset;
-	if (Data->TryGetStringField(TEXT("vehicleProfile"), VehicleProfile)
+	if (Group.IsNone() && Data->TryGetStringField(TEXT("vehicleProfile"), VehicleProfile)
 		&& (!Loader || !Loader->Profile || Loader->Profile->GetPathName() != VehicleProfile)) { return false; }
-	if (Data->TryGetStringField(TEXT("vehicleOffset"), Offset)
+	if (Group.IsNone() && Data->TryGetStringField(TEXT("vehicleOffset"), Offset)
 		&& (!Loader || !Loader->Profile || Loader->Profile->VehicleRootOffset.ToString() != Offset)) { return false; }
 	FString VehicleClass;
-	if (Data->TryGetStringField(TEXT("vehicleClass"), VehicleClass)
+	if (Group.IsNone() && Data->TryGetStringField(TEXT("vehicleClass"), VehicleClass)
 		&& (!Loader || !Loader->Profile || Loader->Profile->VehicleActor.ToSoftObjectPath().ToString() != VehicleClass)) { return false; }
 	const TArray<TSharedPtr<FJsonValue>>* Markers = nullptr;
 	if (!Data->TryGetArrayField(TEXT("markers"), Markers) || Markers->IsEmpty()) { return false; }
@@ -160,6 +248,7 @@ bool UCXMRPlacementComponent::LoadCalibrationFromDisk()
 			if (!(*Item)->TryGetNumberField(Keys[Index], Values[Index]) || !FMath::IsFinite(Values[Index])) { return false; }
 		}
 		FCXMRMarkerEntry* Entry = Entries.FindByPredicate([Id](const FCXMRMarkerEntry& Candidate) { return Candidate.MarkerId == Id; });
+		if (!Group.IsNone() && (!GroupIds.Contains(Id) || !Entry || Entry->Role != ECXMRMarkerRole::Calibration)) { return false; }
 		if (!Entry)
 		{
 			FCXMRMarkerEntry Added;
@@ -171,6 +260,7 @@ bool UCXMRPlacementComponent::LoadCalibrationFromDisk()
 		}
 		Entry->LocalOffset = FTransform(FRotator(Values[3], Values[4], Values[5]), FVector(Values[0], Values[1], Values[2]));
 	}
+	if (!Group.IsNone() && (LoadedIds.Num() != GroupIds.Num() || !LoadedIds.Includes(GroupIds))) { return false; }
 	TSet<int32> ValidatedIds;
 	int32 Primary = 0;
 	double Version = 0;
@@ -208,5 +298,9 @@ bool UCXMRPlacementComponent::LoadCalibrationFromDisk()
 	MarkerProfile->Markers = MoveTemp(Entries);
 	SavedAlignmentMarkers = MoveTemp(ValidatedIds);
 	SavedPrimaryMarker = Primary;
+	LoadedAlignmentGroup = Group;
+	AlignmentStorageMessage = FText::GetEmpty();
 	return true;
 }
+
+#undef LOCTEXT_NAMESPACE

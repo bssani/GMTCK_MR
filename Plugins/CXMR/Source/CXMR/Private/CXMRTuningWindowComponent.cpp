@@ -350,7 +350,8 @@ int32 UCXMRTuningWindowComponent::GetCalibrationPhase() const
 		const AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
 		if ((!Placement->bCalibrated && !Placement->IsManualAlignment()) || !IsValid(Root)
 			|| !Root->GetActorTransform().Equals(ConfirmedPose, 0.001f)
-			|| (CalibrationPhase == 2 && Placement->IsManualAlignment() && !Placement->HasAlignmentCapture()))
+			|| (CalibrationPhase == 2 && (Placement->IsManualAlignment() || (!Placement->GetAlignmentGroup().IsNone() && !Placement->HasSavedAlignment()))
+				&& !Placement->HasAlignmentCapture()))
 		{
 			CalibrationPhase = 1;
 			CalibrationMessage = LOCTEXT("PoseChanged", "Placement changed. Confirm alignment again.");
@@ -373,13 +374,28 @@ FText UCXMRTuningWindowComponent::GetCalibrationMessage() const
 	{
 		return LOCTEXT("RestoredAutomatically", "Saved alignment restored from consistent markers. The vehicle stays fixed.");
 	}
-	if (Placement && CalibrationPhase == 2 && Placement->IsManualAlignment())
+	if (Placement && CalibrationPhase == 2 && (Placement->IsManualAlignment() || Placement->HasAlignmentCapture()))
 	{
 		if (bAlignmentSaveFailed) { return CalibrationMessage; }
 		return FText::FromString(FString::Printf(TEXT("Not saved yet. Observe each configured marker: %d / %d captured. Press Enter or select Save Alignment when ready."),
 			Placement->GetCapturedAlignmentMarkerCount(), Placement->GetRequiredAlignmentMarkerCount()));
 	}
 	return CalibrationMessage;
+}
+
+void UCXMRTuningWindowComponent::ResetSharedAlignment()
+{
+	UCXMRPlacementComponent* Placement = FindPlacement();
+	if (!Placement || Placement->GetAlignmentGroup().IsNone()) { return; }
+	if (!Placement->TryResetCalibrationToAuthored())
+	{
+		CalibrationMessage = Placement->GetAlignmentStorageMessage();
+		return;
+	}
+	CancelInitialAlignment();
+	CalibrationPhase = 0;
+	bAlignmentSaveFailed = false;
+	CalibrationMessage = LOCTEXT("GroupReset", "Shared alignment reset. Align, confirm and save this group again.");
 }
 
 void UCXMRTuningWindowComponent::StartCalibration()
@@ -516,7 +532,8 @@ bool UCXMRTuningWindowComponent::ConfirmCalibration()
 	if (!CanConfirmCalibration()) { return false; }
 	AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
 	if (!IsValid(Root)) { return false; }
-	if (Placement->IsManualAlignment() && !Placement->BeginAlignmentCapture())
+	const bool bNeedsCapture = Placement->IsManualAlignment() || (!Placement->GetAlignmentGroup().IsNone() && !Placement->HasSavedAlignment());
+	if (bNeedsCapture && !Placement->BeginAlignmentCapture())
 	{
 		CalibrationMessage = Placement->GetAlignmentSaveMessage();
 		return false;
@@ -532,7 +549,10 @@ bool UCXMRTuningWindowComponent::ConfirmCalibration()
 bool UCXMRTuningWindowComponent::CanSaveCalibration() const
 {
 	const UCXMRPlacementComponent* Placement = FindPlacement();
-	return GetCalibrationPhase() == 2 && Placement && (!Placement->IsManualAlignment() || Placement->CanSaveAlignment());
+	if (GetCalibrationPhase() != 2 || !Placement) { return false; }
+	const bool bNeedsCapture = Placement->IsManualAlignment() || Placement->HasAlignmentCapture()
+		|| (!Placement->GetAlignmentGroup().IsNone() && !Placement->HasSavedAlignment());
+	return !bNeedsCapture || Placement->CanSaveAlignment();
 }
 
 void UCXMRTuningWindowComponent::RequestAlignmentSave()
@@ -553,7 +573,7 @@ bool UCXMRTuningWindowComponent::SaveCalibration()
 {
 	if (!CanSaveCalibration()) { return false; }
 	UCXMRPlacementComponent* Placement = FindPlacement();
-	if (Placement->IsManualAlignment()) { Placement->SaveAlignment(); }
+	if (Placement->IsManualAlignment() || Placement->HasAlignmentCapture()) { Placement->SaveAlignment(); }
 	else if (!Placement->GetMarkerLocationOffset().IsNearlyZero() || !Placement->GetMarkerRotationOffset().IsNearlyZero())
 	{
 		Placement->SaveMarkerOffsetToProfile();
@@ -566,7 +586,8 @@ bool UCXMRTuningWindowComponent::SaveCalibration()
 	bAlignmentSaveFailed = !bSaved;
 	CalibrationPhase = bSaved ? 3 : 2;
 	CalibrationMessage = bSaved ? LOCTEXT("CalibrationSaved", "Calibration saved.")
-		: LOCTEXT("CalibrationSaveFailed", "Save failed. Check the profile and save location, then retry.");
+		: Placement->GetAlignmentStorageMessage().IsEmpty()
+			? LOCTEXT("CalibrationSaveFailed", "Save failed. Check the profile and save location, then retry.") : Placement->GetAlignmentStorageMessage();
 	return bSaved;
 }
 

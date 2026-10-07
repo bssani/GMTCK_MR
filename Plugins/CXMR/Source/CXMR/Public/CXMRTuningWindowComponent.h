@@ -49,6 +49,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void SetSetupMode(bool bEnable);
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool IsSetupMode() const { return bSetupMode; }
 	void StartCalibration();
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI", meta=(ToolTip="Delete the loaded alignment group's save for all group members. Vehicle-specific saves remain unchanged.")) void ResetSharedAlignment();
 	void StartInitialAlignment();
 	void CancelInitialAlignment();
 	bool IsInitialAlignmentPending() const;

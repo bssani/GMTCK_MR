@@ -188,9 +188,13 @@ public:
 
 	/** 저장 파일을 지우고 프로필 원본 복원함. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Placement", meta=(ToolTip="Delete the saved file and restore the offsets the profile shipped with.")) void ResetCalibrationToAuthored();
+	/** 파일 삭제가 실패하면 기존 정렬 유지함. */
+	bool TryResetCalibrationToAuthored();
 
 	/** 현재 보정 파일 경로. 프로필이 없으면 빈 값. */
 	UFUNCTION(BlueprintPure, Category = "CXMR|Placement", meta=(ToolTip="Where the calibration for the current profile is written. Empty if no profile is set.")) FString GetCalibrationFilePath() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|Placement", meta=(ToolTip="Shared alignment group of the loaded vehicle. None uses vehicle-specific persistence.")) FName GetAlignmentGroup() const;
+	UFUNCTION(BlueprintPure, Category = "CXMR|Placement") FText GetAlignmentStorageMessage() const { return AlignmentStorageMessage; }
 
 	/** 임시 조정값. 패널은 Subsystem에 게시한 값을 읽음. */
 	UFUNCTION(BlueprintPure, Category = "CXMR|Placement", meta=(ToolTip="Live temporary offset. NOTE: the control panel must NOT read these — this component does not live on the pawn, so widgets cannot find it. It publishes the same values to the subsystem; UI reads UCXMRSubsystem::GetMarkerLocationOffset() instead.")) FVector GetMarkerLocationOffset() const { return TempMarkerLocationOffset; }
@@ -299,6 +303,7 @@ private:
 	FTransform CaptureVehicleRelativePose;
 	FTransform CaptureModelOffset;
 	FSoftObjectPath CaptureModelClass;
+	FName CaptureAlignmentGroup;
 	FTransform CaptureEyeReference;
 	TWeakObjectPtr<AActor> CaptureVehicle;
 	TWeakObjectPtr<UCXMRVehicleProfile> CaptureVehicleProfile;
@@ -308,6 +313,8 @@ private:
 	bool bCaptureHasEyeReference = false;
 	TSet<int32> SavedAlignmentMarkers;
 	int32 SavedPrimaryMarker = 0;
+	FName LoadedAlignmentGroup;
+	FText AlignmentStorageMessage;
 	bool IsCapturePoseCurrent() const;
 	bool WriteCalibrationData(const TArray<FCXMRMarkerEntry>& Entries, const TSet<int32>& ValidatedIds, int32 PrimaryMarker = 0);
 	bool ComputeSavedAlignmentPose(FTransform& Out, bool& bReady);

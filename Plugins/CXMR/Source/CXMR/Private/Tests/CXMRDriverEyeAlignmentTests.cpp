@@ -28,6 +28,7 @@ namespace
 		UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
 		ACXMRVehicleRoot* Root = nullptr;
 		UCXMRVehicleProfile* Profile = nullptr;
+		TSet<FString> ExtraFiles;
 		FEyeFixture()
 		{
 			GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
@@ -50,9 +51,13 @@ namespace
 		}
 		~FEyeFixture()
 		{
-			const FString Path = Root->Placement->GetCalibrationFilePath();
-			IFileManager::Get().Delete(*Path);
-			IFileManager::Get().Delete(*FPaths::ChangeExtension(Path, TEXT("startup.json")));
+			ExtraFiles.Add(Root->Placement->GetCalibrationFilePath());
+			for (const FString& Path : ExtraFiles)
+			{
+				IFileManager::Get().Delete(*Path);
+				IFileManager::Get().Delete(*FPaths::ChangeExtension(Path, TEXT("startup.json")));
+				IFileManager::Get().Delete(*(Path + TEXT(".pending")));
+			}
 			World->DestroyWorld(false);
 			GEngine->DestroyWorldContext(World);
 		}
@@ -103,6 +108,402 @@ namespace
 		struct FParams { int32 Id; FVector Location; FRotator Rotation; FVector2D Size; } Params{Id, Pose.GetLocation(), Pose.Rotator(), FVector2D(10, 10)};
 		Placement->ProcessEvent(Placement->FindFunctionChecked(TEXT("HandleMarkerMoved")), &Params);
 	}
+
+	void SetAlignmentGroup(FAutomationTestBase& Test, UCXMRVehicleProfile* Profile, FName Group)
+	{
+		FNameProperty* Field = FindFProperty<FNameProperty>(Profile->GetClass(), TEXT("AlignmentGroup"));
+		if (Test.TestNotNull(TEXT("Vehicle profile supports an optional alignment group"), Field)) { Field->SetPropertyValue_InContainer(Profile, Group); }
+	}
+
+	UCXMRVehicleProfile* OtherGroupVehicle(FEyeFixture& Fixture, int32 Index)
+	{
+		UCXMRVehicleProfile* Other = NewObject<UCXMRVehicleProfile>();
+		Other->VehicleActor = ACXMRVehicleRoot::StaticClass();
+		Other->VehicleRootOffset = FTransform(FRotator(0, Index * 15, 0), FVector(-800, Index * 250, 10));
+		UCXMRMarkerProfile* Markers = NewObject<UCXMRMarkerProfile>();
+		Markers->CalibrationId = TEXT("GroupTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
+		Markers->Markers = Fixture.Profile->MarkerProfile->Markers;
+		for (FCXMRMarkerEntry& Entry : Markers->Markers)
+		{
+			Entry.LocalOffset = FTransform(FVector(Index * 300, Entry.MarkerId * 10, 25));
+			Entry.Timeout = Index;
+		}
+		Other->MarkerProfile = Markers;
+		return Other;
+	}
+
+	bool SaveGroupPose(FAutomationTestBase& Test, FEyeFixture& Fixture, const FTransform& First, const FTransform& Second)
+	{
+		UCXMRPlacementComponent* Placement = Fixture.Root->Placement;
+		Fixture.ExtraFiles.Add(Placement->GetCalibrationFilePath());
+		if (!Test.TestTrue(TEXT("Group alignment can be confirmed"), Placement->BeginAlignmentCapture())) { return false; }
+		EyeMarker(Placement, 1, First);
+		EyeMarker(Placement, 2, Second);
+		return Test.TestTrue(TEXT("Fresh complete group alignment saves"), Placement->SaveAlignment());
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupSwitchTest, "CXMR.Alignment.Group.ThreeVehicles",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupSwitchTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FName Group(*(TEXT("SharedTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	FCXMRMarkerEntry Dynamic;
+	Dynamic.MarkerId = 99; Dynamic.Role = ECXMRMarkerRole::DynamicObject; Dynamic.LocalOffset = FTransform(FVector(50, 60, 70));
+	Fixture.Profile->MarkerProfile = DuplicateObject<UCXMRMarkerProfile>(Fixture.Profile->MarkerProfile.Get(), Fixture.Profile);
+	Fixture.Profile->MarkerProfile->Markers.Add(Dynamic);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	ConfigureEye(*this, Fixture.Profile);
+	AlignEye(*this, Fixture.Root->Placement);
+	const FTransform Accepted = Fixture.Root->GetActorTransform();
+	const FTransform First(FVector(100, 20, 30)), Second(FVector(220, 20, 30));
+	if (!SaveGroupPose(*this, Fixture, First, Second)) { return false; }
+	const FString SharedPath = Fixture.Root->Placement->GetCalibrationFilePath();
+	FString Before; FFileHelper::LoadFileToString(Before, *SharedPath);
+	for (int32 Index : {1, 2})
+	{
+		UCXMRVehicleProfile* Other = OtherGroupVehicle(Fixture, Index);
+		SetAlignmentGroup(*this, Other, Group);
+		const FCXMRMarkerEntry* DynamicEntry = Other->MarkerProfile->GetEntryMutable(99);
+		if (!TestNotNull(TEXT("The second vehicle has its own dynamic-object marker"), DynamicEntry)) { return false; }
+		const FTransform DynamicOffset = DynamicEntry->LocalOffset;
+		Fixture.Root->Loader->LoadVehicle(Other);
+		Fixture.ExtraFiles.Add(Fixture.Root->Placement->GetCalibrationFilePath());
+		TestEqual(TEXT("Different vehicle/model/profile IDs share one file"), Fixture.Root->Placement->GetCalibrationFilePath(), SharedPath);
+		TestTrue(TEXT("Switch keeps the accepted anchor without new marker observations"), Fixture.Root->GetActorTransform().Equals(Accepted, 0.01));
+		TestTrue(TEXT("Switch keeps confirmed shared alignment"), Fixture.Root->Placement->bCalibrated);
+		TestTrue(TEXT("Shared restoration metadata is available"), Fixture.Root->Placement->HasSavedAlignment());
+		TestTrue(TEXT("Each model retains its authored offset"), Fixture.Root->Loader->GetSpawnedVehicle()->GetRootComponent()->GetRelativeTransform().Equals(Other->VehicleRootOffset, 0.001));
+		TestTrue(TEXT("Dynamic object offset stays vehicle-specific"), Other->MarkerProfile->GetEntryMutable(99)->LocalOffset.Equals(DynamicOffset));
+		TestEqual(TEXT("Marker tracking settings stay vehicle-specific"), Other->MarkerProfile->GetEntryMutable(1)->Timeout, static_cast<float>(Index));
+	}
+	FString After; FFileHelper::LoadFileToString(After, *SharedPath);
+	TestEqual(TEXT("Switching vehicles does not write the shared file"), After, Before);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupRestoreTest, "CXMR.Alignment.Group.RestoreAndResave",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupRestoreTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FName Group(*(TEXT("RestoreTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	ConfigureEye(*this, Fixture.Profile);
+	UCXMRPlacementComponent* Placement = Fixture.Root->Placement;
+	AlignEye(*this, Placement);
+	const FTransform First(FVector(100, 20, 30)), Second(FVector(220, 20, 30));
+	const FTransform Original = Fixture.Root->GetActorTransform();
+	if (!SaveGroupPose(*this, Fixture, First, Second)) { return false; }
+	UCXMRVehicleProfile* Other = OtherGroupVehicle(Fixture, 1);
+	SetAlignmentGroup(*this, Other, Group);
+	Placement->bCalibrated = false;
+	Fixture.Root->Loader->LoadVehicle(Other);
+	Fixture.Root->SetActorTransform(FTransform::Identity);
+	EyeMarker(Placement, 2, Second);
+	TestTrue(TEXT("Another model restores the shared anchor from one current marker"), Fixture.Root->GetActorTransform().Equals(Original, 0.01));
+	TestTrue(TEXT("Fresh session restoration still requires confirmation"), Placement->NeedsRestoreConfirmation());
+	TestTrue(TEXT("Shared restoration can be accepted"), Placement->ConfirmRestoredAlignment());
+	Placement->NudgeVehicleInFrame(FVector(5, 0, 0), 0, 70, FVector::ZeroVector);
+	const FTransform Updated = Fixture.Root->GetActorTransform();
+	if (!SaveGroupPose(*this, Fixture, First, Second)) { return false; }
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	TestTrue(TEXT("Same-session switch keeps the newly saved pose"), Fixture.Root->GetActorTransform().Equals(Updated, 0.01));
+	Placement->bCalibrated = false;
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	Fixture.Root->SetActorTransform(FTransform::Identity);
+	EyeMarker(Placement, 1, First);
+	TestTrue(TEXT("Saving from B updates A's later restoration"), Fixture.Root->GetActorTransform().Equals(Updated, 0.01));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupIsolationTest, "CXMR.Alignment.Group.Isolation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupIsolationTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	UCXMRPlacementComponent* Placement = Fixture.Root->Placement;
+	ConfigureEye(*this, Fixture.Profile); AlignEye(*this, Placement);
+	const FTransform First(FVector(100, 20, 30)), Second(FVector(220, 20, 30));
+	if (!SaveGroupPose(*this, Fixture, First, Second)) { return false; }
+	const FString IndividualPath = Placement->GetCalibrationFilePath();
+	FString Before; FFileHelper::LoadFileToString(Before, *IndividualPath);
+	const FString Group = TEXT("IsolateTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
+	SetAlignmentGroup(*this, Fixture.Profile, FName(*Group));
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	TestNotEqual(TEXT("Group file is separate from an existing individual save"), Placement->GetCalibrationFilePath(), IndividualPath);
+	TestFalse(TEXT("Enabling sharing does not import the individual file"), Placement->HasSavedAlignment());
+	AlignEye(*this, Placement);
+	if (!SaveGroupPose(*this, Fixture, First, Second)) { return false; }
+	const FString SharedPath = Placement->GetCalibrationFilePath();
+	SetAlignmentGroup(*this, Fixture.Profile, FName(*(Group.ToUpper())));
+	TestEqual(TEXT("Group names follow FName case-insensitive identity"), Placement->GetCalibrationFilePath(), SharedPath);
+	SetAlignmentGroup(*this, Fixture.Profile, FName(*(Group + TEXT("Other"))));
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	TestFalse(TEXT("Another group cannot inherit the saved group"), Placement->HasSavedAlignment());
+	SetAlignmentGroup(*this, Fixture.Profile, NAME_None);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	TestEqual(TEXT("None returns to the original individual file"), Placement->GetCalibrationFilePath(), IndividualPath);
+	TestTrue(TEXT("Individual restoration metadata is preserved"), Placement->HasSavedAlignment());
+	FString After; FFileHelper::LoadFileToString(After, *IndividualPath);
+	TestEqual(TEXT("Sharing leaves the individual file unchanged"), After, Before);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupMarkerSetTest, "CXMR.Alignment.Group.MarkerMismatch",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupMarkerSetTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FName Group(*(TEXT("MismatchTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	ConfigureEye(*this, Fixture.Profile); AlignEye(*this, Fixture.Root->Placement);
+	if (!SaveGroupPose(*this, Fixture, FTransform(FVector(100, 20, 30)), FTransform(FVector(220, 20, 30)))) { return false; }
+	const FString SharedPath = Fixture.Root->Placement->GetCalibrationFilePath();
+	FString Before; FFileHelper::LoadFileToString(Before, *SharedPath);
+	UCXMRVehicleProfile* Other = OtherGroupVehicle(Fixture, 1);
+	SetAlignmentGroup(*this, Other, Group);
+	Other->MarkerProfile->Markers[1].MarkerId = 3;
+	const FTransform Authored = Other->MarkerProfile->Markers[0].LocalOffset;
+	Fixture.Root->Loader->LoadVehicle(Other);
+	Fixture.ExtraFiles.Add(Fixture.Root->Placement->GetCalibrationFilePath());
+	TestFalse(TEXT("A different calibration marker set cannot load shared alignment"), Fixture.Root->Placement->HasSavedAlignment());
+	TestTrue(TEXT("Rejected load preserves authored offsets"), Other->MarkerProfile->Markers[0].LocalOffset.Equals(Authored));
+	ConfigureEye(*this, Other); AlignEye(*this, Fixture.Root->Placement);
+	Fixture.Root->Placement->BeginAlignmentCapture();
+	EyeMarker(Fixture.Root->Placement, 1, FTransform(FVector(100, 20, 30)));
+	EyeMarker(Fixture.Root->Placement, 3, FTransform(FVector(220, 20, 30)));
+	TestFalse(TEXT("An incompatible group member cannot overwrite the existing group"), Fixture.Root->Placement->SaveAlignment());
+	FString After; FFileHelper::LoadFileToString(After, *SharedPath);
+	TestEqual(TEXT("Incompatible save preserves the shared file"), After, Before);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupCaptureTest, "CXMR.Alignment.Group.CaptureScope",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupCaptureTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FName Group(*(TEXT("CaptureTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	ConfigureEye(*this, Fixture.Profile); AlignEye(*this, Fixture.Root->Placement);
+	Fixture.Root->Placement->BeginAlignmentCapture();
+	EyeMarker(Fixture.Root->Placement, 1, FTransform(FVector(100, 20, 30)));
+	EyeMarker(Fixture.Root->Placement, 2, FTransform(FVector(220, 20, 30)));
+	TestTrue(TEXT("Capture is complete before its storage scope changes"), Fixture.Root->Placement->CanSaveAlignment());
+	SetAlignmentGroup(*this, Fixture.Profile, FName(*(Group.ToString() + TEXT("Changed"))));
+	TestFalse(TEXT("Changing group invalidates an in-flight capture"), Fixture.Root->Placement->HasAlignmentCapture());
+	Fixture.ExtraFiles.Add(Fixture.Root->Placement->GetCalibrationFilePath());
+	TestFalse(TEXT("Old capture cannot write a newly selected group"), Fixture.Root->Placement->SaveAlignment());
+	TestFalse(TEXT("No file is created from an invalid capture"), IFileManager::Get().FileExists(*Fixture.Root->Placement->GetCalibrationFilePath()));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupIdentityTest, "CXMR.Alignment.Group.FileIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupIdentityTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FName Group(*(TEXT("IdentityTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	ConfigureEye(*this, Fixture.Profile); AlignEye(*this, Fixture.Root->Placement);
+	if (!SaveGroupPose(*this, Fixture, FTransform(FVector(100, 20, 30)), FTransform(FVector(220, 20, 30)))) { return false; }
+	const FString Path = Fixture.Root->Placement->GetCalibrationFilePath();
+	FString Original; FFileHelper::LoadFileToString(Original, *Path);
+	TSharedPtr<FJsonObject> Data;
+	if (!TestTrue(TEXT("Shared save is valid JSON"), FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Original), Data))) { return false; }
+	Data->SetStringField(TEXT("alignmentGroup"), TEXT("AnotherGroup"));
+	FString WrongGroup; FJsonSerializer::Serialize(Data.ToSharedRef(), TJsonWriterFactory<>::Create(&WrongGroup));
+	FFileHelper::SaveStringToFile(WrongGroup, *Path);
+	TestFalse(TEXT("A shared filename cannot bypass group identity validation"), Fixture.Root->Placement->LoadCalibrationFromDisk());
+	FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Original), Data);
+	Data->RemoveField(TEXT("alignmentVersion"));
+	Data->RemoveField(TEXT("alignmentMarkers"));
+	Data->RemoveField(TEXT("primaryMarker"));
+	FString Unvalidated; FJsonSerializer::Serialize(Data.ToSharedRef(), TJsonWriterFactory<>::Create(&Unvalidated));
+	FFileHelper::SaveStringToFile(Unvalidated, *Path);
+	TestFalse(TEXT("A group cannot load an unvalidated raw layout"), Fixture.Root->Placement->LoadCalibrationFromDisk());
+	TestTrue(TEXT("Rejected reads preserve the already accepted runtime layout"), Fixture.Root->Placement->HasSavedAlignment());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupResetTest, "CXMR.Alignment.Group.ResetScope",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupResetTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	UCXMRPlacementComponent* Placement = Fixture.Root->Placement;
+	ConfigureEye(*this, Fixture.Profile); AlignEye(*this, Placement);
+	const FTransform First(FVector(100, 20, 30)), Second(FVector(220, 20, 30));
+	if (!SaveGroupPose(*this, Fixture, First, Second)) { return false; }
+	const FString Individual = Placement->GetCalibrationFilePath();
+	FString Before; FFileHelper::LoadFileToString(Before, *Individual);
+	const FName Group(*(TEXT("ResetTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	AlignEye(*this, Placement);
+	if (!SaveGroupPose(*this, Fixture, First, Second)) { return false; }
+	const FString Shared = Placement->GetCalibrationFilePath();
+	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Fixture.Root);
+	Control->RegisterComponent();
+	UFunction* Reset = Control->FindFunction(TEXT("ResetSharedAlignment"));
+	if (!TestNotNull(TEXT("The control panel exposes a group alignment reset"), Reset)) { return false; }
+	Control->ProcessEvent(Reset, nullptr);
+	TestEqual(TEXT("Reset returns the panel to the beginning of alignment"), Control->GetCalibrationPhase(), 0);
+	TestFalse(TEXT("Reset removes the selected group's saved alignment"), IFileManager::Get().FileExists(*Shared));
+	TestFalse(TEXT("Reset clears shared restoration metadata"), Placement->HasSavedAlignment());
+	FString After; FFileHelper::LoadFileToString(After, *Individual);
+	TestEqual(TEXT("Group reset preserves an individual alignment file"), After, Before);
+	UCXMRVehicleProfile* Other = OtherGroupVehicle(Fixture, 1);
+	SetAlignmentGroup(*this, Other, Group);
+	Fixture.Root->Loader->LoadVehicle(Other);
+	TestFalse(TEXT("Other group members cannot reload the reset alignment"), Placement->HasSavedAlignment());
+	Fixture.ExtraFiles.Add(Placement->GetCalibrationFilePath());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupChangedResaveTest, "CXMR.Alignment.Group.ChangedScopeResave",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupChangedResaveTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FString Group = TEXT("ResaveScopeTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
+	SetAlignmentGroup(*this, Fixture.Profile, FName(*Group));
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	ConfigureEye(*this, Fixture.Profile); AlignEye(*this, Fixture.Root->Placement);
+	if (!SaveGroupPose(*this, Fixture, FTransform(FVector(100, 20, 30)), FTransform(FVector(220, 20, 30)))) { return false; }
+	const FString OriginalPath = Fixture.Root->Placement->GetCalibrationFilePath();
+	FString Before; FFileHelper::LoadFileToString(Before, *OriginalPath);
+	SetAlignmentGroup(*this, Fixture.Profile, FName(*(Group + TEXT("Changed"))));
+	const FString ChangedPath = Fixture.Root->Placement->GetCalibrationFilePath();
+	Fixture.ExtraFiles.Add(ChangedPath);
+	TestFalse(TEXT("A re-save cannot move the old group's accepted layout into another group"), Fixture.Root->Placement->SaveCalibrationToDisk());
+	TestFalse(TEXT("Changed scope does not get an implicit copy"), IFileManager::Get().FileExists(*ChangedPath));
+	SetAlignmentGroup(*this, Fixture.Profile, NAME_None);
+	Fixture.ExtraFiles.Add(Fixture.Root->Placement->GetCalibrationFilePath());
+	TestFalse(TEXT("Removing a group also requires reloading before a raw re-save"), Fixture.Root->Placement->SaveCalibrationToDisk());
+	FString After; FFileHelper::LoadFileToString(After, *OriginalPath);
+	TestEqual(TEXT("Scope changes preserve the original shared file"), After, Before);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupUnsavedSwitchTest, "CXMR.Alignment.Group.UnsavedAdjustment",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupUnsavedSwitchTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FName Group(*(TEXT("UnsavedTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	ConfigureEye(*this, Fixture.Profile); AlignEye(*this, Fixture.Root->Placement);
+	const FTransform Accepted = Fixture.Root->GetActorTransform();
+	const FTransform First(FVector(100, 20, 30)), Second(FVector(220, 20, 30));
+	if (!SaveGroupPose(*this, Fixture, First, Second)) { return false; }
+	Fixture.Root->Placement->AdjustMarkerOffset(FVector(10, 0, 0), FRotator::ZeroRotator);
+	TestTrue(TEXT("Legacy adjustment enters the fresh confirmation workflow for a group"), Fixture.Root->Placement->IsManualAlignment());
+	UCXMRVehicleProfile* Other = OtherGroupVehicle(Fixture, 1);
+	SetAlignmentGroup(*this, Other, Group);
+	Fixture.Root->Loader->LoadVehicle(Other);
+	TestFalse(TEXT("Switch cannot accept the unsaved adjusted pose as shared alignment"), Fixture.Root->Placement->bCalibrated);
+	EyeMarker(Fixture.Root->Placement, 1, First);
+	TestTrue(TEXT("A current marker restores the saved pose rather than the unsaved adjustment"), Fixture.Root->GetActorTransform().Equals(Accepted, 0.01));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupLearnTest, "CXMR.Alignment.Group.LegacyLearn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupLearnTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FName Group(*(TEXT("LearnTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	ConfigureEye(*this, Fixture.Profile); AlignEye(*this, Fixture.Root->Placement);
+	if (!SaveGroupPose(*this, Fixture, FTransform(FVector(100, 20, 30)), FTransform(FVector(220, 20, 30)))) { return false; }
+	const FString Path = Fixture.Root->Placement->GetCalibrationFilePath();
+	FString Before; FFileHelper::LoadFileToString(Before, *Path);
+	const FTransform OldOffset = Fixture.Profile->MarkerProfile->Markers[0].LocalOffset;
+	EyeMarker(Fixture.Root->Placement, 1, FTransform(FVector(500, 20, 30)));
+	EyeMarker(Fixture.Root->Placement, 3, FTransform(FVector(800, 20, 30)));
+	Fixture.Root->Placement->LearnMarkerLayout();
+	TestFalse(TEXT("Legacy Learn cannot save a partially observed or extended shared layout"), Fixture.Root->Placement->WasLastCalibrationSaveSuccessful());
+	TestTrue(TEXT("Rejected learning preserves the shared runtime offset"), Fixture.Profile->MarkerProfile->Markers[0].LocalOffset.Equals(OldOffset));
+	TestNull(TEXT("Rejected learning does not add a new group marker"), Fixture.Profile->MarkerProfile->GetEntryMutable(3));
+	TestTrue(TEXT("Rejected learning preserves accepted calibration"), Fixture.Root->Placement->bCalibrated);
+	TestFalse(TEXT("A group learning rejection explains the required workflow"), Fixture.Root->Placement->GetAlignmentStorageMessage().IsEmpty());
+	FString After; FFileHelper::LoadFileToString(After, *Path);
+	TestEqual(TEXT("Rejected learning preserves the shared file"), After, Before);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupAutomaticCaptureTest, "CXMR.Alignment.Group.AutomaticFirstSave",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupAutomaticCaptureTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FName Group(*(TEXT("AutoGroupTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Fixture.Root);
+	Control->RegisterComponent();
+	Control->StartCalibration();
+	const FTransform First(FVector(1000, 20, 30)), Second(FVector(1100, 20, 30));
+	EyeMarker(Fixture.Root->Placement, 1, First);
+	EyeMarker(Fixture.Root->Placement, 2, Second);
+	TestTrue(TEXT("Authored marker layout can provide initial placement"), Fixture.Root->Placement->bCalibrated);
+	TestTrue(TEXT("Automatic placement can be confirmed for the group's first save"), Control->ConfirmCalibration());
+	TestTrue(TEXT("A group's first confirmation starts fresh capture even after automatic placement"), Fixture.Root->Placement->HasAlignmentCapture());
+	TestFalse(TEXT("Automatic placement cannot skip the group's fresh observations"), Control->CanSaveCalibration());
+	EyeMarker(Fixture.Root->Placement, 1, First);
+	EyeMarker(Fixture.Root->Placement, 2, Second);
+	TestTrue(TEXT("Fresh observations allow the panel to save"), Control->CanSaveCalibration());
+	Fixture.ExtraFiles.Add(Fixture.Root->Placement->GetCalibrationFilePath());
+	TestTrue(TEXT("Panel saves the complete automatically placed group"), Control->SaveCalibration());
+	TestTrue(TEXT("First save includes restoration metadata"), Fixture.Root->Placement->HasSavedAlignment());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupResetFailureTest, "CXMR.Alignment.Group.ResetFailure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAlignmentGroupResetFailureTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FName Group(*(TEXT("ResetFailureTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	ConfigureEye(*this, Fixture.Profile); AlignEye(*this, Fixture.Root->Placement);
+	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Fixture.Root);
+	Control->RegisterComponent();
+	TestTrue(TEXT("Panel confirms the shared alignment"), Control->ConfirmCalibration());
+	EyeMarker(Fixture.Root->Placement, 1, FTransform(FVector(100, 20, 30)));
+	EyeMarker(Fixture.Root->Placement, 2, FTransform(FVector(220, 20, 30)));
+	Fixture.ExtraFiles.Add(Fixture.Root->Placement->GetCalibrationFilePath());
+	if (!TestTrue(TEXT("Panel saves the group before the reset failure"), Control->SaveCalibration())) { return false; }
+	const FString Path = Fixture.Root->Placement->GetCalibrationFilePath();
+	FString Before; FFileHelper::LoadFileToString(Before, *Path);
+	const FTransform Offset = Fixture.Profile->MarkerProfile->Markers[0].LocalOffset;
+	const FTransform Pose = Fixture.Root->GetActorTransform();
+	IPlatformFile& Platform = FPlatformFileManager::Get().GetPlatformFile();
+	if (!TestTrue(TEXT("Fixture can make the group file read-only"), Platform.SetReadOnly(*Path, true))) { return false; }
+	Control->ResetSharedAlignment();
+	Platform.SetReadOnly(*Path, false);
+	FString After; FFileHelper::LoadFileToString(After, *Path);
+	TestEqual(TEXT("Failed deletion preserves the group file"), After, Before);
+	TestTrue(TEXT("Failed reset preserves restoration metadata"), Fixture.Root->Placement->HasSavedAlignment());
+	TestTrue(TEXT("Failed reset preserves the accepted runtime offset"), Fixture.Profile->MarkerProfile->Markers[0].LocalOffset.Equals(Offset));
+	TestTrue(TEXT("Failed reset preserves the accepted anchor"), Fixture.Root->GetActorTransform().Equals(Pose, 0.001));
+	TestEqual(TEXT("Failed reset preserves the completed panel phase"), Control->GetCalibrationPhase(), 3);
+	TestTrue(TEXT("Failed reset reports failure instead of success"), Control->GetCalibrationMessage().ToString().Contains(TEXT("Reset failed")));
+	Control->ResetSharedAlignment();
+	TestFalse(TEXT("Reset can be retried when file access is restored"), IFileManager::Get().FileExists(*Path));
+	TestEqual(TEXT("Successful retry returns the panel to setup"), Control->GetCalibrationPhase(), 0);
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRDriverEyePivotTest, "CXMR.Alignment.DriverEyePivot",

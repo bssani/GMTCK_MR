@@ -172,6 +172,20 @@ TSharedRef<SWidget> SCXMRControlPanel::CalibrationPage()
 	}
 	return SNew(SVerticalBox)
 		+ SVerticalBox::Slot().AutoHeight().Padding(10.f)
+		[ SNew(STextBlock).Text_Lambda([Weak]
+		{
+			const UCXMRPlacementComponent* Placement = Weak.IsValid() ? Weak->FindPlacement() : nullptr;
+			const FName Group = Placement ? Placement->GetAlignmentGroup() : NAME_None;
+			return Group.IsNone() ? LOCTEXT("VehicleAlignmentScope", "Alignment: Vehicle only")
+				: FText::Format(LOCTEXT("GroupAlignmentScope", "Alignment Group: {0}. Save Alignment and Reset Group Alignment affect all vehicles in this group."), FText::FromName(Group));
+		}).AutoWrapText(true).ColorAndOpacity(CXMRPanelUI::HeaderColor()) ]
+		+ SVerticalBox::Slot().AutoHeight().Padding(10.f, 0.f)
+		[ SNew(STextBlock).Text_Lambda([Weak]
+		{
+			const UCXMRPlacementComponent* Placement = Weak.IsValid() ? Weak->FindPlacement() : nullptr;
+			return Placement ? Placement->GetAlignmentStorageMessage() : FText::GetEmpty();
+		}).AutoWrapText(true).ColorAndOpacity(CXMRPanelUI::ReadoutColor()) ]
+		+ SVerticalBox::Slot().AutoHeight().Padding(10.f)
 		[ SNew(STextBlock).Text(LOCTEXT("EyeHelp", "First setup: sit in the driver seat and face straight ahead. Align once, fine-adjust, then save. Later sessions restore from markers.")).AutoWrapText(true) ]
 		+ SVerticalBox::Slot().AutoHeight().Padding(10.f)
 		[ SNew(STextBlock).Text_Lambda([Weak]
@@ -189,6 +203,15 @@ TSharedRef<SWidget> SCXMRControlPanel::CalibrationPage()
 			.OnClicked_Lambda([Weak] { if (Weak.IsValid()) { Weak->AcceptRestoredAlignment(); } return FReply::Handled(); }) ]
 		+ SVerticalBox::Slot().AutoHeight().Padding(10.f)
 		[ SNew(STextBlock).Text_Lambda([Weak] { return Weak.IsValid() ? Weak->GetCalibrationMessage() : FText::GetEmpty(); }).AutoWrapText(true).ColorAndOpacity(CXMRPanelUI::ReadoutColor()) ]
+		+ SVerticalBox::Slot().AutoHeight().Padding(10.f)
+		[ SNew(SButton).Text(LOCTEXT("ResetGroupAlignment", "Reset Group Alignment"))
+			.ToolTipText(LOCTEXT("ResetGroupHelp", "Delete the shared alignment for this group. Reset Adjustment only discards temporary adjustments."))
+			.Visibility_Lambda([Weak]
+			{
+				const UCXMRPlacementComponent* Placement = Weak.IsValid() ? Weak->FindPlacement() : nullptr;
+				return Weak.IsValid() && Weak->IsSetupMode() && Placement && !Placement->GetAlignmentGroup().IsNone() ? EVisibility::Visible : EVisibility::Collapsed;
+			})
+			.OnClicked_Lambda([Weak] { if (Weak.IsValid()) { Weak->ResetSharedAlignment(); } return FReply::Handled(); }) ]
 		+ SVerticalBox::Slot().AutoHeight()[ RegistryPage(ECXMRControlPage::Calibration) ]
 		+ SVerticalBox::Slot().AutoHeight().Padding(10.f, 18.f)
 		[
