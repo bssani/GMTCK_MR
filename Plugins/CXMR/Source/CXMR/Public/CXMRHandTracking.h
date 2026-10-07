@@ -20,6 +20,15 @@ class UWorld;
 
 namespace CXMRHands
 {
+	struct FBone { int32 Start; int32 End; };
+	struct FContactShape { FVector Start; FVector End; float Radius; EControllerHand Hand; };
+
+	/** 손 표시와 접촉 판정에서 같은 뼈 연결과 반지름 사용함. */
+	CXMR_API const TArray<FBone>& GetBones();
+	CXMR_API float GetJointRadius(const TArray<float>& Radii, int32 Index, float Scale);
+	CXMR_API bool GetContactShapes(const UWorld* World, float RadiusScale, bool bIncludeBones, TArray<FContactShape>& OutShapes);
+	CXMR_API float GetSurfaceDistance(const TArray<FContactShape>& Shapes, FVector Point, FVector& ClosestPoint, EControllerHand* ClosestHand = nullptr);
+
 	/** Tracked joints of one hand in world space, correction applied. False while the hand is not tracked — the
 	 *  tracker keeps returning the last pose after a loss, and a frozen hand drawn in the air reads as a working one. */
 	CXMR_API bool GetJoints(const UWorld* World, EControllerHand Hand, TArray<FVector>& OutPositions, TArray<FQuat>& OutRotations, TArray<float>& OutRadii);
