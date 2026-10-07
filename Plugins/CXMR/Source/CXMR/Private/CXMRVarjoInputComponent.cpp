@@ -33,20 +33,6 @@ UCXMRVarjoInputComponent::UCXMRVarjoInputComponent()
 	}
 
 	static ConstructorHelpers::FObjectFinder<UInputAction>
-		GazeVisFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_GazeVisualizationToggle"));
-	if (GazeVisFinder.Succeeded())
-	{
-		GazeVisualizationToggleAction = GazeVisFinder.Object;
-	}
-
-	static ConstructorHelpers::FObjectFinder<UInputAction>
-		FoveationVisFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_FoveatedRenderingVisualizationToggle"));
-	if (FoveationVisFinder.Succeeded())
-	{
-		FoveationVisualizationToggleAction = FoveationVisFinder.Object;
-	}
-
-	static ConstructorHelpers::FObjectFinder<UInputAction>
 		RangeToggleFinder(TEXT("/CXMR/Core/Input/Actions/IA_Varjo_DepthTestRangeToggle"));
 	if (RangeToggleFinder.Succeeded())
 	{
@@ -122,27 +108,14 @@ void UCXMRVarjoInputComponent::SetupInput(UEnhancedInputComponent* EIC)
 	if (MaskToggleAction)       { EIC->BindAction(MaskToggleAction,       ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnMaskToggle); }
 	if (MarkerToggleAction)     { EIC->BindAction(MarkerToggleAction,     ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnMarkerToggle); }
 	if (HandVisualizationToggleAction) { EIC->BindAction(HandVisualizationToggleAction, ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnHandVisualizationToggle); }
-	if (GazeVisualizationToggleAction)      { EIC->BindAction(GazeVisualizationToggleAction,      ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnGazeVisualizationToggle); }
-	if (FoveationVisualizationToggleAction) { EIC->BindAction(FoveationVisualizationToggleAction, ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnFoveationVisualizationToggle); }
 	if (RecalibrateAction)      { EIC->BindAction(RecalibrateAction,      ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnRecalibrate); }
 	if (PlaceVehicleAction)     { EIC->BindAction(PlaceVehicleAction,     ETriggerEvent::Started, this, &UCXMRVarjoInputComponent::OnPlaceVehicle); }
 
-	// Depth range: Triggered on the bounds so holding the key sweeps them, like the turntable stick.
+	// Depth range: Triggered on the bounds so holding the key sweeps them, while the key is held.
 	if (DepthRangeToggleAction) { EIC->BindAction(DepthRangeToggleAction, ETriggerEvent::Started,   this, &UCXMRVarjoInputComponent::OnDepthRangeToggle); }
 	if (DepthRangeNearZAction)  { EIC->BindAction(DepthRangeNearZAction,  ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnDepthRangeNearZ); }
 	if (DepthRangeFarZAction)   { EIC->BindAction(DepthRangeFarZAction,   ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnDepthRangeFarZ); }
 
-	// Turntable: Triggered fires every frame the stick is held, which is what the rotation wants.
-	if (TurntableAxisAction)   { EIC->BindAction(TurntableAxisAction,   ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnTurntableAxis); }
-	if (SpinLeftToggleAction)  { EIC->BindAction(SpinLeftToggleAction,  ETriggerEvent::Started,   this, &UCXMRVarjoInputComponent::OnSpinLeftToggle); }
-	if (SpinRightToggleAction) { EIC->BindAction(SpinRightToggleAction, ETriggerEvent::Started,   this, &UCXMRVarjoInputComponent::OnSpinRightToggle); }
-
-	// Cycling: Triggered drives the flick, Completed clears the latch when the stick returns to rest.
-	if (CycleTrimAction)
-	{
-		EIC->BindAction(CycleTrimAction, ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnCycleTrim);
-		EIC->BindAction(CycleTrimAction, ETriggerEvent::Completed, this, &UCXMRVarjoInputComponent::OnCycleTrimReleased);
-	}
 	if (CycleVehicleAction)
 	{
 		EIC->BindAction(CycleVehicleAction, ETriggerEvent::Triggered, this, &UCXMRVarjoInputComponent::OnCycleVehicle);
@@ -182,8 +155,6 @@ void UCXMRVarjoInputComponent::OnEnvDepthToggle(const FInputActionValue&)   { if
 void UCXMRVarjoInputComponent::OnMaskToggle(const FInputActionValue&)       { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleMasking(); } }
 void UCXMRVarjoInputComponent::OnMarkerToggle(const FInputActionValue&)     { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleMarkerTracking(); } }
 void UCXMRVarjoInputComponent::OnHandVisualizationToggle(const FInputActionValue&) { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleHandVisualization(); } }
-void UCXMRVarjoInputComponent::OnGazeVisualizationToggle(const FInputActionValue&) { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleGazeVisualization(); } }
-void UCXMRVarjoInputComponent::OnFoveationVisualizationToggle(const FInputActionValue&) { if (UCXMRSubsystem* S = GetCXMR()) { S->ToggleFoveationVisualization(); } }
 void UCXMRVarjoInputComponent::OnRecalibrate(const FInputActionValue&)      { if (UCXMRSubsystem* S = GetCXMR()) { S->RequestRecalibrate(); } }
 void UCXMRVarjoInputComponent::OnPlaceVehicle(const FInputActionValue&)     { if (UCXMRSubsystem* S = GetCXMR()) { S->RequestPlaceInFront(); } }
 
@@ -210,22 +181,7 @@ void UCXMRVarjoInputComponent::OnDepthRangeFarZ(const FInputActionValue& Value)
 	}
 }
 
-// ---------- Viewer: turntable + cycling ----------
-
-void UCXMRVarjoInputComponent::OnTurntableAxis(const FInputActionValue& Value)
-{
-	if (UCXMRSubsystem* S = GetCXMR()) { S->RequestTurntableAxis(Value.Get<float>()); }
-}
-
-void UCXMRVarjoInputComponent::OnSpinLeftToggle(const FInputActionValue&)
-{
-	if (UCXMRSubsystem* S = GetCXMR()) { S->RequestViewerAction(ECXMRViewerAction::SpinLeft); }
-}
-
-void UCXMRVarjoInputComponent::OnSpinRightToggle(const FInputActionValue&)
-{
-	if (UCXMRSubsystem* S = GetCXMR()) { S->RequestViewerAction(ECXMRViewerAction::SpinRight); }
-}
+// ---------- Viewer: vehicle cycling ----------
 
 int32 UCXMRVarjoInputComponent::StepOnFlick(float AxisValue, bool& bLatched)
 {
@@ -255,11 +211,6 @@ void UCXMRVarjoInputComponent::StepOnFlick(float AxisValue, bool& bLatched, ECXM
 	}
 }
 
-void UCXMRVarjoInputComponent::OnCycleTrim(const FInputActionValue& Value)
-{
-	StepOnFlick(Value.Get<float>(), bTrimLatched, ECXMRViewerAction::NextTrim, ECXMRViewerAction::PreviousTrim);
-}
-
 void UCXMRVarjoInputComponent::OnCycleVehicle(const FInputActionValue& Value)
 {
 	StepOnFlick(Value.Get<float>(), bVehicleLatched, ECXMRViewerAction::NextVehicle, ECXMRViewerAction::PreviousVehicle);
@@ -275,7 +226,6 @@ void UCXMRVarjoInputComponent::OnCycleManikin(const FInputActionValue& Value)
 	}
 }
 
-void UCXMRVarjoInputComponent::OnCycleTrimReleased(const FInputActionValue&)    { bTrimLatched = false; }
 void UCXMRVarjoInputComponent::OnCycleVehicleReleased(const FInputActionValue&) { bVehicleLatched = false; }
 void UCXMRVarjoInputComponent::OnCycleManikinReleased(const FInputActionValue&) { bManikinLatched = false; }
 

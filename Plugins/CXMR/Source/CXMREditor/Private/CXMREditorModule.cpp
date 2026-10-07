@@ -62,7 +62,6 @@ private:
 			{
 				if (UCXMRTuningWindowComponent* Panel = FindPlayComponent<UCXMRTuningWindowComponent>())
 				{
-					Panel->SetSetupMode(true);
 					Panel->SelectPage(ECXMRControlPage::Display);
 					Panel->OpenWindow();
 				}

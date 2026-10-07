@@ -134,12 +134,10 @@ void UCXMRSubsystem::DumpMRState() const
 	UE_LOG(LogCXMR, Warning, TEXT("  --- CXMR feature state ---"));
 	UE_LOG(LogCXMR, Warning, TEXT("  VR background visible=%s   (hiding it is what should reveal passthrough)"),
 		bVRBackgroundVisible ? TEXT("true") : TEXT("false"));
-	UE_LOG(LogCXMR, Warning, TEXT("  masking=%s  markers=%s  hands=%s  gaze=%s  foveationOverlay=%s  viewOffset=%.2f"),
+	UE_LOG(LogCXMR, Warning, TEXT("  masking=%s  markers=%s  hands=%s  viewOffset=%.2f"),
 		bMaskingOn ? TEXT("on") : TEXT("off"),
 		bMarkerTrackingOn ? TEXT("on") : TEXT("off"),
 		bHandVisualizationOn ? TEXT("on") : TEXT("off"),
-		bGazeVisualizationOn ? TEXT("on") : TEXT("off"),
-		bFoveationVisualizationOn ? TEXT("on") : TEXT("off"),
 		ViewOffset);
 	UE_LOG(LogCXMR, Warning, TEXT("  depthTest=%s  range=%s near=%.2fm far=%.2fm  envDepth=%s"),
 		bDepthTestOn ? TEXT("on") : TEXT("off"),
@@ -538,40 +536,6 @@ void UCXMRSubsystem::ToggleHandVisualization()
 	SetHandVisualization(!bHandVisualizationOn);
 }
 
-// ---------- Eye tracking instruments ----------
-
-void UCXMRSubsystem::SetGazeVisualization(bool bEnable)
-{
-	if (bGazeVisualizationOn == bEnable)
-	{
-		return;
-	}
-	bGazeVisualizationOn = bEnable;
-	OnGazeVisualizationChanged.Broadcast(bGazeVisualizationOn);
-}
-
-void UCXMRSubsystem::ToggleGazeVisualization()
-{
-	SetGazeVisualization(!bGazeVisualizationOn);
-}
-
-void UCXMRSubsystem::SetFoveationVisualization(bool bEnable)
-{
-	if (bFoveationVisualizationOn == bEnable)
-	{
-		return;
-	}
-	// Not refused while foveated rendering is off, unlike the Varjo example: the overlay is ours, and a key that
-	// silently does nothing is harder to diagnose than one that switches and says why nothing is tinted.
-	bFoveationVisualizationOn = bEnable;
-	OnFoveationVisualizationChanged.Broadcast(bFoveationVisualizationOn);
-}
-
-void UCXMRSubsystem::ToggleFoveationVisualization()
-{
-	SetFoveationVisualization(!bFoveationVisualizationOn);
-}
-
 // ---------- Markers ----------
 
 bool UCXMRSubsystem::SetMarkerTracking(bool bEnable)
@@ -696,21 +660,11 @@ void UCXMRSubsystem::RequestViewerAction(ECXMRViewerAction Action)
 	OnViewerAction.Broadcast(Action);
 }
 
-void UCXMRSubsystem::RequestTurntableAxis(float AxisValue)
-{
-	OnTurntableAxis.Broadcast(AxisValue);
-}
-
-void UCXMRSubsystem::ReportVehicleStatus(FText InVehicleName, int32 InVehicleIndex, int32 InVehicleCount,
-                                         FText InTrimName, int32 InTrimIndex, int32 InTrimCount, int32 InCMFIndex)
+void UCXMRSubsystem::ReportVehicleStatus(FText InVehicleName, int32 InVehicleIndex, int32 InVehicleCount)
 {
 	VehicleName  = InVehicleName;
 	VehicleIndex = InVehicleIndex;
 	VehicleCount = InVehicleCount;
-	TrimName     = InTrimName;
-	TrimIndex    = InTrimIndex;
-	TrimCount    = InTrimCount;
-	CMFIndex     = InCMFIndex;
 	OnVehicleStatusChanged.Broadcast();
 }
 

@@ -149,20 +149,6 @@ public:
 	UFUNCTION(BlueprintPure,     Category = "CXMR|Hands") bool IsHandVisualizationOn() const { return bHandVisualizationOn; }
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Hands") FCXMROnBoolChanged OnHandVisualizationChanged;
 
-	// ---------- Eye tracking instruments ----------
-	// Purely ours, like the hand skeleton. The gaze dot (UCXMRGazeDebugComponent) is bound to
-	// IA_Varjo_GazeVisualizationToggle (G); the foveated-area overlay (UCXMRFoveationOverlayComponent) to
-	// IA_Varjo_FoveatedRenderingVisualizationToggle (I). Both keys were mapped in IMC_Varjo and bound to nothing.
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Eyes") void SetGazeVisualization(bool bEnable);
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Eyes") void ToggleGazeVisualization();
-	UFUNCTION(BlueprintPure,     Category = "CXMR|Eyes") bool IsGazeVisualizationOn() const { return bGazeVisualizationOn; }
-	UPROPERTY(BlueprintAssignable, Category = "CXMR|Eyes") FCXMROnBoolChanged OnGazeVisualizationChanged;
-
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Foveation") void SetFoveationVisualization(bool bEnable);
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Foveation") void ToggleFoveationVisualization();
-	UFUNCTION(BlueprintPure,     Category = "CXMR|Foveation") bool IsFoveationVisualizationOn() const { return bFoveationVisualizationOn; }
-	UPROPERTY(BlueprintAssignable, Category = "CXMR|Foveation") FCXMROnBoolChanged OnFoveationVisualizationChanged;
-
 	/** True while the runtime renders a foveated focus view (supported + Quad View + the FoveatedRendering setting). */
 	UFUNCTION(BlueprintPure, Category = "CXMR|Foveation") bool IsFoveatedRenderingEnabled() const;
 
@@ -205,30 +191,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "CXMR|Placement") FVector  GetMarkerLocationOffset() const { return MarkerLocationOffset; }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Placement") FRotator GetMarkerRotationOffset() const { return MarkerRotationOffset; }
 
-	// ---------- Viewer relay (input/UI -> vehicle actor: turntable, vehicle/trim cycling) ----------
-	// Same rendezvous as placement: the pawn holds the input, the vehicle holds the turntable.
+	// ---------- Viewer relay (input/UI -> vehicle actor: vehicle cycling) ----------
+	// Same rendezvous as placement: the pawn holds the input, the vehicle holds the loader.
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Viewer") void RequestViewerAction(ECXMRViewerAction Action);
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Viewer") FCXMROnViewerAction OnViewerAction;
 
-	/** Held-stick turntable rotation. Raw axis; the turntable applies deadzone and speed. */
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Viewer") void RequestTurntableAxis(float AxisValue);
-	UPROPERTY(BlueprintAssignable, Category = "CXMR|Viewer") FCXMROnFloatChanged OnTurntableAxis;
-
 	// ---------- Viewer status mirror (vehicle actor -> UI, decoupled) ----------
 	// The loader lives on the vehicle actor; the panel only ever knows the subsystem. The loader
-	// reports its current selection here on every load / trim / CMF change, and the panel reads it
+	// reports its current selection here on every vehicle load, and the panel reads it
 	// back — so the display stays live without the widget ever holding a loader reference.
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Viewer")
-	void ReportVehicleStatus(FText VehicleName, int32 VehicleIndex, int32 VehicleCount,
-	                         FText TrimName, int32 TrimIndex, int32 TrimCount, int32 CMFIndex);
+	void ReportVehicleStatus(FText VehicleName, int32 VehicleIndex, int32 VehicleCount);
 
 	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") FText GetVehicleName() const  { return VehicleName; }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") int32 GetVehicleIndex() const { return VehicleIndex; }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") int32 GetVehicleCount() const { return VehicleCount; }
-	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") FText GetTrimName() const     { return TrimName; }
-	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") int32 GetTrimIndex() const    { return TrimIndex; }
-	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") int32 GetTrimCount() const    { return TrimCount; }
-	UFUNCTION(BlueprintPure, Category = "CXMR|Viewer") int32 GetCMFIndex() const     { return CMFIndex; }
 
 	/** Fires on every vehicle status change — the panel refreshes off this like any other. */
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Viewer") FCXMROnRequest OnVehicleStatusChanged;
@@ -261,8 +238,6 @@ private:
 	UPROPERTY(Transient) bool bMarkerTrackingOn = false;
 	UPROPERTY(Transient) bool bVRBackgroundVisible = true;
 	UPROPERTY(Transient) bool bHandVisualizationOn = false;
-	UPROPERTY(Transient) bool bGazeVisualizationOn = false;
-	UPROPERTY(Transient) bool bFoveationVisualizationOn = false;
 
 	// Depth test range. ON by default, and that default is the point: leaving it off hands the
 	// compositor farZ = HUGE_VALF (see the header comment above) and the room flickers.
@@ -273,10 +248,6 @@ private:
 	UPROPERTY(Transient) FText VehicleName;
 	UPROPERTY(Transient) int32 VehicleIndex = 0;
 	UPROPERTY(Transient) int32 VehicleCount = 0;
-	UPROPERTY(Transient) FText TrimName;
-	UPROPERTY(Transient) int32 TrimIndex = 0;
-	UPROPERTY(Transient) int32 TrimCount = 0;
-	UPROPERTY(Transient) int32 CMFIndex  = 0;
 
 	UPROPERTY(Transient) FText ManikinName;
 	UPROPERTY(Transient) int32 ManikinIndex = 0;

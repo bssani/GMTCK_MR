@@ -16,8 +16,7 @@ public class CXMR : ModuleRules
 			"InputCore",
 			"EnhancedInput",
 			"HeadMountedDisplay",
-			// Public: CXMRControlPanelWidget.h derives from UUserWidget and CXMRPawn.h exposes
-			// WidgetComponent / WidgetInteractionComponent, so any module including those headers needs UMG.
+			// 데스크톱 패널 위젯에서 UMG 사용함.
 			"UMG",
 			// Varjo plugin — CXMR is the single façade over its API (markers, depth, MR, view offset).
 			"VarjoOpenXR",
@@ -30,9 +29,6 @@ public class CXMR : ModuleRules
 			// Marker calibration is written to Saved/CXMR as JSON: a cooked build cannot write back to
 			// its own data assets, and text is what makes a remote session diagnosable over the phone.
 			"Json",
-			// Gaze for the G instrument (UCXMRGazeDebugComponent). An engine module; the OpenXREyeTracker plugin that
-			// feeds it is switched on by the Varjo plugin.
-			"EyeTracker",
 			// IOpenXRHMD::IsRunning. The Varjo plugin hands its cached session handle to the runtime without checking that a
 			// session exists, so CXMR only calls through while one is running (CXMRSubsystem.cpp IsXRSessionRunning).
 			"OpenXRHMD",

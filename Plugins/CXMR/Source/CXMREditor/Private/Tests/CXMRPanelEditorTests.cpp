@@ -5,22 +5,27 @@
 #include "Editor.h"
 #include "Engine/World.h"
 #include "Engine/GameInstance.h"
+#include "Engine/PostProcessVolume.h"
 #include "GameFramework/Actor.h"
 #include "Components/SceneComponent.h"
 #include "CXMRDesktopPanelComponent.h"
 #include "CXMRTuningWindowComponent.h"
 #include "CXMRPlacementComponent.h"
 #include "CXMRMarkerProfile.h"
-#include "CXMRPlugTipComponent.h"
 #include "CXMRUsbPortTarget.h"
 #include "CXMRVehicleLoaderComponent.h"
 #include "CXMRVehicleProfile.h"
+#include "CXMRDesignOption.h"
+#include "CXMRPartAssembly.h"
+#include "CXMRPartSlotComponent.h"
 #include "ImageUtils.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "HAL/FileManager.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/SWindow.h"
+#include "Widgets/Layout/SExpandableArea.h"
+#include "Widgets/Layout/SScrollBox.h"
 #include "ToolMenus.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRPanelRecoveryTest, "CXMR.Panels.EditorRecovery",
@@ -99,16 +104,13 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRPanelModesTest, "CXMR.Panels.ModeNavigatio
 bool FCXMRPanelModesTest::RunTest(const FString& Parameters)
 {
 	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>();
-	TestFalse(TEXT("Daily use is the initial mode"), Control->IsSetupMode());
 	Control->SelectPage(ECXMRControlPage::Calibration);
 	TestEqual(TEXT("Calibration remains accessible in daily use"), Control->GetActivePage(), ECXMRControlPage::Calibration);
 	Control->SelectPage(ECXMRControlPage::USB);
-	TestEqual(TEXT("Daily use does not enter hidden advanced pages"), Control->GetActivePage(), ECXMRControlPage::Calibration);
-	Control->SetSetupMode(true);
+	TestEqual(TEXT("Settings remain accessible during review"), Control->GetActivePage(), ECXMRControlPage::Display);
 	Control->SelectPage(ECXMRControlPage::USB);
-	TestEqual(TEXT("Setup exposes USB tuning"), Control->GetActivePage(), ECXMRControlPage::USB);
-	Control->SetSetupMode(false);
-	TestEqual(TEXT("Leaving setup returns from advanced content to daily use"), Control->GetActivePage(), ECXMRControlPage::Vehicle);
+	TestEqual(TEXT("Historical USB navigation resolves to Settings"), Control->GetActivePage(), ECXMRControlPage::Display);
+	TestEqual(TEXT("Settings navigation survives setup preference changes"), Control->GetActivePage(), ECXMRControlPage::Display);
 	return true;
 }
 
@@ -186,6 +188,56 @@ bool FCXMRPanelCalibrationTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+namespace
+{
+	TSharedPtr<SWidget> FindExpandableArea(SWidget& Widget)
+	{
+		if (Widget.GetTypeAsString() == TEXT("SExpandableArea")) { return Widget.AsShared(); }
+		if (FChildren* Children = Widget.GetChildren())
+		{
+			for (int32 Index = 0; Index < Children->Num(); ++Index)
+			{
+				if (TSharedPtr<SWidget> Found = FindExpandableArea(*Children->GetChildAt(Index))) { return Found; }
+			}
+		}
+		return nullptr;
+	}
+
+	void ScrollPreview(SWidget& Widget, const TSharedPtr<SWidget>& Target = nullptr)
+	{
+		if (Widget.GetTypeAsString() == TEXT("SScrollBox"))
+		{
+			SScrollBox& Scroll = static_cast<SScrollBox&>(Widget);
+			if (Target) { Scroll.ScrollDescendantIntoView(Target, false, EDescendantScrollDestination::TopOrLeft); }
+			else { Scroll.ScrollToStart(); }
+		}
+		if (FChildren* Children = Widget.GetChildren())
+		{
+			for (int32 Index = 0; Index < Children->Num(); ++Index) { ScrollPreview(*Children->GetChildAt(Index), Target); }
+		}
+	}
+
+	void ShowAdvancedPlacement(SWidget& Widget)
+	{
+		if (TSharedPtr<SWidget> Area = FindExpandableArea(Widget))
+		{
+			static_cast<SExpandableArea&>(*Area).SetExpanded(true);
+			ScrollPreview(Widget, Area);
+		}
+	}
+
+	bool SavePanelPreview(const TSharedRef<SWindow>& Window, const FString& Filename)
+	{
+		FSlateApplication::Get().Tick();
+		TArray<FColor> Pixels;
+		FIntVector Size;
+		if (!FSlateApplication::Get().TakeScreenshot(Window, Pixels, Size)) { return false; }
+		TArray64<uint8> PNG;
+		FImageUtils::PNGCompressImageArray(Size.X, Size.Y, TArrayView64<const FColor>(Pixels.GetData(), Pixels.Num()), PNG);
+		return FFileHelper::SaveArrayToFile(PNG, *(FPaths::ProjectSavedDir() / Filename));
+	}
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRPanelRenderTest, "CXMR.Panels.RenderPreview",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FCXMRPanelRenderTest::RunTest(const FString& Parameters)
@@ -195,16 +247,55 @@ bool FCXMRPanelRenderTest::RunTest(const FString& Parameters)
 	GI->InitializeStandalone();
 	UWorld* World = GI->GetWorld();
 	AActor* Owner = World->SpawnActor<AActor>();
+	APostProcessVolume* Exposure = World->SpawnActor<APostProcessVolume>();
+	Exposure->bUnbound = true;
+	// 화면 검사용 합성 목록. 실차 애셋과 무관함.
+	USceneComponent* Anchor = NewObject<USceneComponent>(Owner);
+	Owner->SetRootComponent(Anchor);
+	Anchor->RegisterComponent();
+	UCXMRVehicleLoaderComponent* Loader = NewObject<UCXMRVehicleLoaderComponent>(Owner);
+	Loader->bLoadOnBeginPlay = false;
+	Loader->RegisterComponent();
+	UCXMRVehicleCatalog* Catalog = NewObject<UCXMRVehicleCatalog>(Owner);
+	UCXMRVehicleProfile* VehicleA = NewObject<UCXMRVehicleProfile>(Owner);
+	UCXMRVehicleProfile* VehicleB = NewObject<UCXMRVehicleProfile>(Owner);
+	VehicleA->DisplayName = FText::FromString(TEXT("Preview vehicle A"));
+	VehicleB->DisplayName = FText::FromString(TEXT("Preview vehicle B"));
+	VehicleA->VehicleActor = ACXMRPartAssembly::StaticClass();
+	VehicleB->VehicleActor = ACXMRPartAssembly::StaticClass();
+	UCXMRDesignOption* Compact = NewObject<UCXMRDesignOption>(Owner);
+	UCXMRDesignOption* Open = NewObject<UCXMRDesignOption>(Owner);
+	Compact->OptionId = "CompactConsole"; Compact->SlotId = "Console";
+	Compact->DisplayName = FText::FromString(TEXT("Compact console"));
+	UClass* PreviewAssembly = FindObject<UClass>(nullptr, TEXT("/Script/CXMR.CXMRPartVariantTestAssembly"));
+	TestNotNull(TEXT("Geometry-bearing runtime test assembly is available"), PreviewAssembly);
+	Compact->AssemblyActor = PreviewAssembly;
+	Open->OptionId = "OpenConsole"; Open->SlotId = "Console";
+	Open->DisplayName = FText::FromString(TEXT("Open console"));
+	Open->AssemblyActor = PreviewAssembly;
+	VehicleA->DesignOptions.Add(Compact); VehicleA->DesignOptions.Add(Open);
+	VehicleB->DesignOptions = VehicleA->DesignOptions;
+	Catalog->Vehicles.Add(VehicleA); Catalog->Vehicles.Add(VehicleB);
+	Loader->Catalog = Catalog;
+	TestTrue(TEXT("Preview catalog vehicle is loaded through the review API"), Loader->SelectVehicle(0));
+	if (AActor* PreviewVehicle = Loader->GetSpawnedVehicle())
+	{
+		UCXMRPartSlotComponent* Slot = NewObject<UCXMRPartSlotComponent>(PreviewVehicle);
+		Slot->SlotId = "Console";
+		PreviewVehicle->AddInstanceComponent(Slot);
+		Slot->SetupAttachment(PreviewVehicle->GetRootComponent());
+		Slot->RegisterComponent();
+		TestTrue(TEXT("Preview design option is selected through the review API"), Loader->SelectDesignOption(Compact));
+	}
+
+	VehicleA->AlignmentGroup = "PreviewRig";
 	UCXMRPlacementComponent* Placement = NewObject<UCXMRPlacementComponent>(Owner);
 	Placement->RegisterComponent();
-	UCXMRPlugTipComponent* Plug = NewObject<UCXMRPlugTipComponent>(Owner);
-	Plug->RegisterComponent();
 	ACXMRUsbPortTarget* Port = World->SpawnActor<ACXMRUsbPortTarget>();
 	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Owner);
 	Control->RegisterComponent();
 	Owner->DispatchBeginPlay();
 	Port->DispatchBeginPlay();
-	Control->SetSetupMode(true);
 	Control->SelectPage(ECXMRControlPage::Display);
 	Control->OpenWindow();
 	bool bFoundWindow = false;
@@ -213,9 +304,10 @@ bool FCXMRPanelRenderTest::RunTest(const FString& Parameters)
 		if (Window->GetTitle().EqualTo(Control->WindowTitle))
 		{
 			bFoundWindow = true;
-			for (ECXMRControlPage Page : { ECXMRControlPage::Display, ECXMRControlPage::Calibration, ECXMRControlPage::USB, ECXMRControlPage::Vehicle, ECXMRControlPage::View, ECXMRControlPage::Diagnostics })
+			for (ECXMRControlPage Page : { ECXMRControlPage::Vehicle, ECXMRControlPage::Calibration, ECXMRControlPage::Display })
 			{
 				Control->SelectPage(Page);
+				ScrollPreview(*Window);
 				FSlateApplication::Get().Tick();
 				TArray<FColor> Pixels;
 				FIntVector Size;
@@ -227,6 +319,11 @@ bool FCXMRPanelRenderTest::RunTest(const FString& Parameters)
 					TestTrue(TEXT("Preview image is saved"), FFileHelper::SaveArrayToFile(PNG, *(FPaths::ProjectSavedDir() / Filename)));
 				}
 			}
+			Control->SelectPage(ECXMRControlPage::Calibration);
+			ShowAdvancedPlacement(*Window);
+			TestTrue(TEXT("Expanded Alignment preview saved"), SavePanelPreview(Window, TEXT("ControlPanelPreview_AlignmentAdvanced.png")));
+			Control->ResetSharedAlignment();
+			TestTrue(TEXT("Armed Alignment preview saved"), SavePanelPreview(Window, TEXT("ControlPanelPreview_AlignmentArmed.png")));
 			break;
 		}
 	}

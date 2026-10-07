@@ -1,7 +1,7 @@
 // Copyright GMTCK CX.
 
 // 차량 선택과 보기 조작 담당함.
-// 데스크톱은 같은 바인딩을 쓰고 손목은 간단한 탭을 유지함.
+// 데스크톱 선택 바인딩 유지함.
 // 보정과 설정은 통합 창에서 조작함.
 // Subsystem 값을 읽고 씀.
 #pragma once
@@ -13,6 +13,7 @@
 class SWidget;
 class SWidgetSwitcher;
 class UCXMRSubsystem;
+class UCXMRVehicleLoaderComponent;
 class UCXMRTuningSubsystem;
 
 UCLASS(DisplayName = "CXMR Control Panel")
@@ -27,6 +28,7 @@ public:
 	/** 통합 창에서도 같은 바인딩 사용함. */
 	TSharedRef<SWidget> BuildDisplayPage();
 	TSharedRef<SWidget> BuildViewerPage();
+	UCXMRVehicleLoaderComponent* FindLoader() const;
 
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -36,6 +38,9 @@ private:
 	UCXMRSubsystem* GetCXMR() const;
 	UCXMRTuningSubsystem* GetTuning() const;
 
+	// Slate 행이 소프트 애셋을 표시하는 동안 유지함.
+	UPROPERTY(Transient) TArray<TObjectPtr<UObject>> ReviewAssets;
+	mutable TWeakObjectPtr<UCXMRVehicleLoaderComponent> CachedLoader;
 	int32 ActiveTab = 0;
 	TSharedPtr<SWidgetSwitcher> Pages;
 };

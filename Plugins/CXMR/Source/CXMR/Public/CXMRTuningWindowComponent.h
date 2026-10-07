@@ -19,6 +19,8 @@ class UCXMRControlPanelWidget;
 class UCXMRPlacementComponent;
 class UCXMRMarkerProfile;
 class UCXMRVehicleProfile;
+class UCXMRVehicleLoaderComponent;
+class APostProcessVolume;
 
 UENUM(BlueprintType)
 enum class ECXMRControlPage : uint8
@@ -46,10 +48,10 @@ public:
 	UFUNCTION(BlueprintPure,     Category = "CXMR|Tuning Window") bool IsWindowOpen() const;
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void SelectPage(ECXMRControlPage Page);
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") ECXMRControlPage GetActivePage() const { return ActivePage; }
-	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void SetSetupMode(bool bEnable);
-	UFUNCTION(BlueprintPure, Category = "CXMR|UI") bool IsSetupMode() const { return bSetupMode; }
 	void StartCalibration();
-	UFUNCTION(BlueprintCallable, Category = "CXMR|UI", meta=(ToolTip="Delete the loaded alignment group's save for all group members. Vehicle-specific saves remain unchanged.")) void ResetSharedAlignment();
+	UFUNCTION(BlueprintCallable, Category = "CXMR|UI", meta=(ToolTip="Click twice within five seconds to delete the loaded group alignment. Vehicle-specific saves remain unchanged.")) void ResetSharedAlignment();
+	bool IsSharedAlignmentResetArmed() const;
+	FText GetSharedAlignmentResetLabel() const;
 	void StartInitialAlignment();
 	void CancelInitialAlignment();
 	bool IsInitialAlignmentPending() const;
@@ -63,7 +65,9 @@ public:
 	bool CanSaveCalibration() const;
 	int32 GetCalibrationPhase() const;
 	FText GetCalibrationMessage() const;
+	FText GetAlignmentStatus(const UCXMRVehicleLoaderComponent* Loader) const;
 	UCXMRPlacementComponent* FindPlacement() const;
+	bool HasCalibrationError() const { return bAlignmentSaveFailed; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -72,6 +76,18 @@ protected:
 private:
 	void FinishInitialAlignment();
 	void CaptureSessionIdentity(UCXMRPlacementComponent* Placement);
+	UFUNCTION() void HandleDisplayModeChanged(bool bMixedReality);
+	void CaptureExposureBaseline();
+	float GetExposurePreset(bool bMR) const;
+	void SetExposurePreset(bool bMR, float Value);
+	TWeakObjectPtr<APostProcessVolume> ExposureVolume;
+	float BaselineExposure = 0.f;
+	bool bBaselineExposureOverride = false;
+	bool bHasMRExposure = false;
+	bool bHasVRExposure = false;
+	float MRExposure = 0.f;
+	float VRExposure = 0.f;
+	bool bExposureModeMR = false;
 	FTimerHandle InitialAlignmentTimer;
 	FTransform InitialEyeReference;
 	FTransform InitialModelOffset;
@@ -87,7 +103,9 @@ private:
 	TSharedPtr<SWindow> Window;
 	FDelegateHandle TunablesChangedHandle;
 	ECXMRControlPage ActivePage = ECXMRControlPage::Vehicle;
-	bool bSetupMode = false;
+	TWeakObjectPtr<UCXMRPlacementComponent> ResetPlacement;
+	FName ResetGroup;
+	double ResetDeadline = 0.0;
 	// 기준이 바뀌면 확인 무효화함. 옛 위치로 돌아와도 복구하지 않음.
 	mutable int32 CalibrationPhase = 0;
 	mutable FText CalibrationMessage;

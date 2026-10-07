@@ -2,9 +2,9 @@
 
 #include "CXMRUsbPortTarget.h"
 #include "CXMRTuningSubsystem.h"
-#include "CXMRPlugTipComponent.h"
 
 #include "Components/ArrowComponent.h"
+#include "Components/AudioComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/GameInstance.h"
@@ -24,53 +24,12 @@ DEFINE_LOG_CATEGORY_STATIC(LogCXMRPort, Log, All);
 
 // 전역 CVar로 모든 포트에 같은 설정 적용함. 음수면 각 포트의 기본값 사용함.
 
-static TAutoConsoleVariable<int32> CVarPortDebug(
-	TEXT("CXMR.Port.Debug"),
-	0,
-	TEXT("Draw what a USB port actually judges: the ball of Enter Distance around the PORT (not around the marker mesh, ")
-	TEXT("which may sit anywhere), the fainter ball where it lets go again, the Max Angle cone along the insertion ")
-	TEXT("axis, and a line to the plug tip once it is within Approach Distance."),
-	ECVF_Default);
-
-static TAutoConsoleVariable<float> CVarPortEnter(
-	TEXT("CXMR.Port.EnterDistance"),
-	-1.f,
-	TEXT("cm from the port centre that lines the plug up, for every port. Below zero = each port keeps its own."),
-	ECVF_Default);
-
-static TAutoConsoleVariable<float> CVarPortExit(
-	TEXT("CXMR.Port.ExitDistance"),
-	-1.f,
-	TEXT("cm the plug must pass to let a lined-up port go again. Below zero = each port keeps its own."),
-	ECVF_Default);
-
-static TAutoConsoleVariable<float> CVarPortMaxAngle(
-	TEXT("CXMR.Port.MaxAngle"),
-	-1.f,
-	TEXT("Degrees off the port axis that still count as straight. Below zero = each port keeps its own."),
-	ECVF_Default);
-
-static TAutoConsoleVariable<float> CVarPortApproach(
-	TEXT("CXMR.Port.ApproachDistance"),
-	-1.f,
-	TEXT("cm at which the nearest port starts guiding. Below zero = each port keeps its own."),
-	ECVF_Default);
-
-static TAutoConsoleVariable<float> CVarPortNear(TEXT("CXMR.Port.NearDistance"), -1.f,
-	TEXT("USB proximity feedback distance in cm. Below zero uses each port's distance."), ECVF_Default);
+static TAutoConsoleVariable<int32> CVarPortDebug(TEXT("CXMR.Port.Debug"), 0,
+	TEXT("Draw tracked hand contact and release margins around the port."), ECVF_Default);
 
 namespace
 {
-	/** 엔진 기본 큐브와 원기둥 크기는 100cm. */
 	constexpr float CubeCm = 100.f;
-
-	/** 정렬 경계에서 깜빡이지 않게 해제 각도에 여유를 둠. */
-	constexpr float AngleHysteresis = 10.f;
-
-	/** 접근 해제 거리에 더할 여유(cm). */
-	constexpr float PortApproachHysteresis = 2.f;
-
-	/** 대기 상태와 접근 반응의 최소 밝기. */
 	constexpr float PortRestGlow = 1.f;
 }
 
@@ -101,20 +60,17 @@ ACXMRUsbPortTarget::ACXMRUsbPortTarget()
 	BarLeft   = MakeShape(TEXT("BarLeft"));
 	BarRight  = MakeShape(TEXT("BarRight"));
 	Indicator = MakeShape(TEXT("Indicator"));
-	GuideBeam = MakeShape(TEXT("GuideBeam"));
 
 	// 엔진과 플러그인 애셋만 사용함.
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeFinder(TEXT("/Engine/BasicShapes/Cube"));
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderFinder(TEXT("/Engine/BasicShapes/Cylinder"));
 	// 카메라 배경에서도 보이도록 Unlit 재질 사용함.
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> UnlitFinder(TEXT("/CXMR/Core/Materials/M_CXMRUnlitColor"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> BasicFinder(TEXT("/Engine/BasicShapes/BasicShapeMaterial"));
 	static ConstructorHelpers::FObjectFinder<USoundBase> SoundFinder(TEXT("/Engine/VREditor/Sounds/UI/Object_Snaps_To_Grid"));
 	if (CubeFinder.Succeeded())     { BarMesh   = CubeFinder.Object; }
-	if (CylinderFinder.Succeeded()) { GuideMesh = CylinderFinder.Object; }
 	if (UnlitFinder.Succeeded())    { BarMaterial = UnlitFinder.Object; }
 	else if (BasicFinder.Succeeded()) { BarMaterial = BasicFinder.Object; }
-	if (SoundFinder.Succeeded())    { AlignedSound = SoundFinder.Object; NearSound = SoundFinder.Object; }
+	if (SoundFinder.Succeeded())    { NearSound = SoundFinder.Object; }
 }
 
 void ACXMRUsbPortTarget::OnConstruction(const FTransform& Transform)
@@ -123,32 +79,6 @@ void ACXMRUsbPortTarget::OnConstruction(const FTransform& Transform)
 	// 에디터에서도 크기와 오프셋 변경을 반영함.
 	LayoutFrame();
 	ApplyState();
-}
-
-float ACXMRUsbPortTarget::GetEnterDistance() const
-{
-	const float Tuned = CVarPortEnter.GetValueOnGameThread();
-	return Tuned >= 0.f ? Tuned : EnterDistance;
-}
-
-float ACXMRUsbPortTarget::GetExitDistance() const
-{
-	const float Tuned = CVarPortExit.GetValueOnGameThread();
-	// 해제 거리는 진입 거리보다 크게 유지함.
-
-	return FMath::Max(Tuned >= 0.f ? Tuned : ExitDistance, GetEnterDistance());
-}
-
-float ACXMRUsbPortTarget::GetMaxAngle() const
-{
-	const float Tuned = CVarPortMaxAngle.GetValueOnGameThread();
-	return Tuned >= 0.f ? Tuned : MaxAngle;
-}
-
-float ACXMRUsbPortTarget::GetApproachDistance() const
-{
-	const float Tuned = CVarPortApproach.GetValueOnGameThread();
-	return Tuned >= 0.f ? Tuned : ApproachDistance;
 }
 
 FQuat ACXMRUsbPortTarget::GetPortTurn() const
@@ -213,18 +143,7 @@ void ACXMRUsbPortTarget::LayoutFrame(float Swell)
 		OutOfPort->SetRelativeRotation(Turn);
 	}
 
-	if (GuideBeam)
-	{
-		// Z축 원기둥을 X축으로 돌려 포트 밖으로 표시함.
-		const FQuat AlongX(FVector::YAxisVector, UE_HALF_PI);
-		const float Diameter = GuideDiameter / CubeCm;
-		GuideBeam->SetStaticMesh(GuideMesh);
-		GuideBeam->SetMaterial(0, Paint);
-		GuideBeam->SetRelativeTransform(FTransform(
-			Turn * AlongX,
-			Turn.RotateVector(FVector(GuideGap + GuideLength * 0.5f, 0., 0.)),
-			FVector(Diameter, Diameter, GuideLength / CubeCm)));
-	}
+
 }
 
 void ACXMRUsbPortTarget::BeginPlay()
@@ -253,13 +172,14 @@ void ACXMRUsbPortTarget::BeginPlay()
 
 void ACXMRUsbPortTarget::EndPlay(const EEndPlayReason::Type Reason)
 {
+	SetContactEnabled(false);
 	if (UCXMRTuningSubsystem* Tuning = GetTuning())
 	{
 		Tuning->UnregisterOwner(this);
 		// 기존 포트가 없어지면 다른 포트로 설정 등록을 넘김.
 		for (TActorIterator<ACXMRUsbPortTarget> It(GetWorld()); It; ++It)
 		{
-			if (*It != this && !It->IsActorBeingDestroyed())
+			if (*It != this && !It->IsActorBeingDestroyed() && It->bContactEnabled && !It->IsHidden())
 			{
 				It->RegisterTunables();
 				break;
@@ -275,154 +195,52 @@ void ACXMRUsbPortTarget::RefreshMarker()
 	ApplyState();
 }
 
-UCXMRPlugTipComponent* ACXMRUsbPortTarget::FindPlugTip()
+void ACXMRUsbPortTarget::SetContactEnabled(bool bEnabled)
 {
-	// pawn이 나중에 생성되거나 바뀔 수 있어 필요할 때 찾음.
-	if (!PlugTip.IsValid())
+	bContactEnabled = bEnabled;
+	SetActorTickEnabled(bEnabled);
+	// 교체 시 비활성 후보는 이전 설정 소유권을 받지 못하므로 활성화 후 등록함.
+	if (bEnabled && HasActorBegunPlay())
 	{
-		if (const APawn* Pawn = UGameplayStatics::GetPlayerPawn(this, 0))
+		if (UCXMRTuningSubsystem* Tuning = GetTuning())
 		{
-			PlugTip = Pawn->FindComponentByClass<UCXMRPlugTipComponent>();
+			if (!Tuning->GetTunableIds().Contains(TEXT("Port.Live"))) { RegisterTunables(); }
 		}
 	}
-	return PlugTip.Get();
+	if (!bEnabled)
+	{
+		SetState(ECXMRPortState::Idle);
+		if (IsValid(FeedbackAudio)) { FeedbackAudio->Stop(); }
+		LastDistance = -1.f;
+		bHaveTrackedPose = false;
+		TrackingLostSeconds = 0.f;
+		LastContactHand = EControllerHand::AnyHand;
+	}
+	ApplyState();
 }
 
 void ACXMRUsbPortTarget::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (bPreviousHandContactMode != bUseHandContact)
+	if (!bContactEnabled || IsHidden())
 	{
 		SetState(ECXMRPortState::Idle);
 		bHaveTrackedPose = false;
-		AlignmentElapsed = 0.f;
-		bHadAlignmentObservation = false;
-		bPreviousHandContactMode = bUseHandContact;
-		ApplyState();
+		LastDistance = -1.f;
+		return;
 	}
-	if (bUseHandContact) { TickHandContact(DeltaSeconds); return; }
-
-	FVector Tip = FVector::ZeroVector;
-	FVector Direction = FVector::ForwardVector;
-	const UCXMRPlugTipComponent* PlugTipComponent = FindPlugTip();
-	const bool bFreshPlug = PlugTipComponent && PlugTipComponent->GetPlugTip(Tip, Direction)
-		&& !Tip.ContainsNaN() && !Direction.ContainsNaN() && Direction.Normalize();
-	const float Dt = FMath::Max(0.f, DeltaSeconds);
-	const bool bPreviousAlignmentObservation = bHadAlignmentObservation;
-	bHadAlignmentObservation = false;
-	if (bFreshPlug)
-	{
-		LastTrackedTip = Tip;
-		LastTrackedDirection = Direction;
-		bHaveTrackedPose = true;
-		TrackingLostSeconds = 0.f;
-	}
-	else
-	{
-		TrackingLostSeconds += Dt;
-		AlignmentElapsed = 0.f; // 과거 자세로 새 정렬을 확정하지 않음.
-		Tip = LastTrackedTip;
-		Direction = LastTrackedDirection;
-	}
-	const bool bHavePlug = bFreshPlug || (bHaveTrackedPose && State != ECXMRPortState::Idle
-		&& TrackingLostSeconds <= FMath::Max(0.f, TrackingGraceSeconds));
-
-	// 반응 여부와 관계없이 거리와 각도 측정함. 삽입 방향은 포트 화살표의 반대임.
-
-	LastDistance = bHavePlug ? FVector::Distance(Tip, GetActorLocation()) : -1.f;
-	LastAngleDeg = bHavePlug
-		? FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp<float>(FVector::DotProduct(Direction, -GetPortAxis()), -1.f, 1.f)))
-		: -1.f;
-
-	ECXMRPortState NewState = ECXMRPortState::Idle;
-	const float Near = FMath::Max(GetEnterDistance(), CVarPortNear.GetValueOnGameThread() >= 0.f ? CVarPortNear.GetValueOnGameThread() : NearDistance);
-	if (bHavePlug && IsNearestPort(Tip, LastDistance))
-	{
-		const bool bWasAligned = State == ECXMRPortState::Aligned;
-		const float AngleLimit = bWasAligned ? FMath::Min(GetMaxAngle() + AngleHysteresis, 89.f) : GetMaxAngle();
-		const float DistanceLimit = bWasAligned ? GetExitDistance() : GetEnterDistance();
-		const float Approach = GetApproachDistance();
-		const float ApproachLimit = Approach + (State != ECXMRPortState::Idle ? PortApproachHysteresis : 0.f);
-
-		if (LastDistance <= DistanceLimit && LastAngleDeg <= AngleLimit)
-		{
-			if (bFreshPlug)
-			{
-				// 첫 유효 관측 이전의 프레임 시간은 세지 않음.
-				AlignmentElapsed = bPreviousAlignmentObservation ? AlignmentElapsed + Dt : 0.f;
-				bHadAlignmentObservation = true;
-			}
-			NewState = bWasAligned || (bFreshPlug && AlignmentElapsed >= FMath::Max(0.f, AlignmentDwellSeconds))
-				? ECXMRPortState::Aligned : ECXMRPortState::Near;
-		}
-		else if (LastDistance <= Near + (State == ECXMRPortState::Near ? 0.5f : 0.f))
-		{
-			AlignmentElapsed = 0.f;
-			NewState = ECXMRPortState::Near;
-		}
-		else if (Approach > 0.f && LastDistance <= ApproachLimit)
-		{
-			AlignmentElapsed = 0.f;
-			NewState = ECXMRPortState::Approach;
-		}
-	}
-	if (NewState == ECXMRPortState::Idle) { AlignmentElapsed = 0.f; }
-	ApproachAmount = NewState != ECXMRPortState::Idle
-		? FMath::Clamp(1.f - LastDistance / FMath::Max(0.1f, GetApproachDistance()), 0.f, 1.f) : 0.f;
-	if (NewState != ECXMRPortState::Idle)
-	{
-		// 갱신 순서와 관계없이 한 포트만 반응함.
-		for (TActorIterator<ACXMRUsbPortTarget> It(GetWorld()); It; ++It)
-		{
-			if (*It != this && !It->IsActorBeingDestroyed() && It->State != ECXMRPortState::Idle)
-			{
-				It->SetState(ECXMRPortState::Idle);
-				It->AlignmentElapsed = 0.f;
-				It->bHadAlignmentObservation = false;
-				It->ApproachAmount = 0.f;
-			}
-		}
-	}
-
-	SetState(NewState);
-	Animate(Dt);
-	DrawDebug(Tip, bHavePlug);
+	TickHandContact(DeltaSeconds);
 }
 
-void ACXMRUsbPortTarget::DrawDebug(const FVector& Tip, bool bHavePlug) const
+void ACXMRUsbPortTarget::DrawDebug(const FVector& Point, bool bHaveHand) const
 {
 	UWorld* World = GetWorld();
-	if (!World || CVarPortDebug.GetValueOnGameThread() == 0)
-	{
-		return;
-	}
-
+	if (!World || CVarPortDebug.GetValueOnGameThread() == 0) { return; }
 	const FVector Centre = GetActorLocation();
-	if (bUseHandContact)
-	{
-		const FColor ContactColor = State == ECXMRPortState::Near ? FColor::Cyan : FColor::Silver;
-		DrawDebugSphere(World, Centre, GetHandContactDistance(), 16, ContactColor, false, -1.f, SDPG_World, 0.05f);
-		DrawDebugSphere(World, Centre, GetHandReleaseDistance(), 16, FColor::Silver, false, -1.f, SDPG_World, 0.03f);
-		if (bHavePlug) { DrawDebugLine(World, Tip, Centre, ContactColor, false, -1.f, SDPG_World, 0.05f); }
-		return;
-	}
-	const FColor Colour = State == ECXMRPortState::Aligned  ? FColor(40, 240, 70)
-	                    : State == ECXMRPortState::Approach ? FColor(255, 185, 20)
-	                                                        : FColor(120, 120, 135);
-
-	// 거리 판정은 메시가 아니라 포트 액터 위치 기준임.
-	DrawDebugSphere(World, Centre, GetEnterDistance(), 16, Colour, false, -1.f, SDPG_World, 0.05f);
-	// 정렬 해제 거리 표시함.
-	DrawDebugSphere(World, Centre, GetExitDistance(), 12, FColor(70, 70, 85), false, -1.f, SDPG_World, 0.03f);
-	// 삽입 축 기준 허용 각도 표시함.
-	const float Half = FMath::DegreesToRadians(GetMaxAngle());
-	DrawDebugCone(World, Centre, GetPortAxis(), GetEnterDistance() * 4.f, Half, Half, 16, Colour, false, -1.f, SDPG_World, 0.05f);
-
-	// 가까운 포트만 연결선 표시함.
-	if (bHavePlug && LastDistance >= 0.f && LastDistance <= GetApproachDistance())
-	{
-		DrawDebugLine(World, Tip, Centre, Colour, false, -1.f, SDPG_World, 0.05f);
-	}
+	const FColor Color = State == ECXMRPortState::Near ? FColor::Cyan : FColor::Silver;
+	DrawDebugSphere(World, Centre, GetHandContactDistance(), 16, Color, false, -1.f, SDPG_World, 0.05f);
+	DrawDebugSphere(World, Centre, GetHandReleaseDistance(), 16, FColor::Silver, false, -1.f, SDPG_World, 0.03f);
+	if (bHaveHand) { DrawDebugLine(World, Point, Centre, Color, false, -1.f, SDPG_World, 0.05f); }
 }
 
 UCXMRTuningSubsystem* ACXMRUsbPortTarget::GetTuning() const
@@ -437,28 +255,12 @@ FText ACXMRUsbPortTarget::DescribeNearest() const
 	const ACXMRUsbPortTarget* Near = nullptr;
 	for (TActorIterator<ACXMRUsbPortTarget> It(GetWorld()); It; ++It)
 	{
-		if (It->LastDistance >= 0.f && (!Near || It->LastDistance < Near->LastDistance))
-		{
-			Near = *It;
-		}
+		if (It->bContactEnabled && !It->IsHidden() && !It->IsActorBeingDestroyed() && It->LastDistance >= 0.f
+			&& (!Near || It->LastDistance < Near->LastDistance)) { Near = *It; }
 	}
-	if (!Near)
-	{
-		return bUseHandContact ? LOCTEXT("HandUntracked", "No tracked hand") : LOCTEXT("PlugUntracked", "no plug hand tracked");
-	}
-	if (Near->bUseHandContact)
-	{
-		return FText::FromString(FString::Printf(TEXT("%s: %.2f cm from hand surface - %s"), *Near->Label, Near->LastDistance,
-			Near->State == ECXMRPortState::Near ? TEXT("touching") : TEXT("not touching")));
-	}
-
-	const FText Verdict = Near->State == ECXMRPortState::Aligned  ? LOCTEXT("VerdictAligned", "lined up")
-	                    : Near->State == ECXMRPortState::Near     ? LOCTEXT("VerdictNear", "near the opening")
-	                    : Near->State == ECXMRPortState::Approach ? LOCTEXT("VerdictApproach", "approaching")
-	                                                             : LOCTEXT("VerdictIdle", "not reacting");
-	// 손 추적 정확도에 맞춰 소수 한 자리만 표시함.
-	return FText::FromString(FString::Printf(TEXT("%s: %.1f cm, %.0f\u00B0 off - %s"),
-		*Near->Label, Near->LastDistance, Near->LastAngleDeg, *Verdict.ToString()));
+	if (!Near) { return LOCTEXT("HandUntracked", "No tracked hand"); }
+	return FText::FromString(FString::Printf(TEXT("%s: %.2f cm from hand surface - %s"), *Near->Label, Near->LastDistance,
+		Near->State == ECXMRPortState::Near ? TEXT("touching") : TEXT("not touching")));
 }
 
 void ACXMRUsbPortTarget::RegisterTunables()
@@ -482,58 +284,20 @@ void ACXMRUsbPortTarget::RegisterTunables()
 		Tunable.Owner = this;
 		return Tunable;
 	};
-	auto WriteTo = [](TAutoConsoleVariable<float>& CVar)
-	{
-		return [&CVar](float Value) { CVar->Set(Value, ECVF_SetByConsole); };
-	};
+
 
 	{
-		FCXMRTunable T = Make("Port.Live", LOCTEXT("Live", "Plug at the nearest port"), ECXMRTunableKind::Readout);
+		FCXMRTunable T = Make("Port.Live", LOCTEXT("Live", "Hand contact at nearest USB"), ECXMRTunableKind::Readout);
 		T.Text = [this] { return DescribeNearest(); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Port.Debug", LOCTEXT("Debug", "Show what the port judges"), ECXMRTunableKind::Bool);
+		FCXMRTunable T = Make("Port.Debug", LOCTEXT("Debug", "Show contact margins"), ECXMRTunableKind::Bool);
 		T.Get = [] { return CVarPortDebug.GetValueOnGameThread() != 0 ? 1.0f : 0.0f; };
 		T.Set = [](float Value) { CVarPortDebug->Set(Value > 0.5f ? 1 : 0, ECVF_SetByConsole); };
 		Tuning->Register(MoveTemp(T));
 	}
 	RegisterHandContactTunables();
-	{
-		FCXMRTunable T = Make("Port.EnterDistance", LOCTEXT("Enter", "Lines up within"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("cm", "cm"); T.Min = 0.2f; T.Max = 10.0f; T.Delta = 0.1f; T.Default = 1.5f; T.bPersist = true;
-		T.Get = [this] { return GetEnterDistance(); };
-		T.Set = WriteTo(CVarPortEnter);
-		Tuning->Register(MoveTemp(T));
-	}
-	{
-		FCXMRTunable T = Make("Port.ExitDistance", LOCTEXT("Exit", "Lets go past"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("cm", "cm"); T.Min = 0.2f; T.Max = 20.0f; T.Delta = 0.1f; T.Default = 3.0f; T.bPersist = true;
-		T.Get = [this] { return GetExitDistance(); };
-		T.Set = WriteTo(CVarPortExit);
-		Tuning->Register(MoveTemp(T));
-	}
-	{
-		FCXMRTunable T = Make("Port.MaxAngle", LOCTEXT("Angle", "Still counts as straight"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("deg", "\u00B0"); T.Min = 5.0f; T.Max = 80.0f; T.Delta = 1.0f; T.Default = 25.0f; T.bPersist = true;
-		T.Get = [this] { return GetMaxAngle(); };
-		T.Set = WriteTo(CVarPortMaxAngle);
-		Tuning->Register(MoveTemp(T));
-	}
-	{
-		FCXMRTunable T = Make("Port.ApproachDistance", LOCTEXT("Approach", "Starts guiding at"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("cm", "cm"); T.Min = 0.0f; T.Max = 40.0f; T.Delta = 0.5f; T.Default = 12.0f; T.bPersist = true;
-		T.Get = [this] { return GetApproachDistance(); };
-		T.Set = WriteTo(CVarPortApproach);
-		Tuning->Register(MoveTemp(T));
-	}
-	{
-		FCXMRTunable T = Make("Port.NearDistance", LOCTEXT("NearDistance", "Close-range feedback within"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("cm", "cm"); T.Min = 1.f; T.Max = 10.f; T.Delta = 0.1f; T.Default = 4.f; T.bPersist = true;
-		T.Get = [this] { const float V = CVarPortNear.GetValueOnGameThread(); return V >= 0.f ? V : NearDistance; };
-		T.Set = WriteTo(CVarPortNear);
-		Tuning->Register(MoveTemp(T));
-	}
 }
 
 void ACXMRUsbPortTarget::SetState(ECXMRPortState NewState)
@@ -542,26 +306,7 @@ void ACXMRUsbPortTarget::SetState(ECXMRPortState NewState)
 	{
 		return;
 	}
-	const bool bWasAligned = State == ECXMRPortState::Aligned;
 	State = NewState;
-
-	if (State == ECXMRPortState::Aligned)
-	{
-		UE_LOG(LogCXMRPort, Log, TEXT("Port '%s' ALIGNED (plug lined up)"), *Label);
-		PopElapsed = 0.f;
-		if (AlignedSound)
-		{
-			PlayFeedbackSound(AlignedSound, SoundVolume, 1.2f);
-		}
-	}
-	else if (bWasAligned)
-	{
-		UE_LOG(LogCXMRPort, Log, TEXT("Port '%s' released"), *Label);
-	}
-	if (State == ECXMRPortState::Approach)
-	{
-		PulseTime = 0.f;
-	}
 	if (State == ECXMRPortState::Near && bNearSoundArmed)
 	{
 		bNearSoundArmed = false;
@@ -579,15 +324,15 @@ void ACXMRUsbPortTarget::SetState(ECXMRPortState NewState)
 
 void ACXMRUsbPortTarget::ApplyState()
 {
-	const bool bActive = State != ECXMRPortState::Idle;
+	const bool bActive = bContactEnabled && State == ECXMRPortState::Near;
 	if (FrameMaterial)
 	{
-		const FLinearColor Color = State == ECXMRPortState::Aligned ? AlignedColor : (State == ECXMRPortState::Near ? NearColor : (bActive ? ApproachColor : IdleColor));
+		const FLinearColor Color = bActive ? NearColor : IdleColor;
 		FrameMaterial->SetVectorParameterValue(TEXT("Color"), Color);
 	}
 
 	const bool bVisible = bActive || bShowWhenIdle;
-	const bool bFeedbackVisible = bActive || (!bUseHandContact && bShowWhenIdle);
+	const bool bFeedbackVisible = bActive;
 	const bool bCustomMesh = IndicatorMesh != nullptr;
 
 	for (UStaticMeshComponent* Bar : { BarTop.Get(), BarBottom.Get(), BarLeft.Get(), BarRight.Get() })
@@ -613,10 +358,7 @@ void ACXMRUsbPortTarget::ApplyState()
 		}
 	}
 
-	if (GuideBeam)
-	{
-		GuideBeam->SetVisibility(bShowGuide && bActive);
-	}
+
 }
 
 void ACXMRUsbPortTarget::Animate(float DeltaSeconds)
@@ -624,20 +366,10 @@ void ACXMRUsbPortTarget::Animate(float DeltaSeconds)
 	if (FrameMaterial)
 	{
 		float Glow = PortRestGlow;
-		if (State == ECXMRPortState::Approach)
-		{
-			PulseTime += DeltaSeconds;
-			const float Wave = 0.5f + 0.5f * FMath::Sin(UE_TWO_PI * PulseRate * PulseTime);
-			Glow = FMath::Lerp(PortRestGlow, GlowStrength, FMath::Clamp(ApproachAmount * 0.8f + Wave * 0.2f, 0.f, 1.f));
-		}
-		else if (State == ECXMRPortState::Near)
+		if (State == ECXMRPortState::Near)
 		{
 			PulseTime += DeltaSeconds;
 			Glow = GlowStrength * (0.9f + 0.1f * FMath::Sin(UE_TWO_PI * PulseRate * PulseTime));
-		}
-		else if (State == ECXMRPortState::Aligned)
-		{
-			Glow = GlowStrength;
 		}
 		FrameMaterial->SetScalarParameterValue(TEXT("Glow"), Glow);
 	}
@@ -659,7 +391,8 @@ void ACXMRUsbPortTarget::PlayFeedbackSound(USoundBase* Sound, float Volume, floa
 {
 	if (Sound)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, Sound, GetActorLocation(), Volume, Pitch, 0.f, FeedbackAttenuation);
+		if (IsValid(FeedbackAudio)) { FeedbackAudio->Stop(); }
+		FeedbackAudio = UGameplayStatics::SpawnSoundAtLocation(this, Sound, GetActorLocation(), FRotator::ZeroRotator, Volume, Pitch, 0.f, FeedbackAttenuation);
 	}
 }
 

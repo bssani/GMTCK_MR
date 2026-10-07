@@ -243,6 +243,16 @@ void UCXMRTuningSubsystem::LoadFromDisk()
 			}
 		}
 	}
+	// 새 키가 없을 때만 옛 노출을 양쪽 프리셋으로 이관함.
+	if (!SavedValues.Contains("Display.MRExposure") && !SavedValues.Contains("Display.VRExposure"))
+	{
+		if (const float* Legacy = SavedValues.Find("Display.Exposure"))
+		{
+			const float Value = *Legacy;
+			SavedValues.Add("Display.MRExposure", Value);
+			SavedValues.Add("Display.VRExposure", Value);
+		}
+	}
 	UE_LOG(LogCXMRTuning, Log, TEXT("Loaded %d tuned value(s) from %s"), SavedValues.Num(), *Path);
 }
 

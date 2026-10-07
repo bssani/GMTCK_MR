@@ -8,6 +8,7 @@
 #include "CXMRPlacementComponent.h"
 #include "CXMRMarkerProfile.h"
 #include "CXMRUsbPortTarget.h"
+#include "CXMRDesignOption.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "HAL/FileManager.h"
@@ -355,6 +356,9 @@ bool FCXMRAlignmentGroupResetTest::RunTest(const FString& Parameters)
 	UFunction* Reset = Control->FindFunction(TEXT("ResetSharedAlignment"));
 	if (!TestNotNull(TEXT("The control panel exposes a group alignment reset"), Reset)) { return false; }
 	Control->ProcessEvent(Reset, nullptr);
+	TestTrue(TEXT("First reset click preserves the group save"), IFileManager::Get().FileExists(*Shared));
+	TestTrue(TEXT("First reset click preserves restoration metadata"), Placement->HasSavedAlignment());
+	Control->ProcessEvent(Reset, nullptr);
 	TestEqual(TEXT("Reset returns the panel to the beginning of alignment"), Control->GetCalibrationPhase(), 0);
 	TestFalse(TEXT("Reset removes the selected group's saved alignment"), IFileManager::Get().FileExists(*Shared));
 	TestFalse(TEXT("Reset clears shared restoration metadata"), Placement->HasSavedAlignment());
@@ -469,6 +473,49 @@ bool FCXMRAlignmentGroupAutomaticCaptureTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRGroupResetExpiryTest, "CXMR.ReviewFix.ResetExpiry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRGroupResetExpiryTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	const FName Group(*(TEXT("ResetExpiry_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	ConfigureEye(*this, Fixture.Profile); AlignEye(*this, Fixture.Root->Placement);
+	if (!SaveGroupPose(*this, Fixture, FTransform(FVector(100, 20, 30)), FTransform(FVector(220, 20, 30)))) { return false; }
+	const FString Path = Fixture.Root->Placement->GetCalibrationFilePath();
+	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Fixture.Root);
+	Control->RegisterComponent();
+	Control->ResetSharedAlignment();
+	TestTrue(TEXT("First click arms component confirmation"), Control->IsSharedAlignmentResetArmed());
+	TestTrue(TEXT("Confirmation label identifies the group"), Control->GetSharedAlignmentResetLabel().ToString().Contains(Group.ToString()));
+	Fixture.World->Tick(LEVELTICK_All, 6.f);
+	TestFalse(TEXT("Timeout disarms component confirmation"), Control->IsSharedAlignmentResetArmed());
+	Control->ResetSharedAlignment();
+	TestTrue(TEXT("An expired confirmation cannot delete the save"), IFileManager::Get().FileExists(*Path));
+	Control->ResetSharedAlignment();
+	TestFalse(TEXT("The rearmed second click deletes the save"), IFileManager::Get().FileExists(*Path));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRFailureAlignmentStatusTest, "CXMR.ReviewFix.FailureAlignmentStatus",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRFailureAlignmentStatusTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	Fixture.Profile->DisplayName = FText::FromString(TEXT("Review vehicle"));
+	Fixture.Root->Placement->bCalibrated = true;
+	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Fixture.Root);
+	Control->RegisterComponent();
+	UCXMRDesignOption* Invalid = NewObject<UCXMRDesignOption>(Fixture.Root);
+	TestFalse(TEXT("Invalid option selection fails"), Fixture.Root->Loader->SelectDesignOption(Invalid));
+	TestFalse(TEXT("Failure remains available for Review"), Fixture.Root->Loader->GetLastFailureReason().IsEmpty());
+	const FString Status = Control->GetAlignmentStatus(Fixture.Root->Loader).ToString();
+	TestTrue(TEXT("Failed option keeps the vehicle in the header"), Status.Contains(TEXT("Review vehicle")));
+	TestTrue(TEXT("Failed option keeps alignment in the header"), Status.Contains(TEXT("Aligned")));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupResetFailureTest, "CXMR.Alignment.Group.ResetFailure",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FCXMRAlignmentGroupResetFailureTest::RunTest(const FString& Parameters)
@@ -492,6 +539,7 @@ bool FCXMRAlignmentGroupResetFailureTest::RunTest(const FString& Parameters)
 	IPlatformFile& Platform = FPlatformFileManager::Get().GetPlatformFile();
 	if (!TestTrue(TEXT("Fixture can make the group file read-only"), Platform.SetReadOnly(*Path, true))) { return false; }
 	Control->ResetSharedAlignment();
+	Control->ResetSharedAlignment();
 	Platform.SetReadOnly(*Path, false);
 	FString After; FFileHelper::LoadFileToString(After, *Path);
 	TestEqual(TEXT("Failed deletion preserves the group file"), After, Before);
@@ -500,6 +548,7 @@ bool FCXMRAlignmentGroupResetFailureTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Failed reset preserves the accepted anchor"), Fixture.Root->GetActorTransform().Equals(Pose, 0.001));
 	TestEqual(TEXT("Failed reset preserves the completed panel phase"), Control->GetCalibrationPhase(), 3);
 	TestTrue(TEXT("Failed reset reports failure instead of success"), Control->GetCalibrationMessage().ToString().Contains(TEXT("Reset failed")));
+	Control->ResetSharedAlignment();
 	Control->ResetSharedAlignment();
 	TestFalse(TEXT("Reset can be retried when file access is restored"), IFileManager::Get().FileExists(*Path));
 	TestEqual(TEXT("Successful retry returns the panel to setup"), Control->GetCalibrationPhase(), 0);
@@ -519,12 +568,12 @@ bool FCXMRDriverEyePivotTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Eye heading follows head yaw"), FMath::IsNearlyEqual(Eye.Rotator().Yaw, 70.0, 0.01));
 	TestTrue(TEXT("Head pitch does not tilt the vehicle"), FMath::IsNearlyZero(Fixture.Root->GetActorRotation().Pitch, 0.01));
 	TestTrue(TEXT("Head roll does not tilt the vehicle"), FMath::IsNearlyZero(Fixture.Root->GetActorRotation().Roll, 0.01));
-	const FTransform ImportedOffset = Vehicle->GetActorTransform().GetRelativeTransform(Fixture.Root->Turntable->GetComponentTransform());
+	const FTransform ImportedOffset = Vehicle->GetActorTransform().GetRelativeTransform(Fixture.Root->VehicleAnchor->GetComponentTransform());
 	Fixture.Root->Placement->NudgeVehicleInFrame(FVector::ZeroVector, 10, 70, FVector(5000, 5000, 0));
 	Eye = EyeLocal * Vehicle->GetActorTransform();
 	TestTrue(TEXT("Manual turn keeps the driver eye fixed, independent of current head position"), Eye.GetLocation().Equals(FVector(300, -100, 140), 0.01));
 	TestTrue(TEXT("Manual turn changes the heading"), FMath::IsNearlyEqual(Eye.Rotator().Yaw, 80.0, 0.01));
-	TestTrue(TEXT("Imported geometry offset is unchanged"), Vehicle->GetActorTransform().GetRelativeTransform(Fixture.Root->Turntable->GetComponentTransform()).Equals(ImportedOffset, 0.01));
+	TestTrue(TEXT("Imported geometry offset is unchanged"), Vehicle->GetActorTransform().GetRelativeTransform(Fixture.Root->VehicleAnchor->GetComponentTransform()).Equals(ImportedOffset, 0.01));
 	Fixture.Root->Placement->NudgeVehicleInFrame(FVector(10, 0, 0), 0, 150, FVector::ZeroVector);
 	const FVector Expected = FVector(300, -100, 140) + FRotator(0, 70, 0).RotateVector(FVector(10, 0, 0));
 	Eye = EyeLocal * Vehicle->GetActorTransform();
