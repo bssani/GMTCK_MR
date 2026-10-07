@@ -12,6 +12,9 @@
 #include "CXMRTuningSubsystem.h"
 
 class SWidget;
+struct FButtonStyle;
+struct FSpinBoxStyle;
+struct FTextBlockStyle;
 
 namespace CXMRPanelUI
 {
@@ -36,6 +39,12 @@ namespace CXMRPanelUI
 		FRowBinding Binding;
 	};
 
+	const FTextBlockStyle* BodyTextStyle();
+	const FButtonStyle* ButtonStyle();
+	const FSpinBoxStyle* SpinStyle();
+	FLinearColor InkColor();
+	FLinearColor SelectionColor();
+	TSharedRef<SWidget> MakeSurface(const TSharedRef<SWidget>& Content);
 	FLinearColor BackgroundColor();
 	FLinearColor HeaderColor();
 	FLinearColor ReadoutColor();
@@ -57,6 +66,6 @@ namespace CXMRPanelUI
 
 	TSharedRef<SWidget> MakeScroll(const TSharedRef<SWidget>& Content);
 
-	/** The dark panel ground both windows sit on. */
+	/** 창 공통 배경. */
 	TSharedRef<SWidget> MakeBackground(const TSharedRef<SWidget>& Content);
 }

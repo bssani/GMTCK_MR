@@ -79,7 +79,7 @@ void UCXMRDesktopPanelComponent::OpenWindow()
 		return;
 	}
 
-	// 손목 패널과 같은 Subsystem을 사용함.
+	// 데스크톱 패널에서 같은 상태 사용함.
 
 	PanelWidget = CreateWidget<UUserWidget>(GetWorld(), PanelClass);
 	if (!PanelWidget)

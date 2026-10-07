@@ -63,11 +63,6 @@ public:
 	 *  (key H) — that asset shipped with the Varjo example but had never been bound to anything. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> HandVisualizationToggleAction;
 
-	/** Gaze dot (G) and foveated-area overlay (I). Defaulted in C++ like the hand toggle: IMC_Varjo has mapped both
-	 *  keys since the Varjo example came in, and nothing was bound to them. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> GazeVisualizationToggleAction;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> FoveationVisualizationToggleAction;
-
 	// Placement actions (routed via the subsystem to the placement component).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> RecalibrateAction;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions") TObjectPtr<UInputAction> PlaceVehicleAction;
@@ -84,18 +79,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Actions", meta = (ClampMin = "0.0"))
 	float OffsetAdjustSpeed = 10.0f;
 
-	// --- Exterior turntable (left controller) ---
-	/** Axis1D. Held stick rotates the vehicle; sign is the direction. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> TurntableAxisAction;
-	/** Toggles continuous rotation; pressing the opposite direction switches rather than stacking. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> SpinLeftToggleAction;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> SpinRightToggleAction;
-
-	// --- Cycling (right controller). Axis1D, one step per flick — see the latch below. ---
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> CycleTrimAction;
+	// 차량 목록 순환.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> CycleVehicleAction;
 
-	/** Percentile manikin (Human Factors) cycling. Same Axis1D flick shape as the two above.
+	/** Percentile manikin (Human Factors) cycling. Uses the vehicle cycling Axis1D flick shape.
 	 *  Until this existed, UCXMRErgonomicsComponent was fully implemented and subscribed but nothing
 	 *  in the project could ever ask it to move — RequestErgonomicsStep had no callers at all. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Input|Viewer") TObjectPtr<UInputAction> CycleManikinAction;
@@ -128,8 +115,6 @@ private:
 	void OnMaskToggle(const FInputActionValue& Value);
 	void OnMarkerToggle(const FInputActionValue& Value);
 	void OnHandVisualizationToggle(const FInputActionValue& Value);
-	void OnGazeVisualizationToggle(const FInputActionValue& Value);
-	void OnFoveationVisualizationToggle(const FInputActionValue& Value);
 	void OnRecalibrate(const FInputActionValue& Value);
 	void OnPlaceVehicle(const FInputActionValue& Value);
 
@@ -137,13 +122,8 @@ private:
 	void OnDepthRangeNearZ(const FInputActionValue& Value);
 	void OnDepthRangeFarZ(const FInputActionValue& Value);
 
-	void OnTurntableAxis(const FInputActionValue& Value);
-	void OnSpinLeftToggle(const FInputActionValue& Value);
-	void OnSpinRightToggle(const FInputActionValue& Value);
-	void OnCycleTrim(const FInputActionValue& Value);
 	void OnCycleVehicle(const FInputActionValue& Value);
 	void OnCycleManikin(const FInputActionValue& Value);
-	void OnCycleTrimReleased(const FInputActionValue& Value);
 	void OnCycleVehicleReleased(const FInputActionValue& Value);
 	void OnCycleManikinReleased(const FInputActionValue& Value);
 
@@ -157,7 +137,6 @@ private:
 	/** Seconds elapsed this frame, for the held-key range adjustment. */
 	float DeltaSeconds() const;
 
-	bool bTrimLatched    = false;
 	bool bVehicleLatched = false;
 	bool bManikinLatched = false;
 

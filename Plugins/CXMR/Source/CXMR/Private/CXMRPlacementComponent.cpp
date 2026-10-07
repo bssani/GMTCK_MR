@@ -648,12 +648,24 @@ void UCXMRPlacementComponent::SetMarkerProfile(UCXMRMarkerProfile* NewProfile, b
 	{
 		return;
 	}
+	// 같은 저장 레이아웃으로 차량만 바꾸면 확인한 앵커 유지함.
+	const bool bKeepSharedPose = !LoadedAlignmentGroup.IsNone() && LoadedAlignmentGroup == GetAlignmentGroup()
+		&& bCalibrated && !bManualAlignment && bAlignmentPoseLocked && HasSavedAlignment();
+	TMap<int32, FTransform> PreviousSharedOffsets;
+	if (bKeepSharedPose && MarkerProfile)
+	{
+		for (const FCXMRMarkerEntry& Entry : MarkerProfile->Markers)
+		{
+			if (SavedAlignmentMarkers.Contains(Entry.MarkerId)) { PreviousSharedOffsets.Add(Entry.MarkerId, Entry.LocalOffset); }
+		}
+	}
 	CancelAlignmentCapture();
 	bManualAlignment = false;
 	bAlignmentPoseLocked = false;
 	bRestoreNeedsConfirmation = false;
 	SavedAlignmentMarkers.Reset();
 	SavedPrimaryMarker = 0;
+	LoadedAlignmentGroup = NAME_None;
 	if (bForceReload) { bCalibrationLoaded = false; }
 	MarkerProfile = NewProfile;
 	bHaveNudgeHeading = false;   // 차량별 조정 방향 초기화함.
@@ -680,6 +692,18 @@ void UCXMRPlacementComponent::SetMarkerProfile(UCXMRMarkerProfile* NewProfile, b
 	if (!bHaveBasePose)
 	{
 		PublishOffset();
+	}
+	if (bKeepSharedPose && LoadedAlignmentGroup == GetAlignmentGroup() && HasSavedAlignment()
+		&& PreviousSharedOffsets.Num() == SavedAlignmentMarkers.Num())
+	{
+		bool bSameLayout = true;
+		for (int32 Id : SavedAlignmentMarkers)
+		{
+			FCXMRMarkerEntry Entry;
+			const FTransform* Previous = PreviousSharedOffsets.Find(Id);
+			if (!Previous || !MarkerProfile->FindEntry(Id, Entry) || !Previous->Equals(Entry.LocalOffset, 0.001f)) { bSameLayout = false; break; }
+		}
+		if (bSameLayout) { bCalibrated = true; bAlignmentPoseLocked = true; }
 	}
 }
 
@@ -717,11 +741,23 @@ void UCXMRPlacementComponent::RestoreAuthoredOffsets()
 	}
 }
 
+FName UCXMRPlacementComponent::GetAlignmentGroup() const
+{
+	const UCXMRVehicleLoaderComponent* Loader = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
+	return Loader && Loader->Profile ? Loader->Profile->AlignmentGroup : NAME_None;
+}
+
 FString UCXMRPlacementComponent::GetCalibrationFilePath() const
 {
 	if (!MarkerProfile)
 	{
 		return FString();
+	}
+	if (!GetAlignmentGroup().IsNone())
+	{
+		const FTCHARToUTF8 GroupName(*GetAlignmentGroup().ToString().ToLower());
+		const FString Key = FMD5::HashBytes(reinterpret_cast<const uint8*>(GroupName.Get()), GroupName.Length());
+		return FPaths::ProjectSavedDir() / TEXT("CXMR") / FString::Printf(TEXT("AlignmentGroup_%s.json"), *Key);
 	}
 	const UCXMRVehicleLoaderComponent* Loader = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
 	FString VehicleKey;
@@ -736,6 +772,15 @@ FString UCXMRPlacementComponent::GetCalibrationFilePath() const
 
 void UCXMRPlacementComponent::LearnMarkerLayout()
 {
+	if (!GetAlignmentGroup().IsNone())
+	{
+		// 그룹 정렬은 일부 마커 학습 대신 전체 확인·캡처로 저장함.
+		bLastCalibrationSaveSucceeded = false;
+		AlignmentStorageMessage = NSLOCTEXT("CXMRAlignmentStorage", "GroupLearnDisabled", "Shared alignment uses Confirm Alignment and Save Alignment. Individual marker learning is disabled for groups.");
+		AlignmentSaveMessage = AlignmentStorageMessage;
+		ReportAlignmentSaveMessage();
+		return;
+	}
 	AActor* Root = ResolveVehicleRoot();
 	if (!Root || !MarkerProfile || SeenMarkers.Num() == 0)
 	{
@@ -828,29 +873,46 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 
 void UCXMRPlacementComponent::ResetCalibrationToAuthored()
 {
+	TryResetCalibrationToAuthored();
+}
+
+bool UCXMRPlacementComponent::TryResetCalibrationToAuthored()
+{
+	const FString Path = GetCalibrationFilePath();
+	const bool bHasFile = !Path.IsEmpty() && FPaths::FileExists(Path);
+	// 삭제 성공 전에는 캡처와 런타임 정렬을 버리지 않음.
+	if (Path.IsEmpty() || (bHasFile && !IFileManager::Get().Delete(*Path)))
+	{
+		bLastCalibrationSaveSucceeded = false;
+		AlignmentStorageMessage = NSLOCTEXT("CXMRAlignmentStorage", "ResetFailed", "Reset failed. Previous alignment kept. Check the save file's access permissions, then retry.");
+		AlignmentSaveMessage = AlignmentStorageMessage;
+		ReportAlignmentSaveMessage();
+		return false;
+	}
 	CancelAlignmentCapture();
 	bManualAlignment = false;
 	bAlignmentPoseLocked = false;
 	bRestoreNeedsConfirmation = false;
 	SavedAlignmentMarkers.Reset();
 	SavedPrimaryMarker = 0;
-	const FString Path = GetCalibrationFilePath();
-	if (!Path.IsEmpty() && FPaths::FileExists(Path))
+	LoadedAlignmentGroup = NAME_None;
+	AlignmentStorageMessage = FText::GetEmpty();
+	if (bHasFile)
 	{
-		IFileManager::Get().Delete(*Path);
 		UE_LOG(LogCXMRPlacement, Log, TEXT("Deleted saved calibration: %s"), *Path);
 	}
 
 	RestoreAuthoredOffsets();
 	// 차량별 원본 저장으로 이전 공용 파일이 다시 적용되지 않게 함.
 	const UCXMRVehicleLoaderComponent* Loader = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
-	if (Loader && Loader->Profile && MarkerProfile) { SaveCalibrationToDisk(); }
+	if (Loader && Loader->Profile && MarkerProfile && GetAlignmentGroup().IsNone()) { SaveCalibrationToDisk(); }
 	TempMarkerLocationOffset = FVector::ZeroVector;
 	TempMarkerRotationOffset = FRotator::ZeroRotator;
 	PublishOffset();
 	RecomputeCalibration();
 
 	UE_LOG(LogCXMRPlacement, Log, TEXT("Marker calibration reset to the values the profile shipped with."));
+	return true;
 }
 
 void UCXMRPlacementComponent::RebaseToCurrentTransform()
@@ -1248,6 +1310,14 @@ void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator
 	{
 		RebaseToCurrentTransform();
 	}
+	if (!GetAlignmentGroup().IsNone() && (!DeltaLocation.IsNearlyZero() || !DeltaRotation.IsNearlyZero()))
+	{
+		CancelAlignmentCapture();
+		bManualAlignment = true;
+		bAlignmentPoseLocked = true;
+		bRestoreNeedsConfirmation = false;
+		if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
+	}
 	TempMarkerLocationOffset += DeltaLocation;
 	TempMarkerRotationOffset += DeltaRotation;
 
@@ -1263,7 +1333,7 @@ void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator
 
 void UCXMRPlacementComponent::SaveMarkerOffsetToProfile()
 {
-	if (bManualAlignment)
+	if (bManualAlignment || bCapturingAlignment || (!GetAlignmentGroup().IsNone() && !HasSavedAlignment()))
 	{
 		// 패널 상태도 단축키와 같은 저장 절차로 갱신함.
 		if (GetWorld())

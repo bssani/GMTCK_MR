@@ -3,7 +3,6 @@
 #include "CXMRUsbPortTarget.h"
 #include "CXMRHandTracking.h"
 #include "CXMRHandDebugComponent.h"
-#include "CXMRPlugTipComponent.h"
 #include "CXMRTuningSubsystem.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -38,9 +37,6 @@ void ACXMRUsbPortTarget::TickHandContact(float DeltaSeconds)
 	const bool bFreshHand = CXMRHands::GetContactShapes(GetWorld(), HandDisplay ? HandDisplay->RadiusScale : 1.f,
 		HandDisplay ? HandDisplay->bDrawBones : true, Shapes);
 	const float Dt = FMath::Max(0.f, DeltaSeconds);
-	LastAngleDeg = -1.f;
-	AlignmentElapsed = 0.f;
-	bHadAlignmentObservation = false;
 	FVector ClosestPoint = FVector::ZeroVector;
 	EControllerHand ClosestHand = EControllerHand::AnyHand;
 	float Distance = bFreshHand ? CXMRHands::GetSurfaceDistance(Shapes, GetActorLocation(), ClosestPoint, &ClosestHand) : -1.f;
@@ -60,7 +56,7 @@ void ACXMRUsbPortTarget::TickHandContact(float DeltaSeconds)
 		LastDistance = Distance;
 		TrackingLostSeconds = 0.f;
 		bHaveTrackedPose = true;
-		if (!IsHidden() && LastDistance <= Limit && IsNearestPort(ClosestPoint, LastDistance))
+		if (!IsHidden() && LastDistance <= Limit && IsNearestPort(LastDistance))
 		{
 			LastContactHand = ClosestHand;
 			NewState = ECXMRPortState::Near;
@@ -84,64 +80,38 @@ void ACXMRUsbPortTarget::TickHandContact(float DeltaSeconds)
 			if (*It != this && !It->IsActorBeingDestroyed() && It->State != ECXMRPortState::Idle)
 			{
 				It->SetState(ECXMRPortState::Idle);
-				It->ApproachAmount = 0.f;
 			}
 		}
 	}
-	ApproachAmount = NewState == ECXMRPortState::Near ? 1.f : 0.f;
 	SetState(NewState);
 	Animate(Dt);
 	DrawDebug(ClosestPoint, bFreshHand && LastDistance >= 0.f);
 }
 
-bool ACXMRUsbPortTarget::IsNearestPort(const FVector& Tip, float Distance) const
+bool ACXMRUsbPortTarget::IsNearestPort(float Distance) const
 {
 	const APawn* Pawn = UGameplayStatics::GetPlayerPawn(this, 0);
 	const UCXMRHandDebugComponent* Display = Pawn ? Pawn->FindComponentByClass<UCXMRHandDebugComponent>() : nullptr;
 	TArray<CXMRHands::FContactShape> Shapes;
 	CXMRHands::GetContactShapes(GetWorld(), Display ? Display->RadiusScale : 1.f, Display ? Display->bDrawBones : true, Shapes);
-	FVector PlugLocation = Tip, PlugDirection = LastTrackedDirection;
-	const UCXMRPlugTipComponent* Plug = Pawn ? Pawn->FindComponentByClass<UCXMRPlugTipComponent>() : nullptr;
-	const bool bHavePlug = (!bUseHandContact || (Plug && Plug->GetPlugTip(PlugLocation, PlugDirection)))
-		&& !PlugLocation.ContainsNaN() && !PlugDirection.ContainsNaN() && PlugDirection.Normalize();
 	const float Mine = Distance - (State != ECXMRPortState::Idle ? 0.1f : 0.f);
 	for (TActorIterator<ACXMRUsbPortTarget> It(GetWorld()); It; ++It)
 	{
 		const ACXMRUsbPortTarget* Other = *It;
-		if (Other == this || Other->IsActorBeingDestroyed() || Other->IsHidden()) { continue; }
+		if (Other == this || Other->IsActorBeingDestroyed() || Other->IsHidden() || !Other->IsContactEnabled()) { continue; }
 		float OtherDistance, Limit;
-		if (Other->bUseHandContact)
+		if (Shapes.IsEmpty()) { continue; }
+		FVector Point;
+		OtherDistance = CXMRHands::GetSurfaceDistance(Shapes, Other->GetActorLocation(), Point);
+		Limit = Other->GetHandContactDistance();
+		if (Other->State == ECXMRPortState::Near)
 		{
-			if (Shapes.IsEmpty()) { continue; }
-			FVector Point;
-			OtherDistance = CXMRHands::GetSurfaceDistance(Shapes, Other->GetActorLocation(), Point);
-			Limit = Other->GetHandContactDistance();
-			if (Other->State == ECXMRPortState::Near)
+			const TArray<CXMRHands::FContactShape> HeldShapes = Shapes.FilterByPredicate([Other](const CXMRHands::FContactShape& Shape) { return Shape.Hand == Other->LastContactHand; });
+			if (!HeldShapes.IsEmpty())
 			{
-				const TArray<CXMRHands::FContactShape> HeldShapes = Shapes.FilterByPredicate([Other](const CXMRHands::FContactShape& Shape) { return Shape.Hand == Other->LastContactHand; });
-				if (!HeldShapes.IsEmpty())
-				{
-					const float HeldDistance = CXMRHands::GetSurfaceDistance(HeldShapes, Other->GetActorLocation(), Point);
-					if (OtherDistance > Limit && HeldDistance <= Other->GetHandReleaseDistance()) { OtherDistance = HeldDistance; Limit = Other->GetHandReleaseDistance(); }
-				}
+				const float HeldDistance = CXMRHands::GetSurfaceDistance(HeldShapes, Other->GetActorLocation(), Point);
+				if (OtherDistance > Limit && HeldDistance <= Other->GetHandReleaseDistance()) { OtherDistance = HeldDistance; Limit = Other->GetHandReleaseDistance(); }
 			}
-		}
-		else
-		{
-			if (!bHavePlug) { continue; }
-			OtherDistance = FVector::Distance(PlugLocation, Other->GetActorLocation());
-			const IConsoleVariable* NearSetting = IConsoleManager::Get().FindConsoleVariable(TEXT("CXMR.Port.NearDistance"));
-			const float Near = NearSetting && NearSetting->GetFloat() >= 0.f ? NearSetting->GetFloat() : Other->NearDistance;
-			// 실제 플러그 판정과 같은 거리·각도 조건을 만족한 포트만 경쟁함.
-			const bool bAligned = Other->State == ECXMRPortState::Aligned;
-			const float Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp<float>(FVector::DotProduct(PlugDirection, -Other->GetPortAxis()), -1.f, 1.f)));
-			const bool bAlignment = OtherDistance <= (bAligned ? Other->GetExitDistance() : Other->GetEnterDistance())
-				&& Angle <= (bAligned ? FMath::Min(Other->GetMaxAngle() + 10.f, 89.f) : Other->GetMaxAngle());
-			const bool bNear = OtherDistance <= FMath::Max(Other->GetEnterDistance(), Near) + (Other->State == ECXMRPortState::Near ? 0.5f : 0.f);
-			const bool bApproach = Other->GetApproachDistance() > 0.f
-				&& OtherDistance <= Other->GetApproachDistance() + (Other->State != ECXMRPortState::Idle ? 2.f : 0.f);
-			if (!bAlignment && !bNear && !bApproach) { continue; }
-			Limit = OtherDistance;
 		}
 		if (OtherDistance > Limit) { continue; }
 		const float Theirs = OtherDistance - (Other->State != ECXMRPortState::Idle ? 0.1f : 0.f);

@@ -2,8 +2,7 @@
 //
 // ACXMRPawn — CXMR base VR/MR pawn. Camera (HMD) + L/R motion controllers + the Varjo input layer.
 // Hooks input in C++ (SetupPlayerInputComponent -> VarjoInput->SetupInput), so no BP input wiring.
-// Locomotion (teleport / turntable orbit) is added later as a feature on top of this base. Bare-hand grabbing is
-// UCXMRHandGrabComponent; the headset instruments (markers, hands, gaze, foveation) and the monitor camera sit here too.
+// Hand and marker diagnostics accompany the desktop review controls.
 
 #pragma once
 
@@ -17,17 +16,9 @@ class UCXMRVarjoInputComponent;
 class UCXMRMaskingComponent;
 class UCXMRMarkerDebugComponent;
 class UCXMRHandDebugComponent;
-class UCXMRPlugTipComponent;
-class UCXMRGazeDebugComponent;
-class UCXMRFoveationOverlayComponent;
-class UCXMRHandGrabComponent;
 class UCXMRSpectatorComponent;
-class UCXMRControlPanelWidget;
 class UCXMRDesktopPanelComponent;
 class UCXMRTuningWindowComponent;
-class UWidgetComponent;
-class UWidgetInteractionComponent;
-class UInputAction;
 
 UCLASS()
 class CXMR_API ACXMRPawn : public APawn
@@ -37,7 +28,6 @@ class CXMR_API ACXMRPawn : public APawn
 public:
 	ACXMRPawn();
 
-	virtual void BeginPlay() override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Pawn") TObjectPtr<USceneComponent> VROrigin;
@@ -57,18 +47,6 @@ public:
 	/** Headset verification instrument. Draws the tracked hand skeleton; toggled with H. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRHandDebugComponent> HandDebug;
 
-	/** Where the plug held in the tracked hand has its tip, for USB ports to judge. Draws nothing. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Hands") TObjectPtr<UCXMRPlugTipComponent> PlugTip;
-
-	/** Headset verification instrument. Draws where the wearer looks; toggled with G. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRGazeDebugComponent> GazeDebug;
-
-	/** Headset verification instrument. Tints the foveated area; toggled with I. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Debug") TObjectPtr<UCXMRFoveationOverlayComponent> FoveationOverlay;
-
-	/** Pinch next to a CXMR Grabbable actor to pick it up. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|Pawn") TObjectPtr<UCXMRHandGrabComponent> HandGrab;
-
 	/** What the monitor shows: the headset mirror, a smoothed view, or an orbit of the vehicle. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|UI") TObjectPtr<UCXMRSpectatorComponent> Spectator;
 
@@ -78,51 +56,4 @@ public:
 	/** Operator's tuning window: depth range, view offset, exposure, vehicle nudges as live numbers. CXMR.Tuning. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|UI") TObjectPtr<UCXMRTuningWindowComponent> TuningWindow;
 
-	// ============================================================================
-	//  Control panel — world space, on the left hand.
-	//
-	//  It has to be a WidgetComponent: a screen-space widget (AddToViewport) renders only to the
-	//  spectator window and is INVISIBLE in the headset. Left hand holds it, right hand points.
-	// ============================================================================
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|UI") TObjectPtr<UWidgetComponent> ControlPanel;
-
-	/** Right-hand ray that hovers/clicks the panel. Presses come from PanelClickAction. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "CXMR|UI") TObjectPtr<UWidgetInteractionComponent> PanelPointer;
-
-	/** Widget on the hand. Defaults to the C++ control panel; a project may swap in its own subclass. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "CXMR|UI") TSubclassOf<UCXMRControlPanelWidget> ControlPanelClass;
-
-	/** Trigger / pinch that presses whatever the pointer is over. Unassigned = pointer hovers only. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI") TObjectPtr<UInputAction> PanelClickAction;
-
-	/** Quad size in pixels. Must match the WBP's content size, or the layout is cropped or stretched. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI") FVector2D PanelDrawSize = FVector2D(432.f, 520.f);
-
-	/** cm per pixel. 0.03 puts a 432x520 panel at roughly 13 x 16 cm — a tablet in the hand. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI", meta = (ClampMin = "0.005", ClampMax = "0.2"))
-	float PanelScale = 0.03f;
-
-	/** Offset from the left controller. Tune in the BP with the headset on — this default is a starting point. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI") FVector PanelOffset = FVector(8.f, 0.f, 4.f);
-
-	/** Yaw 180 turns the quad back toward the wearer; pitch tilts it up like a held clipboard. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI") FRotator PanelRotation = FRotator(-25.f, 180.f, 0.f);
-
-	/**
-	 * Show the panel on the wearer's left hand. Off by default: the wearer is there to judge the car, and the
-	 * session is run from the desktop control window — a 3D panel floating in the level only gets in the way,
-	 * on the headset and on the spectator screen alike. Turn it on only when the wearer must operate alone.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|UI") bool bShowHandPanel = false;
-
-	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void SetControlPanelVisible(bool bVisible);
-	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void ToggleControlPanel();
-
-private:
-	void OnPanelClickPressed();
-	void OnPanelClickReleased();
-
-	/** Pushes the tunables onto the component. Called from the ctor and BeginPlay so BP overrides apply. */
-	void ApplyPanelTransform();
 };

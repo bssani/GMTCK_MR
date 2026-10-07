@@ -70,7 +70,7 @@ UCXMRTuningWindowComponent::UCXMRTuningWindowComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 	WindowTitle = LOCTEXT("WindowTitle", "CXMR Control");
-	CalibrationMessage = LOCTEXT("CalibrationReady", "First setup: initial alignment, fine adjustment, confirm and save. Later sessions restore from markers.");
+	CalibrationMessage = LOCTEXT("CalibrationReady", "Sit in the driver seat and face straight ahead. Align once, fine-adjust, confirm and save. Later sessions restore from markers.");
 }
 
 UCXMRTuningSubsystem* UCXMRTuningWindowComponent::GetTuning() const
@@ -83,9 +83,10 @@ UCXMRTuningSubsystem* UCXMRTuningWindowComponent::GetTuning() const
 void UCXMRTuningWindowComponent::BeginPlay()
 {
 	Super::BeginPlay();
+	CaptureExposureBaseline();
 	if (UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
 	{
-		if (UCXMRSubsystem* CXMR = GI->GetSubsystem<UCXMRSubsystem>()) { CXMR->OnPlaceRequested.AddDynamic(this, &UCXMRTuningWindowComponent::HandleManualPlacementRequest); }
+		if (UCXMRSubsystem* CXMR = GI->GetSubsystem<UCXMRSubsystem>()) { CXMR->OnPlaceRequested.AddDynamic(this, &UCXMRTuningWindowComponent::HandleManualPlacementRequest); CXMR->OnMixedRealityChanged.AddDynamic(this, &UCXMRTuningWindowComponent::HandleDisplayModeChanged); bExposureModeMR = CXMR->IsMixedRealityOn(); }
 	}
 
 	if (UCXMRTuningSubsystem* Tuning = GetTuning())
@@ -109,7 +110,7 @@ void UCXMRTuningWindowComponent::EndPlay(const EEndPlayReason::Type Reason)
 	CloseWindow();
 	if (UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
 	{
-		if (UCXMRSubsystem* CXMR = GI->GetSubsystem<UCXMRSubsystem>()) { CXMR->OnPlaceRequested.RemoveDynamic(this, &UCXMRTuningWindowComponent::HandleManualPlacementRequest); }
+		if (UCXMRSubsystem* CXMR = GI->GetSubsystem<UCXMRSubsystem>()) { CXMR->OnPlaceRequested.RemoveDynamic(this, &UCXMRTuningWindowComponent::HandleManualPlacementRequest); CXMR->OnMixedRealityChanged.RemoveDynamic(this, &UCXMRTuningWindowComponent::HandleDisplayModeChanged); }
 	}
 
 	if (UCXMRTuningSubsystem* Tuning = GetTuning())
@@ -149,6 +150,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		FCXMRTunable T = Make("MR.MixedReality", MR, LOCTEXT("MixedReality", "Mixed reality (passthrough)"), ECXMRTunableKind::Bool);
 		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsMixedRealityOn()) : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetMixedReality(V > 0.5f); } };
+		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealitySupported(); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
@@ -161,6 +163,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		FCXMRTunable T = Make("MR.Masking", MR, LOCTEXT("Masking", "Masking (mask meshes cut through)"), ECXMRTunableKind::Bool);
 		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsMaskingOn()) : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetMasking(V > 0.5f); } };
+		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
@@ -168,6 +171,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		T.Min = 0.0f; T.Max = 1.0f; T.Delta = 0.05f; T.Default = 1.0f; T.bPersist = true;
 		T.Get = [Weak] { return Weak.IsValid() ? Weak->GetViewOffset() : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetViewOffset(V); } };
+		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
@@ -175,6 +179,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		T.Unit = LOCTEXT("Seconds", "s"); T.Min = 0.0f; T.Max = 2.0f; T.Delta = 0.05f; T.Default = 0.5f; T.bPersist = true;
 		T.Get = [Weak] { return Weak.IsValid() ? Weak->ViewOffsetTransitionSeconds : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->ViewOffsetTransitionSeconds = V; } };
+		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
 		Tuning->Register(MoveTemp(T));
 	}
 
@@ -184,6 +189,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		FCXMRTunable T = Make("Depth.Test", Depth, LOCTEXT("DepthTest", "Depth test (real in front of virtual)"), ECXMRTunableKind::Bool);
 		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsDepthTestOn()) : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetDepthTest(V > 0.5f); } };
+		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
@@ -194,6 +200,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		{
 			if (Weak.IsValid()) { Weak->SetDepthTestRange(V > 0.5f, Weak->GetDepthTestRangeNearZ(), Weak->GetDepthTestRangeFarZ()); }
 		};
+		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
@@ -204,6 +211,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		{
 			if (Weak.IsValid()) { Weak->SetDepthTestRange(Weak->IsDepthTestRangeOn(), V, Weak->GetDepthTestRangeFarZ()); }
 		};
+		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
@@ -214,36 +222,29 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		{
 			if (Weak.IsValid()) { Weak->SetDepthTestRange(Weak->IsDepthTestRangeOn(), Weak->GetDepthTestRangeNearZ(), V); }
 		};
+		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
 		FCXMRTunable T = Make("Depth.EnvEstimation", Depth, LOCTEXT("EnvDepth", "Environment depth estimation"), ECXMRTunableKind::Bool);
 		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsEnvironmentDepthEstimationOn()) : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetEnvironmentDepthEstimation(V > 0.5f); } };
+		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn() && Weak->IsEnvironmentDepthEstimationSupported(); };
 		Tuning->Register(MoveTemp(T));
 	}
 
-	// 화면
+	// 모드별 가상 노출을 저장함. 렌더러 구성은 유지함.
+	for (bool bMR : { true, false })
 	{
-		// 패키징에서도 동작하도록 볼륨의 노출 값을 변경함.
-
-		FCXMRTunable T = Make("Display.Exposure", LOCTEXT("CatDisplay", "Display"), LOCTEXT("Exposure", "Exposure compensation"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("EV", "EV"); T.Min = -6.0f; T.Max = 6.0f; T.Delta = 0.1f; T.Default = 0.0f; T.bPersist = true;
-		T.Get = [this]
-		{
-			const APostProcessVolume* Volume = FindUnboundVolume(GetWorld());
-			return (Volume && Volume->Settings.bOverride_AutoExposureBias) ? Volume->Settings.AutoExposureBias : 0.0f;
-		};
-		T.Set = [this](float V)
-		{
-			if (APostProcessVolume* Volume = FindUnboundVolume(GetWorld()))
-			{
-				Volume->Settings.bOverride_AutoExposureBias = true;
-				Volume->Settings.AutoExposureBias = V;
-			}
-		};
+		FCXMRTunable T = Make(bMR ? FName("Display.MRExposure") : FName("Display.VRExposure"), LOCTEXT("CatDisplay", "Visual quality"), bMR ? LOCTEXT("MRExposure", "MR virtual exposure") : LOCTEXT("VRExposure", "VR virtual exposure"), ECXMRTunableKind::Float);
+		T.Help = LOCTEXT("ExposureHelp", "Separate virtual-scene preset for each environment. Camera exposure is controlled in Varjo Base. Requires an unbound Post Process Volume.");
+		T.Unit = LOCTEXT("EV", "EV"); T.Min = -6.f; T.Max = 6.f; T.Delta = 0.1f; T.bPersist = true;
+		T.Get = [this, bMR] { return GetExposurePreset(bMR); };
+		T.Set = [this, bMR](float V) { SetExposurePreset(bMR, V); };
+		T.IsEnabled = [this] { return FindUnboundVolume(GetWorld()) != nullptr; };
 		Tuning->Register(MoveTemp(T));
 	}
+	HandleDisplayModeChanged(bExposureModeMR);
 
 	// 배치 메뉴와 콘솔에서 같은 기능 사용함.
 	{
@@ -289,6 +290,42 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 	}
 }
 
+void UCXMRTuningWindowComponent::CaptureExposureBaseline()
+{
+	APostProcessVolume* Volume = FindUnboundVolume(GetWorld());
+	if (Volume && Volume != ExposureVolume.Get())
+	{
+		// 레벨 기준값은 프리셋 적용 전에 보관함.
+		ExposureVolume = Volume;
+		BaselineExposure = Volume->Settings.AutoExposureBias;
+		bBaselineExposureOverride = Volume->Settings.bOverride_AutoExposureBias;
+	}
+}
+
+float UCXMRTuningWindowComponent::GetExposurePreset(bool bMR) const
+{
+	return (bMR ? bHasMRExposure : bHasVRExposure) ? (bMR ? MRExposure : VRExposure) : BaselineExposure;
+}
+
+void UCXMRTuningWindowComponent::SetExposurePreset(bool bMR, float Value)
+{
+	(bMR ? MRExposure : VRExposure) = Value;
+	(bMR ? bHasMRExposure : bHasVRExposure) = true;
+	if (bMR == bExposureModeMR) { HandleDisplayModeChanged(bExposureModeMR); }
+}
+
+void UCXMRTuningWindowComponent::HandleDisplayModeChanged(bool bMixedReality)
+{
+	bExposureModeMR = bMixedReality;
+	CaptureExposureBaseline();
+	if (APostProcessVolume* Volume = ExposureVolume.Get())
+	{
+		const bool bHasPreset = bMixedReality ? bHasMRExposure : bHasVRExposure;
+		Volume->Settings.bOverride_AutoExposureBias = bHasPreset || bBaselineExposureOverride;
+		Volume->Settings.AutoExposureBias = GetExposurePreset(bMixedReality);
+	}
+}
+
 bool UCXMRTuningWindowComponent::IsWindowOpen() const
 {
 	return Window.IsValid();
@@ -305,14 +342,9 @@ TSharedRef<SWidget> UCXMRTuningWindowComponent::BuildPanel()
 
 void UCXMRTuningWindowComponent::SelectPage(ECXMRControlPage Page)
 {
-	if (Page > ECXMRControlPage::Diagnostics || (!bSetupMode && Page >= ECXMRControlPage::Display)) { return; }
-	ActivePage = Page;
-}
-
-void UCXMRTuningWindowComponent::SetSetupMode(bool bEnable)
-{
-	bSetupMode = bEnable;
-	if (!bSetupMode && ActivePage >= ECXMRControlPage::Display) { ActivePage = ECXMRControlPage::Vehicle; }
+	if (Page > ECXMRControlPage::Diagnostics) { return; }
+	ResetDeadline = 0.0;
+	ActivePage = Page == ECXMRControlPage::Vehicle || Page == ECXMRControlPage::Calibration ? Page : ECXMRControlPage::Display;
 }
 
 UCXMRPlacementComponent* UCXMRTuningWindowComponent::FindPlacement() const
@@ -350,7 +382,8 @@ int32 UCXMRTuningWindowComponent::GetCalibrationPhase() const
 		const AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
 		if ((!Placement->bCalibrated && !Placement->IsManualAlignment()) || !IsValid(Root)
 			|| !Root->GetActorTransform().Equals(ConfirmedPose, 0.001f)
-			|| (CalibrationPhase == 2 && Placement->IsManualAlignment() && !Placement->HasAlignmentCapture()))
+			|| (CalibrationPhase == 2 && (Placement->IsManualAlignment() || (!Placement->GetAlignmentGroup().IsNone() && !Placement->HasSavedAlignment()))
+				&& !Placement->HasAlignmentCapture()))
 		{
 			CalibrationPhase = 1;
 			CalibrationMessage = LOCTEXT("PoseChanged", "Placement changed. Confirm alignment again.");
@@ -373,13 +406,66 @@ FText UCXMRTuningWindowComponent::GetCalibrationMessage() const
 	{
 		return LOCTEXT("RestoredAutomatically", "Saved alignment restored from consistent markers. The vehicle stays fixed.");
 	}
-	if (Placement && CalibrationPhase == 2 && Placement->IsManualAlignment())
+	if (Placement && CalibrationPhase == 2 && (Placement->IsManualAlignment() || Placement->HasAlignmentCapture()))
 	{
 		if (bAlignmentSaveFailed) { return CalibrationMessage; }
 		return FText::FromString(FString::Printf(TEXT("Not saved yet. Observe each configured marker: %d / %d captured. Press Enter or select Save Alignment when ready."),
 			Placement->GetCapturedAlignmentMarkerCount(), Placement->GetRequiredAlignmentMarkerCount()));
 	}
 	return CalibrationMessage;
+}
+
+FText UCXMRTuningWindowComponent::GetAlignmentStatus(const UCXMRVehicleLoaderComponent* Loader) const
+{
+	const UCXMRPlacementComponent* Placement = FindPlacement();
+	const FString Vehicle = Loader && Loader->Profile && Loader->GetSpawnedVehicle() ? Loader->Profile->DisplayName.ToString() : TEXT("No vehicle loaded");
+	const TCHAR* State = !Loader || !Loader->GetSpawnedVehicle() ? TEXT("Alignment pending")
+		: IsInitialAlignmentPending() ? TEXT("Alignment in progress")
+		: Placement && Placement->NeedsRestoreConfirmation() ? TEXT("Restore needs confirmation")
+		: GetCalibrationPhase() == 2 ? TEXT("Alignment confirmed; save pending")
+		: Placement && Placement->IsManualAlignment() ? TEXT("Manual alignment; confirmation pending")
+		: Placement && Placement->bCalibrated ? TEXT("Aligned") : TEXT("Alignment pending");
+	const FString Detail = HasCalibrationError() ? TEXT("   |   ") + GetCalibrationMessage().ToString() : FString();
+	return FText::FromString(FString::Printf(TEXT("%s   |   %s%s"), *Vehicle, State, *Detail));
+}
+
+
+bool UCXMRTuningWindowComponent::IsSharedAlignmentResetArmed() const
+{
+	const UCXMRPlacementComponent* Placement = FindPlacement();
+	return GetWorld() && Placement && Placement == ResetPlacement.Get() && !ResetGroup.IsNone()
+		&& Placement->GetAlignmentGroup() == ResetGroup && GetWorld()->GetRealTimeSeconds() < ResetDeadline;
+}
+
+FText UCXMRTuningWindowComponent::GetSharedAlignmentResetLabel() const
+{
+	return IsSharedAlignmentResetArmed()
+		? FText::Format(LOCTEXT("ResetGroupConfirm", "Click again to delete shared alignment for group {0}"), FText::FromName(ResetGroup))
+		: LOCTEXT("ResetGroupAlignment", "Reset Group Alignment");
+}
+
+void UCXMRTuningWindowComponent::ResetSharedAlignment()
+{
+	UCXMRPlacementComponent* Placement = FindPlacement();
+	if (!Placement || Placement->GetAlignmentGroup().IsNone()) { ResetDeadline = 0.0; return; }
+	if (!IsSharedAlignmentResetArmed())
+	{
+		ResetPlacement = Placement;
+		ResetGroup = Placement->GetAlignmentGroup();
+		// 일시정지·시간 배율에 영향받지 않음.
+		ResetDeadline = GetWorld()->GetRealTimeSeconds() + 5.0;
+		return;
+	}
+	ResetDeadline = 0.0;
+	if (!Placement->TryResetCalibrationToAuthored())
+	{
+		CalibrationMessage = Placement->GetAlignmentStorageMessage();
+		return;
+	}
+	CancelInitialAlignment();
+	CalibrationPhase = 0;
+	bAlignmentSaveFailed = false;
+	CalibrationMessage = LOCTEXT("GroupReset", "Shared alignment reset. Align, confirm and save this group again.");
 }
 
 void UCXMRTuningWindowComponent::StartCalibration()
@@ -516,7 +602,8 @@ bool UCXMRTuningWindowComponent::ConfirmCalibration()
 	if (!CanConfirmCalibration()) { return false; }
 	AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
 	if (!IsValid(Root)) { return false; }
-	if (Placement->IsManualAlignment() && !Placement->BeginAlignmentCapture())
+	const bool bNeedsCapture = Placement->IsManualAlignment() || (!Placement->GetAlignmentGroup().IsNone() && !Placement->HasSavedAlignment());
+	if (bNeedsCapture && !Placement->BeginAlignmentCapture())
 	{
 		CalibrationMessage = Placement->GetAlignmentSaveMessage();
 		return false;
@@ -532,7 +619,10 @@ bool UCXMRTuningWindowComponent::ConfirmCalibration()
 bool UCXMRTuningWindowComponent::CanSaveCalibration() const
 {
 	const UCXMRPlacementComponent* Placement = FindPlacement();
-	return GetCalibrationPhase() == 2 && Placement && (!Placement->IsManualAlignment() || Placement->CanSaveAlignment());
+	if (GetCalibrationPhase() != 2 || !Placement) { return false; }
+	const bool bNeedsCapture = Placement->IsManualAlignment() || Placement->HasAlignmentCapture()
+		|| (!Placement->GetAlignmentGroup().IsNone() && !Placement->HasSavedAlignment());
+	return !bNeedsCapture || Placement->CanSaveAlignment();
 }
 
 void UCXMRTuningWindowComponent::RequestAlignmentSave()
@@ -553,7 +643,7 @@ bool UCXMRTuningWindowComponent::SaveCalibration()
 {
 	if (!CanSaveCalibration()) { return false; }
 	UCXMRPlacementComponent* Placement = FindPlacement();
-	if (Placement->IsManualAlignment()) { Placement->SaveAlignment(); }
+	if (Placement->IsManualAlignment() || Placement->HasAlignmentCapture()) { Placement->SaveAlignment(); }
 	else if (!Placement->GetMarkerLocationOffset().IsNearlyZero() || !Placement->GetMarkerRotationOffset().IsNearlyZero())
 	{
 		Placement->SaveMarkerOffsetToProfile();
@@ -566,7 +656,8 @@ bool UCXMRTuningWindowComponent::SaveCalibration()
 	bAlignmentSaveFailed = !bSaved;
 	CalibrationPhase = bSaved ? 3 : 2;
 	CalibrationMessage = bSaved ? LOCTEXT("CalibrationSaved", "Calibration saved.")
-		: LOCTEXT("CalibrationSaveFailed", "Save failed. Check the profile and save location, then retry.");
+		: Placement->GetAlignmentStorageMessage().IsEmpty()
+			? LOCTEXT("CalibrationSaveFailed", "Save failed. Check the profile and save location, then retry.") : Placement->GetAlignmentStorageMessage();
 	return bSaved;
 }
 
@@ -614,6 +705,7 @@ void UCXMRTuningWindowComponent::OpenWindow()
 
 void UCXMRTuningWindowComponent::CloseWindow()
 {
+	ResetDeadline = 0.0;
 	if (Window.IsValid())
 	{
 		Window->SetOnWindowClosed(FOnWindowClosed());   // 종료 중 콜백 재진입 방지함.

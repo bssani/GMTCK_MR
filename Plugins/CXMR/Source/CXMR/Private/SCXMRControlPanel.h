@@ -7,6 +7,8 @@
 class UCXMRTuningWindowComponent;
 class UCXMRTuningSubsystem;
 class UCXMRControlPanelWidget;
+class UCXMRVehicleLoaderComponent;
+class SBox;
 enum class ECXMRControlPage : uint8;
 
 /** 표시만 담당함. 탐색과 보정 상태는 창 컴포넌트에서 관리함. */
@@ -19,6 +21,7 @@ public:
 		SLATE_ARGUMENT(UCXMRControlPanelWidget*, Viewer)
 	SLATE_END_ARGS()
 	void Construct(const FArguments& Args);
+	virtual void Tick(const FGeometry& Geometry, double CurrentTime, float DeltaTime) override;
 
 private:
 	TSharedRef<SWidget> Navigation(ECXMRControlPage Page, const FText& Label);
@@ -27,4 +30,10 @@ private:
 	FText Status() const;
 	TWeakObjectPtr<UCXMRTuningWindowComponent> Control;
 	TWeakObjectPtr<UCXMRTuningSubsystem> Tuning;
+	TWeakObjectPtr<UCXMRControlPanelWidget> Viewer;
+	TSharedPtr<SBox> ReviewHost;
+	TWeakObjectPtr<UCXMRVehicleLoaderComponent> LastLoader;
+	TWeakObjectPtr<UObject> LastProfile;
+	TWeakObjectPtr<UObject> LastCatalog;
+	TWeakObjectPtr<AActor> LastVehicle;
 };

@@ -7,14 +7,14 @@
 #include "CXMRMarkerProfile.h"
 #include "CXMRVehicleLoaderComponent.h"
 #include "CXMRVehicleProfile.h"
+#include "CXMRPartVariantComponent.h"
 #include "CXMRUsbPortTarget.h"
-#include "CXMRHandGrabComponent.h"
+#include "CXMRPartVariantTestTypes.h"
 #include "CXMRSpectatorComponent.h"
 #include "CXMRVehicleRoot.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "HAL/FileManager.h"
 #include "Components/SceneComponent.h"
-#include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
 #include "TimerManager.h"
@@ -22,7 +22,6 @@
 #include "GameFramework/Pawn.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/Light.h"
-#include "Materials/Material.h"
 
 namespace
 {
@@ -316,22 +315,16 @@ bool FCXMRFailedVehicleSwapTest::RunTest(const FString& Parameters)
 	Loader->RegisterComponent();
 	UCXMRVehicleProfile* Good = NewObject<UCXMRVehicleProfile>();
 	Good->VehicleActor = ACXMRUsbPortTarget::StaticClass();
-	Good->Trims.SetNum(2);
-	Good->Trims[1].CMFOptions.SetNum(2);
 	UCXMRVehicleProfile* Bad = NewObject<UCXMRVehicleProfile>();
 	Loader->Catalog = NewObject<UCXMRVehicleCatalog>();
 	Loader->Catalog->Vehicles = {Good, Bad};
 	Loader->LoadVehicle(Good);
-	Loader->SetTrim(1);
-	Loader->SetCMF(1);
 	AActor* Original = Loader->GetSpawnedVehicle();
 	if (!TestNotNull(TEXT("Initial vehicle spawned"), Original)) { return false; }
 	Loader->NextVehicle();
 	TestTrue(TEXT("Failed cycle preserves the actor"), Loader->GetSpawnedVehicle() == Original && IsValid(Original));
 	TestTrue(TEXT("Failed cycle preserves the profile"), Loader->Profile == Good);
 	TestEqual(TEXT("Failed cycle preserves the catalog index"), Loader->GetVehicleIndex(), 0);
-	TestEqual(TEXT("Failed cycle preserves trim"), Loader->GetTrimIndex(), 1);
-	TestEqual(TEXT("Failed cycle preserves CMF"), Loader->GetCMFIndex(), 1);
 	Loader->LoadVehicle(nullptr);
 	TestTrue(TEXT("Null replacement preserves the actor"), Loader->GetSpawnedVehicle() == Original && IsValid(Original));
 	Bad->VehicleActor = ALight::StaticClass();
@@ -340,6 +333,13 @@ bool FCXMRFailedVehicleSwapTest::RunTest(const FString& Parameters)
 	Bad->VehicleActor = AActor::StaticClass();
 	Loader->LoadVehicle(Bad);
 	TestTrue(TEXT("Attachment failure preserves the actor and profile"), Loader->GetSpawnedVehicle() == Original && IsValid(Original) && Loader->Profile == Good);
+	Bad->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	Bad->VehicleRootOffset.SetScale3D(FVector(1, 0, 1));
+	Loader->LoadVehicle(Bad);
+	TestTrue(TEXT("Zero scale rejects replacement without changing accepted actor"), Loader->GetSpawnedVehicle() == Original && Loader->Profile == Good);
+	TestFalse(TEXT("Invalid transform exposes a reason"), Loader->GetLastFailureReason().IsEmpty());
+	ACXMRUsbPortTarget* Port = Cast<ACXMRUsbPortTarget>(Original);
+	TestTrue(TEXT("Rejected vehicle leaves accepted contact active"), Port && Port->IsContactEnabled());
 	Loader->UnloadVehicle();
 	return true;
 }
@@ -352,50 +352,91 @@ bool FCXMRVehicleSelectionsTest::RunTest(const FString& Parameters)
 	Fixture.Placement->SetMarkerProfile(MakeMarkerProfile());
 	UCXMRVehicleLoaderComponent* Loader = NewObject<UCXMRVehicleLoaderComponent>(Fixture.Anchor);
 	Loader->RegisterComponent();
-	UCXMRVehicleProfile* Profile = NewObject<UCXMRVehicleProfile>();
-	// 프로젝트 애셋 없이 재질 복원 확인함.
-	Profile->VehicleActor = ACXMRUsbPortTarget::StaticClass();
-	Profile->Trims.SetNum(2);
-	Profile->Trims[0].CMFOptions.SetNum(2);
-	FCXMRMaterialOverride Override;
-	Override.Material = UMaterial::GetDefaultMaterial(MD_Surface);
-	Profile->Trims[0].CMFOptions[1].Materials.Add(Override);
-	Loader->LoadVehicle(Profile);
-	TestNull(TEXT("A vehicle without a marker profile clears the previous one"), Fixture.Placement->MarkerProfile.Get());
+	UCXMRVehicleProfile* First = NewObject<UCXMRVehicleProfile>();
+	First->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	UCXMRVehicleProfile* Second = NewObject<UCXMRVehicleProfile>();
+	Second->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	Second->VehicleRootOffset = FTransform(FRotator(0, 17, 0), FVector(120, -30, 45));
+	Loader->Catalog = NewObject<UCXMRVehicleCatalog>();
+	Loader->Catalog->Vehicles = {First, Second};
+	const FTransform AnchorPose(FRotator(0, 32, 0), FVector(500, 200, 80));
+	Fixture.Anchor->SetActorTransform(AnchorPose);
+	TestTrue(TEXT("Direct catalog selection succeeds"), Loader->SelectVehicle(1));
+	TestEqual(TEXT("Direct selection publishes index"), Loader->GetVehicleIndex(), 1);
+	TestNull(TEXT("Vehicle without marker profile clears prior profile"), Fixture.Placement->MarkerProfile.Get());
 	AActor* Vehicle = Loader->GetSpawnedVehicle();
-	if (!TestNotNull(TEXT("Vehicle spawned"), Vehicle)) { return false; }
-	UStaticMeshComponent* Mesh = Vehicle->FindComponentByClass<UStaticMeshComponent>();
-	if (!TestNotNull(TEXT("Vehicle has geometry"), Mesh)) { return false; }
-	UMaterialInterface* Original = Mesh->GetMaterial(0);
-	Loader->SetCMF(1);
-	TestTrue(TEXT("CMF override applied"), Mesh->GetMaterial(0) == Override.Material.Get());
-	Loader->SetCMF(0);
-	TestTrue(TEXT("Empty CMF restores authored material"), Mesh->GetMaterial(0) == Original);
-	Loader->SetCMF(1);
-	Loader->SetTrim(1);
-	TestTrue(TEXT("Trim without CMF restores authored material"), Mesh->GetMaterial(0) == Original);
+	if (!TestNotNull(TEXT("Selected vehicle spawned"), Vehicle)) { return false; }
+	TestTrue(TEXT("CAD offset applied once below anchor"), Vehicle->GetActorTransform().Equals(Second->VehicleRootOffset * AnchorPose, 0.01f));
+	TestTrue(TEXT("Catalog selection preserves anchor"), Fixture.Anchor->GetActorTransform().Equals(AnchorPose, 0.01f));
+	TestFalse(TEXT("Invalid direct selection rejected"), Loader->SelectVehicle(2));
+	TestTrue(TEXT("Rejected selection preserves vehicle and profile"), Loader->GetSpawnedVehicle() == Vehicle && Loader->Profile == Second);
+	TestEqual(TEXT("Rejected selection preserves index"), Loader->GetVehicleIndex(), 1);
+	TestFalse(TEXT("Rejected selection exposes reason"), Loader->GetLastFailureReason().IsEmpty());
+	TestTrue(TEXT("Next wraps catalog"), (Loader->NextVehicle(), Loader->Profile == First));
+	TestTrue(TEXT("Successful selection clears failure"), Loader->GetLastFailureReason().IsEmpty());
+	AActor* Accepted = Loader->GetSpawnedVehicle();
+	TestFalse(TEXT("Committed vehicle restores authored visibility"), Accepted->IsHidden());
+	TestTrue(TEXT("Committed vehicle restores authored collision"), Accepted->GetActorEnableCollision());
+	TestTrue(TEXT("Committed USB restores contact"), Cast<ACXMRUsbPortTarget>(Accepted)->IsContactEnabled());
+	TArray<UCXMRPartVariantComponent*> Controllers;
+	Accepted->GetComponents(Controllers);
+	TestEqual(TEXT("Vehicle has one part controller"), Controllers.Num(), 1);
+	FActorSpawnParameters OwnedParams;
+	OwnedParams.Owner = Accepted;
+	ACXMRUsbPortTarget* OwnedPort = Fixture.World->SpawnActor<ACXMRUsbPortTarget>(ACXMRUsbPortTarget::StaticClass(), FTransform::Identity, OwnedParams);
+	OwnedPort->AttachToComponent(Accepted->GetRootComponent(), FAttachmentTransformRules::KeepWorldTransform);
+	ACXMRUsbPortTarget* ForeignPort = Fixture.World->SpawnActor<ACXMRUsbPortTarget>();
+	ForeignPort->AttachToComponent(Accepted->GetRootComponent(), FAttachmentTransformRules::KeepWorldTransform);
+	const FTransform ForeignPose = ForeignPort->GetActorTransform();
 	Loader->UnloadVehicle();
+	TestFalse(TEXT("Unload destroys owned port descendants"), IsValid(OwnedPort));
+	TestFalse(TEXT("Owned port contact disabled on unload"), OwnedPort->IsContactEnabled());
+	TestTrue(TEXT("Unload preserves externally attached actors"), IsValid(ForeignPort) && ForeignPort->IsContactEnabled());
+	TestTrue(TEXT("Preserved external actor retains world transform"), ForeignPort->GetActorTransform().Equals(ForeignPose, 0.01f));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRPinchThresholdsTest, "CXMR.Regression.PinchThresholds",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRVehicleRootContractTest, "CXMR.Regression.VehicleRootContract",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FCXMRPinchThresholdsTest::RunTest(const FString& Parameters)
+bool FCXMRVehicleRootContractTest::RunTest(const FString& Parameters)
 {
 	FTestWorld Fixture;
-	UCXMRHandGrabComponent* Grab = NewObject<UCXMRHandGrabComponent>(Fixture.Anchor);
-	Grab->RegisterComponent();
-	Grab->SetSimulatedPinch(EControllerHand::Left, false, FTransform::Identity);
-	Grab->SetSimulatedPinch(EControllerHand::Right, false, FTransform::Identity);
-	// BP에서 넣은 값도 범위 보정하는지 확인함.
-	Grab->PinchCloseDistance = 4.f;
-	Grab->PinchOpenDistance = 2.f;
-	Grab->TickComponent(0.016f, LEVELTICK_All, nullptr);
-	TestTrue(TEXT("Inverted thresholds are corrected before evaluating hands"),
-		Grab->PinchOpenDistance > Grab->PinchCloseDistance);
-	Grab->PinchCloseDistance = -1.f;
-	Grab->TickComponent(0.016f, LEVELTICK_All, nullptr);
-	TestTrue(TEXT("Runtime thresholds stay positive"), Grab->PinchCloseDistance > 0.f);
+	ACXMRVehicleRoot* Root = Fixture.World->SpawnActor<ACXMRVehicleRoot>();
+	if (!TestNotNull(TEXT("Vehicle root spawned"), Root)) { return false; }
+	TestTrue(TEXT("Anchor is the root"), Root->GetRootComponent() == Root->VehicleAnchor);
+	TestTrue(TEXT("Loader attaches directly to anchor"), Root->Loader->AttachTarget == Root->VehicleAnchor);
+	TArray<UActorComponent*> Components;
+	Root->GetComponents(Components);
+	TestEqual(TEXT("Root owns anchor, placement and loader only"), Components.Num(), 3);
+	const FTransform AnchorPose(FRotator(0, 45, 0), FVector(100, -150, 70));
+	Root->SetActorTransform(AnchorPose);
+	UCXMRVehicleProfile* Profile = NewObject<UCXMRVehicleProfile>();
+	Profile->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	Profile->VehicleRootOffset = FTransform(FRotator(0, -20, 0), FVector(300, 40, 15));
+	Root->Loader->LoadVehicle(Profile);
+	AActor* Vehicle = Root->Loader->GetSpawnedVehicle();
+	if (!TestNotNull(TEXT("Vehicle spawned under minimal root"), Vehicle)) { return false; }
+	TestTrue(TEXT("Vehicle parent is calibrated anchor"), Vehicle->GetRootComponent()->GetAttachParent() == Root->VehicleAnchor);
+	TestTrue(TEXT("Root preserves accepted anchor"), Root->GetActorTransform().Equals(AnchorPose, 0.01f));
+	TestTrue(TEXT("Vehicle preserves imported offset"), Vehicle->GetActorTransform().Equals(Profile->VehicleRootOffset * AnchorPose, 0.01f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRVehicleConstructedStateTest, "CXMR.Regression.ConstructedVehicleState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRVehicleConstructedStateTest::RunTest(const FString& Parameters)
+{
+	FTestWorld Fixture;
+	ACXMRVehicleRoot* Root = Fixture.World->SpawnActor<ACXMRVehicleRoot>();
+	UCXMRVehicleProfile* Profile = NewObject<UCXMRVehicleProfile>();
+	Profile->VehicleActor = ACXMRPartAuthoredActivityTestAssembly::StaticClass();
+	Root->Loader->LoadVehicle(Profile);
+	AActor* Vehicle = Root->Loader->GetSpawnedVehicle();
+	if (!TestNotNull(TEXT("Constructed vehicle accepted"), Vehicle)) { return false; }
+	TestTrue(TEXT("Construction hidden state preserved"), Vehicle->IsHidden());
+	TestFalse(TEXT("Construction collision state preserved"), Vehicle->GetActorEnableCollision());
+	TestTrue(TEXT("Construction tick state preserved"), Vehicle->IsActorTickEnabled());
+	Root->Loader->UnloadVehicle();
 	return true;
 }
 

@@ -3,6 +3,7 @@
 #include "CXMRPanelUI.h"
 
 #include "Styling/CoreStyle.h"
+#include "Brushes/SlateRoundedBoxBrush.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
@@ -19,6 +20,51 @@
 
 namespace
 {
+	FReply InvokeAction(const TFunction<void()>& Invoke)
+	{
+		if (Invoke) { Invoke(); }
+		return FReply::Handled();
+	}
+
+	FText ChoiceText(const TFunction<float()>& Get, const TArray<FText>& Options)
+	{
+		const int32 Index = Get ? FMath::RoundToInt(Get()) : 0;
+		return Options.IsValidIndex(Index) ? Options[Index] : FText::GetEmpty();
+	}
+
+	FReply ApplyChoice(const TFunction<void(float, bool)>& Apply, int32 Index)
+	{
+		if (Apply) { Apply(static_cast<float>(Index), true); }
+		FSlateApplication::Get().DismissAllMenus();
+		return FReply::Handled();
+	}
+
+	TSharedRef<SWidget> ChoiceMenu(const TFunction<void(float, bool)>& Apply, const TArray<FText>& Options)
+	{
+		TSharedRef<SVerticalBox> Choices = SNew(SVerticalBox);
+		for (int32 Index = 0; Index < Options.Num(); ++Index)
+		{
+			Choices->AddSlot().AutoHeight()
+			[
+				SNew(SButton).ButtonStyle(CXMRPanelUI::ButtonStyle()).TextStyle(CXMRPanelUI::BodyTextStyle())
+				.ContentPadding(FMargin(12.f, 8.f)).Text(Options[Index])
+				.OnClicked_Lambda([Apply, Index] { return ApplyChoice(Apply, Index); })
+			];
+		}
+		return Choices;
+	}
+
+	FSlateColor TabBackground(const TFunction<int32()>& GetActive, int32 Index)
+	{
+		return GetActive && GetActive() == Index
+			? FLinearColor::FromSRGBColor(FColor(224, 235, 251)) : FLinearColor::White;
+	}
+
+	FSlateColor TabInk(const TFunction<int32()>& GetActive, int32 Index)
+	{
+		return GetActive && GetActive() == Index ? CXMRPanelUI::SelectionColor() : CXMRPanelUI::InkColor();
+	}
+
 	bool IsRangedKind(ECXMRTunableKind Kind)
 	{
 		return Kind == ECXMRTunableKind::Bool || Kind == ECXMRTunableKind::Float || Kind == ECXMRTunableKind::Choice;
@@ -38,9 +84,42 @@ namespace
 	}
 }
 
-FLinearColor CXMRPanelUI::BackgroundColor() { return FLinearColor(0.035f, 0.037f, 0.042f); }
-FLinearColor CXMRPanelUI::HeaderColor()     { return FLinearColor(0.55f, 0.75f, 1.0f); }
-FLinearColor CXMRPanelUI::ReadoutColor()    { return FLinearColor(0.75f, 0.85f, 0.75f); }
+FLinearColor CXMRPanelUI::BackgroundColor() { return FLinearColor::FromSRGBColor(FColor(238, 242, 247)); }
+FLinearColor CXMRPanelUI::InkColor() { return FLinearColor::FromSRGBColor(FColor(23, 37, 56)); }
+FLinearColor CXMRPanelUI::HeaderColor() { return InkColor(); }
+FLinearColor CXMRPanelUI::ReadoutColor() { return FLinearColor::FromSRGBColor(FColor(64, 83, 108)); }
+FLinearColor CXMRPanelUI::SelectionColor() { return FLinearColor::FromSRGBColor(FColor(36, 102, 206)); }
+const FTextBlockStyle* CXMRPanelUI::BodyTextStyle()
+{
+	static const FTextBlockStyle Style = FTextBlockStyle().SetFont(FCoreStyle::GetDefaultFontStyle("Regular", 13)).SetColorAndOpacity(FSlateColor::UseForeground());
+	return &Style;
+}
+const FButtonStyle* CXMRPanelUI::ButtonStyle()
+{
+	static const FButtonStyle Style = FButtonStyle()
+		.SetNormal(FSlateRoundedBoxBrush(FLinearColor::White, 5.f, FLinearColor::FromSRGBColor(FColor(196, 207, 222)), 1.f))
+		.SetHovered(FSlateRoundedBoxBrush(FLinearColor::FromSRGBColor(FColor(224, 235, 251)), 5.f, SelectionColor(), 1.f))
+		.SetPressed(FSlateRoundedBoxBrush(FLinearColor::FromSRGBColor(FColor(199, 220, 250)), 5.f, SelectionColor(), 1.f))
+		.SetDisabled(FSlateRoundedBoxBrush(BackgroundColor(), 5.f))
+		.SetNormalForeground(InkColor()).SetHoveredForeground(InkColor()).SetPressedForeground(InkColor()).SetDisabledForeground(ReadoutColor())
+		.SetNormalPadding(FMargin(12.f, 8.f)).SetPressedPadding(FMargin(12.f, 8.f));
+	return &Style;
+}
+const FSpinBoxStyle* CXMRPanelUI::SpinStyle()
+{
+	static const FSpinBoxStyle Style = FSpinBoxStyle(FCoreStyle::Get().GetWidgetStyle<FSpinBoxStyle>("SpinBox"))
+		.SetBackgroundBrush(FSlateRoundedBoxBrush(BackgroundColor(), 4.f))
+		.SetActiveBackgroundBrush(FSlateRoundedBoxBrush(FLinearColor::White, 4.f, SelectionColor(), 1.f))
+		.SetInactiveFillBrush(FSlateRoundedBoxBrush(FLinearColor::Transparent, 4.f))
+		.SetActiveFillBrush(FSlateRoundedBoxBrush(FLinearColor::Transparent, 4.f))
+		.SetForegroundColor(InkColor());
+	return &Style;
+}
+TSharedRef<SWidget> CXMRPanelUI::MakeSurface(const TSharedRef<SWidget>& Content)
+{
+	return SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+		.BorderBackgroundColor(FLinearColor::White).ForegroundColor(InkColor()).Padding(20.f)[Content];
+}
 
 CXMRPanelUI::FRowBinding CXMRPanelUI::BindToRegistry(UCXMRTuningSubsystem* Tuning, const FCXMRTunable& Tunable)
 {
@@ -70,10 +149,7 @@ CXMRPanelUI::FRowBinding CXMRPanelUI::BindDirect(const FCXMRTunable& Tunable)
 		const bool bClamp = IsRangedKind(Tunable.Kind);
 		const float Min = bClamp ? (Tunable.Kind == ECXMRTunableKind::Float ? Tunable.Min : 0.0f) : 0.0f;
 		const float Max = RangeTopFor(Tunable);
-		Binding.Apply = [Set = Tunable.Set, bClamp, Min, Max](float Value, bool)
-		{
-			Set(bClamp ? FMath::Clamp(Value, Min, Max) : Value);
-		};
+		Binding.Apply = [Set = Tunable.Set, bClamp, Min, Max](float Value, bool) { Set(bClamp ? FMath::Clamp(Value, Min, Max) : Value); };
 	}
 	Binding.Step = Tunable.Step;
 	Binding.Invoke = Tunable.Invoke;
@@ -84,9 +160,9 @@ CXMRPanelUI::FRowBinding CXMRPanelUI::BindDirect(const FCXMRTunable& Tunable)
 
 TSharedRef<SWidget> CXMRPanelUI::MakeHeader(const FText& Category)
 {
-	return SNew(STextBlock)
+	return SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 13))
 		.Text(Category)
-		.Font(FCoreStyle::GetDefaultFontStyle("Bold", 12))
+		.Font(FCoreStyle::GetDefaultFontStyle("Bold", 17))
 		.ColorAndOpacity(HeaderColor());
 }
 
@@ -103,21 +179,17 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 	{
 		Row->AddSlot().FillWidth(1.0f)
 		[
-			SNew(SButton)
+			SNew(SButton).ButtonStyle(ButtonStyle()).TextStyle(BodyTextStyle()).ContentPadding(FMargin(12.f, 9.f))
 			.HAlign(HAlign_Center)
 			.Text(Tunable.Label)
-			.OnClicked_Lambda([Invoke = Binding.Invoke]
-			{
-				if (Invoke) { Invoke(); }
-				return FReply::Handled();
-			})
+			.OnClicked_Lambda([Invoke = Binding.Invoke] { return InvokeAction(Invoke); })
 		];
 		return Row;
 	}
 
 	Row->AddSlot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(0.0f, 0.0f, 8.0f, 0.0f)
 	[
-		SNew(STextBlock).Text(Tunable.Label).AutoWrapText(true)
+		SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 13)).Text(Tunable.Label).AutoWrapText(true)
 	];
 
 	const TFunction<float()> Get = Binding.Get;
@@ -129,14 +201,8 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 		Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
 		[
 			SNew(SCheckBox)
-			.IsChecked_Lambda([Get]
-			{
-				return (Get && Get() > 0.5f) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
-			})
-			.OnCheckStateChanged_Lambda([Apply](ECheckBoxState State)
-			{
-				if (Apply) { Apply(State == ECheckBoxState::Checked ? 1.0f : 0.0f, true); }
-			})
+			.IsChecked_Lambda([Get] { return (Get && Get() > 0.5f) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+			.OnCheckStateChanged_Lambda([Apply](ECheckBoxState State) { if (Apply) { Apply(State == ECheckBoxState::Checked ? 1.0f : 0.0f, true); } })
 		];
 		break;
 
@@ -156,7 +222,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 		[
 			SNew(SBox).WidthOverride(95.0f)
 			[
-				SNew(SSpinBox<float>)
+				SNew(SSpinBox<float>).Style(SpinStyle()).Font(FCoreStyle::GetDefaultFontStyle("Regular", 13))
 				.MinValue(Tunable.Min).MaxValue(Tunable.Max)
 				.MinSliderValue(Tunable.Min).MaxSliderValue(Tunable.Max)
 				.Delta(Tunable.Delta)
@@ -169,7 +235,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 		];
 		Row->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(6.0f, 0.0f, 0.0f, 0.0f)
 		[
-			SNew(SBox).WidthOverride(52.0f) [ SNew(STextBlock).Text(Tunable.Unit) ]
+			SNew(SBox).WidthOverride(52.0f) [ SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 13)).Text(Tunable.Unit) ]
 		];
 		break;
 	}
@@ -181,22 +247,10 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 		[
 			SNew(SBox).WidthOverride(150.0f)
 			[
-				SNew(SComboButton)
+				SNew(SComboButton).ButtonStyle(ButtonStyle())
 				.ButtonContent()
-				[ SNew(STextBlock).Text_Lambda([Get, Options] { const int32 Index = Get ? FMath::RoundToInt(Get()) : 0; return Options.IsValidIndex(Index) ? Options[Index] : FText::GetEmpty(); }) ]
-				.OnGetMenuContent_Lambda([Apply, Options]
-				{
-					TSharedRef<SVerticalBox> Choices = SNew(SVerticalBox);
-					for (int32 Index = 0; Index < Options.Num(); ++Index)
-					{
-						Choices->AddSlot().AutoHeight()
-						[
-							SNew(SButton).Text(Options[Index]).ContentPadding(FMargin(12.f, 8.f))
-							.OnClicked_Lambda([Apply, Index] { if (Apply) { Apply(static_cast<float>(Index), true); } FSlateApplication::Get().DismissAllMenus(); return FReply::Handled(); })
-						];
-					}
-					return StaticCastSharedRef<SWidget>(Choices);
-				})
+				[ SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 13)).Text_Lambda([Get, Options] { return ChoiceText(Get, Options); }) ]
+				.OnGetMenuContent_Lambda([Apply, Options] { return ChoiceMenu(Apply, Options); })
 			]
 		];
 		break;
@@ -209,7 +263,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 		{
 			Row->AddSlot().FillWidth(1.f).VAlign(VAlign_Center).Padding(0.0f, 0.0f, 8.0f, 0.0f)
 			[
-				SNew(STextBlock)
+				SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 13))
 				.ColorAndOpacity(ReadoutColor())
 					.Text_Lambda([Text = Binding.Text] { return Text(); })
 					.AutoWrapText(true)
@@ -220,7 +274,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 		[
 			SNew(SBox).WidthOverride(44.0f)
 			[
-				SNew(SButton).HAlign(HAlign_Center).Text(LOCTEXT("Minus", "-"))
+				SNew(SButton).ButtonStyle(ButtonStyle()).TextStyle(BodyTextStyle()).ContentPadding(FMargin(12.f, 9.f)).HAlign(HAlign_Center).Text(LOCTEXT("Minus", "-"))
 				.OnClicked_Lambda([Step] { if (Step) { Step(-1.0f); } return FReply::Handled(); })
 			]
 		];
@@ -228,7 +282,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 		[
 			SNew(SBox).WidthOverride(44.0f)
 			[
-				SNew(SButton).HAlign(HAlign_Center).Text(LOCTEXT("Plus", "+"))
+				SNew(SButton).ButtonStyle(ButtonStyle()).TextStyle(BodyTextStyle()).ContentPadding(FMargin(12.f, 9.f)).HAlign(HAlign_Center).Text(LOCTEXT("Plus", "+"))
 				.OnClicked_Lambda([Step] { if (Step) { Step(1.0f); } return FReply::Handled(); })
 			]
 		];
@@ -238,7 +292,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 	case ECXMRTunableKind::Readout:
 		Row->AddSlot().FillWidth(1.5f).VAlign(VAlign_Center)
 		[
-			SNew(STextBlock)
+			SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 13))
 			.AutoWrapText(true)
 			.ColorAndOpacity(ReadoutColor())
 			.Text_Lambda([Text = Binding.Text] { return Text ? Text() : FText::GetEmpty(); })
@@ -253,7 +307,7 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 	{
 		Row->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(6.0f, 0.0f, 0.0f, 0.0f)
 		[
-			SNew(SButton)
+			SNew(SButton).ButtonStyle(ButtonStyle()).TextStyle(BodyTextStyle()).ContentPadding(FMargin(12.f, 9.f))
 			.Text(LOCTEXT("Default", "Default"))
 			.ToolTipText(LOCTEXT("DefaultTip", "Back to the default value, and forget the saved one"))
 			.OnClicked_Lambda([Reset = Binding.Reset] { Reset(); return FReply::Handled(); })
@@ -275,14 +329,16 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRowList(const TArray<FRowSpec>& Rows)
 
 	for (const FString& Category : Categories)
 	{
-		List->AddSlot().AutoHeight().Padding(10.0f, 14.0f, 10.0f, 4.0f)[ MakeHeader(FText::FromString(Category)) ];
+		TSharedRef<SVerticalBox> Group = SNew(SVerticalBox);
+		Group->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 16.f)[ MakeHeader(FText::FromString(Category)) ];
 		for (const FRowSpec& Row : Rows)
 		{
 			if (Row.Tunable.Category.ToString() == Category)
 			{
-				List->AddSlot().AutoHeight().Padding(10.0f, 7.0f)[ MakeRow(Row.Tunable, Row.Binding) ];
+				Group->AddSlot().AutoHeight().Padding(0.f, 9.f)[ MakeRow(Row.Tunable, Row.Binding) ];
 			}
 		}
+		List->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 16.f)[ MakeSurface(Group) ];
 	}
 	return List;
 }
@@ -294,26 +350,16 @@ TSharedRef<SWidget> CXMRPanelUI::MakeTabBar(const TArray<FText>& Labels, TFuncti
 	{
 		Bar->AddSlot().FillWidth(1.0f).Padding(2.0f, 0.0f)
 		[
-			SNew(SButton)
+			SNew(SButton).ButtonStyle(ButtonStyle()).TextStyle(BodyTextStyle()).ContentPadding(FMargin(12.f, 9.f))
 			.HAlign(HAlign_Center)
 			.ContentPadding(FMargin(6.0f, 6.0f))
-			.ButtonColorAndOpacity_Lambda([GetActive, Index]
-			{
-				return (GetActive && GetActive() == Index)
-					? FSlateColor(HeaderColor() * 0.55f)
-					: FSlateColor(FLinearColor(0.10f, 0.11f, 0.13f));
-			})
+			.ButtonColorAndOpacity_Lambda([GetActive, Index] { return TabBackground(GetActive, Index); })
 			.OnClicked_Lambda([Select, Index] { if (Select) { Select(Index); } return FReply::Handled(); })
 			[
-				SNew(STextBlock)
+				SNew(STextBlock).Font(FCoreStyle::GetDefaultFontStyle("Regular", 13))
 				.Text(Labels[Index])
-				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
-				.ColorAndOpacity_Lambda([GetActive, Index]
-				{
-					return (GetActive && GetActive() == Index)
-						? FSlateColor(FLinearColor(0.95f, 0.97f, 1.0f))
-						: FSlateColor(FLinearColor(0.50f, 0.53f, 0.58f));
-				})
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 13))
+				.ColorAndOpacity_Lambda([GetActive, Index] { return TabInk(GetActive, Index); })
 			]
 		];
 	}
@@ -330,7 +376,8 @@ TSharedRef<SWidget> CXMRPanelUI::MakeBackground(const TSharedRef<SWidget>& Conte
 	return SNew(SBorder)
 		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
 		.BorderBackgroundColor(BackgroundColor())
-		.Padding(4.0f)
+		.ForegroundColor(InkColor())
+		.Padding(0.0f)
 		[
 			Content
 		];
