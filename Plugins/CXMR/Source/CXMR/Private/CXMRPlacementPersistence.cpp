@@ -38,7 +38,7 @@ namespace
 	}
 }
 
-bool UCXMRPlacementComponent::WriteCalibrationData(const TArray<FCXMRMarkerEntry>& Entries, const TSet<int32>& ValidatedIds)
+bool UCXMRPlacementComponent::WriteCalibrationData(const TArray<FCXMRMarkerEntry>& Entries, const TSet<int32>& ValidatedIds, int32 PrimaryMarker)
 {
 	bLastCalibrationSaveSucceeded = false;
 	const FString Path = GetCalibrationFilePath();
@@ -80,7 +80,7 @@ bool UCXMRPlacementComponent::WriteCalibrationData(const TArray<FCXMRMarkerEntry
 		for (int32 Id : Ids) { Validated.Add(MakeShared<FJsonValueNumber>(Id)); }
 		Data->SetNumberField(TEXT("alignmentVersion"), 1);
 		Data->SetArrayField(TEXT("alignmentMarkers"), Validated);
-		Data->SetNumberField(TEXT("primaryMarker"), Ids[0]);
+		Data->SetNumberField(TEXT("primaryMarker"), ValidatedIds.Contains(PrimaryMarker) ? PrimaryMarker : Ids[0]);
 		if (!Loader || !Loader->Profile) { return false; }
 	}
 	FString Text;
@@ -101,9 +101,20 @@ bool UCXMRPlacementComponent::WriteCalibrationData(const TArray<FCXMRMarkerEntry
 bool UCXMRPlacementComponent::SaveCalibrationToDisk()
 {
 	if (!MarkerProfile) { bLastCalibrationSaveSucceeded = false; return false; }
-	const bool bSaved = WriteCalibrationData(MarkerProfile->Markers, {});
-	if (bSaved) { SavedAlignmentMarkers.Reset(); SavedPrimaryMarker = 0; }
-	return bSaved;
+	if (bManualAlignment) { return RequestAlignmentSave(); }
+	TSet<int32> CurrentIds;
+	for (const FCXMRMarkerEntry& Entry : MarkerProfile->Markers)
+	{
+		if (Entry.Role == ECXMRMarkerRole::Calibration && Entry.MarkerId > 0) { CurrentIds.Add(Entry.MarkerId); }
+	}
+	const bool bSameMarkers = CurrentIds.Num() == SavedAlignmentMarkers.Num()
+		&& CurrentIds.Includes(SavedAlignmentMarkers);
+	// 같은 마커 구성이면 복원 정보 유지함. 바뀐 구성은 다시 확인해야 함.
+	if (bSameMarkers) { return WriteCalibrationData(MarkerProfile->Markers, SavedAlignmentMarkers, SavedPrimaryMarker); }
+	if (!WriteCalibrationData(MarkerProfile->Markers, {})) { return false; }
+	SavedAlignmentMarkers.Reset();
+	SavedPrimaryMarker = 0;
+	return true;
 }
 
 bool UCXMRPlacementComponent::LoadCalibrationFromDisk()

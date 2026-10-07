@@ -268,4 +268,5 @@ private:
 	bool bNearSoundArmed = true;
 	float TrackingLostSeconds = 0.f;
 	float AlignmentElapsed = 0.f;
+	bool bHadAlignmentObservation = false;
 };

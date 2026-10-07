@@ -123,6 +123,8 @@ bool FCXMRUsbPreservePortTest::RunTest(const FString& Parameters)
 	UMaterialInterface* OriginalMaterial = Indicator->GetMaterial(0);
 	const FTransform OriginalTransform = Indicator->GetRelativeTransform();
 	Port->Tick(0.2f);
+	Port->Tick(0.2f);
+	TestTrue(TEXT("Port reaches aligned after continuing observations"), Port->IsAligned());
 	TestTrue(TEXT("Aligned port is visible"), Indicator->IsVisible());
 	TestEqual(TEXT("Active feedback preserves the actual USB material"), Indicator->GetMaterial(0), OriginalMaterial);
 	TestTrue(TEXT("Active feedback preserves USB position and size"), Indicator->GetRelativeTransform().Equals(OriginalTransform));
@@ -155,6 +157,8 @@ bool FCXMRUsbStaleDwellTest::RunTest(const FString& Parameters)
 	Port->Tick(0.1f);
 	TestFalse(TEXT("Confirmation must restart after tracking loss"), Port->IsAligned());
 	Port->Tick(0.06f);
+	TestFalse(TEXT("The reacquisition frame does not count toward stability"), Port->IsAligned());
+	Port->Tick(0.1f);
 	TestTrue(TEXT("Fresh stable tracking can confirm alignment again"), Port->IsAligned());
 	return true;
 }
@@ -179,4 +183,32 @@ bool FCXMRUsbNearestTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRUsbFirstObservationTest, "CXMR.USB.FirstObservationDwell",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRUsbFirstObservationTest::RunTest(const FString& Parameters)
+{
+	FUsbWorld Fixture;
+	ACXMRUsbPortTarget* Port = Fixture.Port(1.f, true);
+	Port->Tick(0.2f);
+	TestFalse(TEXT("A delayed first observation cannot satisfy the dwell"), Port->IsAligned());
+	Port->Tick(0.1f);
+	TestFalse(TEXT("Only time since the first valid observation counts"), Port->IsAligned());
+	Port->Tick(0.06f);
+	TestTrue(TEXT("Continuing valid observations satisfy the dwell"), Port->IsAligned());
+	Port->SetActorLocation(Fixture.Tip + Fixture.Direction * 20.f);
+	Port->Tick(0.02f);
+	Port->SetActorLocation(Fixture.Tip + Fixture.Direction * 1.f);
+	Port->Tick(0.2f);
+	TestFalse(TEXT("Re-entering the valid angle-distance window starts a new dwell"), Port->IsAligned());
+	IConsoleVariable* Preview = IConsoleManager::Get().FindConsoleVariable(TEXT("CXMR.PlugTip.Preview"));
+	Preview->Set(0, ECVF_SetByConsole);
+	Port->Tick(0.05f);
+	Preview->Set(1, ECVF_SetByConsole);
+	Port->Tick(0.2f);
+	TestFalse(TEXT("Delayed reacquisition cannot satisfy a new dwell"), Port->IsAligned());
+	Port->Tick(0.16f);
+	TestTrue(TEXT("Fresh continuity after reacquisition can align"), Port->IsAligned());
+	return true;
+}
 #endif

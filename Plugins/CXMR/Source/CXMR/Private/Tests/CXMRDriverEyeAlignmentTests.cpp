@@ -17,6 +17,9 @@
 #include "TimerManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 
 namespace
 {
@@ -515,6 +518,173 @@ bool FCXMRUnicodeVehicleIdentityTest::RunTest(const FString& Parameters)
 	const FString FirstPath = Fixture.Root->Placement->GetCalibrationFilePath();
 	Fixture.Root->Loader->LoadVehicle(Second);
 	TestNotEqual(TEXT("Unicode vehicle names retain distinct calibration files"), FirstPath, Fixture.Root->Placement->GetCalibrationFilePath());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRKeyboardCaptureTest, "CXMR.Alignment.KeyboardConfirmCaptureSave",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRKeyboardCaptureTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	UCXMRPlacementComponent* Placement = Fixture.Root->Placement;
+	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Fixture.Root);
+	Control->RegisterComponent();
+	EyeMarker(Placement, 1, FTransform(FVector(100, 20, 30)));
+	EyeMarker(Placement, 2, FTransform(FVector(200, 20, 30)));
+	TestTrue(TEXT("Original marker calibration completed"), Placement->bCalibrated);
+	Placement->NudgeVehicleInFrame(FVector(2, 0, 0), 3, 0, FVector::ZeroVector);
+	const FTransform Final = Fixture.Root->GetActorTransform();
+	Placement->ProcessEvent(Placement->FindFunctionChecked(TEXT("HandleSaveOffsetRequest")), nullptr);
+	TestTrue(TEXT("Enter confirms and starts fresh capture"), Placement->HasAlignmentCapture());
+	TestEqual(TEXT("Keyboard confirmation enters the panel capture phase"), Control->GetCalibrationPhase(), 2);
+	TestEqual(TEXT("Pre-Enter observations cannot count as captured"), Placement->GetCapturedAlignmentMarkerCount(), 0);
+	TestFalse(TEXT("First Enter does not report a save before fresh capture"), Placement->WasLastCalibrationSaveSuccessful());
+	EyeMarker(Placement, 1, FTransform(FVector(100, 20, 30)));
+	Placement->SaveMarkerOffsetToProfile();
+	TestTrue(TEXT("Incomplete save reports progress in the panel"), Control->GetCalibrationMessage().ToString().Contains(TEXT("1 / 2")));
+	TestFalse(TEXT("Incomplete save does not create a file"), IFileManager::Get().FileExists(*Placement->GetCalibrationFilePath()));
+	EyeMarker(Placement, 2, FTransform(FVector(220, 20, 30)));
+	Placement->ProcessEvent(Placement->FindFunctionChecked(TEXT("HandleSaveOffsetRequest")), nullptr);
+	TestTrue(TEXT("Enter saves the complete fresh capture"), Placement->WasLastCalibrationSaveSuccessful());
+	TestEqual(TEXT("Keyboard save completes the panel phase"), Control->GetCalibrationPhase(), 3);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	Fixture.Root->SetActorTransform(FTransform::Identity);
+	EyeMarker(Placement, 2, FTransform(FVector(220, 20, 30)));
+	TestTrue(TEXT("Keyboard adjustment survives reload"), Fixture.Root->GetActorTransform().Equals(Final, 0.01));
+	TestTrue(TEXT("Keyboard save retains single-marker restoration"), Placement->NeedsRestoreConfirmation());
+	Fixture.Root->Loader->UnloadVehicle();
+	Placement->NudgeVehicleInFrame(FVector(1, 0, 0), 0, 0, FVector::ZeroVector);
+	Placement->SaveMarkerOffsetToProfile();
+	TestTrue(TEXT("Missing vehicle is explained"), Control->GetCalibrationMessage().ToString().Contains(TEXT("Load a vehicle")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRResaveMetadataTest, "CXMR.Alignment.ResaveMetadata",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRResaveMetadataTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	ConfigureEye(*this, Fixture.Profile);
+	UCXMRPlacementComponent* Placement = Fixture.Root->Placement;
+	AlignEye(*this, Placement);
+	Placement->BeginAlignmentCapture();
+	EyeMarker(Placement, 1, FTransform(FVector(100, 20, 30)));
+	EyeMarker(Placement, 2, FTransform(FVector(220, 20, 30)));
+	TestTrue(TEXT("Guided alignment saved"), Placement->SaveAlignment());
+	// 파일에 지정한 기준 ID도 재저장 때 바뀌면 안 됨.
+	FString Saved;
+	FFileHelper::LoadFileToString(Saved, *Placement->GetCalibrationFilePath());
+	TSharedPtr<FJsonObject> Data;
+	if (!TestTrue(TEXT("Saved metadata parses"), FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Saved), Data))) { return false; }
+	Data->SetNumberField(TEXT("primaryMarker"), 2);
+	FJsonSerializer::Serialize(Data.ToSharedRef(), TJsonWriterFactory<>::Create(&Saved));
+	FFileHelper::SaveStringToFile(Saved, *Placement->GetCalibrationFilePath());
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	TestTrue(TEXT("Normal re-save succeeds"), Placement->SaveCalibrationToDisk());
+	TestTrue(TEXT("Normal re-save preserves runtime restoration metadata"), Placement->HasSavedAlignment());
+	FString Text;
+	FFileHelper::LoadFileToString(Text, *Placement->GetCalibrationFilePath());
+	for (const TCHAR* Field : {TEXT("alignmentVersion"), TEXT("alignmentMarkers"), TEXT("primaryMarker")})
+	{
+		TestTrue(TEXT("Normal re-save preserves guided metadata in the file"), Text.Contains(Field));
+	}
+	TSharedPtr<FJsonObject> Resaved;
+	if (!TestTrue(TEXT("Resaved metadata parses"), FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Resaved))) { return false; }
+	TestEqual(TEXT("Normal re-save preserves the selected primary marker"), Resaved->GetIntegerField(TEXT("primaryMarker")), 2);
+	TestEqual(TEXT("Normal re-save preserves both validated IDs"), Resaved->GetArrayField(TEXT("alignmentMarkers")).Num(), 2);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	EyeMarker(Placement, 2, FTransform(FVector(220, 20, 30)));
+	TestTrue(TEXT("Normal re-save preserves single-marker confirmation on reload"), Placement->NeedsRestoreConfirmation());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRPanelResaveTest, "CXMR.Alignment.PanelRestoredResave",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRPanelResaveTest::RunTest(const FString& Parameters)
+{
+	TSharedPtr<FEyeFixture> Fixture = MakeShared<FEyeFixture>();
+	ConfigureEye(*this, Fixture->Profile);
+	UCXMRPlacementComponent* Placement = Fixture->Root->Placement;
+	AlignEye(*this, Placement);
+	const FTransform Final = Fixture->Root->GetActorTransform();
+	const FTransform First = FTransform(FVector(0, 0, 40)) * Final;
+	const FTransform Second = FTransform(FVector(120, 30, 40)) * Final;
+	Placement->BeginAlignmentCapture();
+	EyeMarker(Placement, 1, First);
+	EyeMarker(Placement, 2, Second);
+	Placement->SaveAlignment();
+	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Fixture->Root);
+	Control->RegisterComponent();
+	Placement->CalibrationSettleSeconds = 0.2f;
+	Control->StartCalibration();
+	EyeMarker(Placement, 1, First);
+	EyeMarker(Placement, 2, Second);
+	AddCommand(new FAdvanceEyeTimers(Fixture, 0.3f, [this, Fixture, Placement, Control, Second, Final]()
+	{
+		TestTrue(TEXT("Saved pair restored"), Placement->bCalibrated);
+		TestTrue(TEXT("Restored alignment can be confirmed"), Control->ConfirmCalibration());
+		TestTrue(TEXT("Panel re-save succeeds"), Control->SaveCalibration());
+		TestTrue(TEXT("Panel re-save retains runtime guided metadata"), Placement->HasSavedAlignment());
+		Fixture->Root->Loader->LoadVehicle(Fixture->Profile);
+		Placement->CalibrationSettleSeconds = 0.f;
+		EyeMarker(Placement, 2, Second);
+		TestTrue(TEXT("Panel re-save retains single-marker confirmation"), Placement->NeedsRestoreConfirmation());
+		TestTrue(TEXT("Panel re-save restores the same physical alignment"), Fixture->Root->GetActorTransform().Equals(Final, 0.01));
+	}));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRStandaloneSaveRequestTest, "CXMR.Alignment.StandaloneSaveRequest",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRStandaloneSaveRequestTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	ConfigureEye(*this, Fixture.Profile);
+	UCXMRPlacementComponent* Placement = Fixture.Root->Placement;
+	AlignEye(*this, Placement);
+	Placement->SaveMarkerOffsetToProfile();
+	TestTrue(TEXT("Standalone shortcut starts fresh capture"), Placement->HasAlignmentCapture());
+	TestTrue(TEXT("Standalone confirmation explains the next step"), Placement->GetAlignmentSaveMessage().ToString().Contains(TEXT("press Enter again")));
+	EyeMarker(Placement, 1, FTransform(FVector(100, 20, 30)));
+	Placement->SaveMarkerOffsetToProfile();
+	TestFalse(TEXT("Standalone request cannot save a partial capture"), Placement->WasLastCalibrationSaveSuccessful());
+	TestTrue(TEXT("Standalone partial capture has a reason"), Placement->GetAlignmentSaveMessage().ToString().Contains(TEXT("1 / 2")));
+	EyeMarker(Placement, 2, FTransform(FVector(220, 20, 30)));
+	Placement->SaveMarkerOffsetToProfile();
+	TestTrue(TEXT("Standalone shortcut saves without any window component"), Placement->WasLastCalibrationSaveSuccessful());
+	Placement->NudgeVehicleInFrame(FVector(1, 0, 0), 0, 70, FVector::ZeroVector);
+	Fixture.Profile->VehicleRootOffset.AddToTranslation(FVector(1, 0, 0));
+	Placement->SaveMarkerOffsetToProfile();
+	TestFalse(TEXT("Unapplied model settings cannot be captured"), Placement->HasAlignmentCapture());
+	TestTrue(TEXT("Unapplied model settings have a specific save reason"), Placement->GetAlignmentSaveMessage().ToString().Contains(TEXT("reload the vehicle")));
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRLearnAfterGuidedSaveTest, "CXMR.Alignment.LearnAfterGuidedSave",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRLearnAfterGuidedSaveTest::RunTest(const FString& Parameters)
+{
+	FEyeFixture Fixture;
+	ConfigureEye(*this, Fixture.Profile);
+	UCXMRPlacementComponent* Placement = Fixture.Root->Placement;
+	AlignEye(*this, Placement);
+	const FTransform Final = Fixture.Root->GetActorTransform();
+	const FTransform First = FTransform(FVector(0, 0, 40)) * Final;
+	const FTransform Second = FTransform(FVector(120, 30, 40)) * Final;
+	Placement->BeginAlignmentCapture();
+	EyeMarker(Placement, 1, First);
+	EyeMarker(Placement, 2, Second);
+	TestTrue(TEXT("Guided layout saved before learning"), Placement->SaveAlignment());
+	Placement->Recalibrate();
+	EyeMarker(Placement, 1, First);
+	EyeMarker(Placement, 2, Second);
+	EyeMarker(Placement, 3, FTransform(FVector(250, 0, 40)) * Final);
+	Placement->LearnMarkerLayout();
+	TestTrue(TEXT("New calibration marker is learned"), Fixture.Profile->MarkerProfile->GetEntryMutable(3) != nullptr);
+	TestTrue(TEXT("Learning saves successfully"), Placement->WasLastCalibrationSaveSuccessful());
+	TestFalse(TEXT("Changed marker set cannot keep old completion metadata"), Placement->HasSavedAlignment());
+	TestTrue(TEXT("Learned file can be reloaded"), Placement->LoadCalibrationFromDisk());
+	TestFalse(TEXT("Reload does not claim the new marker was validated"), Placement->HasSavedAlignment());
+	TestTrue(TEXT("Reload keeps the learned marker"), Fixture.Profile->MarkerProfile->GetEntryMutable(3) != nullptr);
 	return true;
 }
 #endif

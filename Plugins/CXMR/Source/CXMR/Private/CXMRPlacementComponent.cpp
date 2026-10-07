@@ -4,6 +4,8 @@
 #include "CXMRSubsystem.h"
 #include "CXMRMarkerProfile.h"
 #include "CXMRTuningSubsystem.h"
+#include "CXMRTuningWindowComponent.h"
+#include "EngineUtils.h"
 #include "CXMRLevelFit.h"
 #include "CXMRVehicleLoaderComponent.h"
 #include "CXMRVehicleProfile.h"
@@ -1261,7 +1263,25 @@ void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator
 
 void UCXMRPlacementComponent::SaveMarkerOffsetToProfile()
 {
-	if (bManualAlignment) { SaveAlignment(); return; }
+	if (bManualAlignment)
+	{
+		// 패널 상태도 단축키와 같은 저장 절차로 갱신함.
+		if (GetWorld())
+		{
+			for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+			{
+				if (It->IsActorBeingDestroyed()) { continue; }
+				UCXMRTuningWindowComponent* Control = It->FindComponentByClass<UCXMRTuningWindowComponent>();
+				if (Control && Control->IsRegistered() && Control->FindPlacement() == this)
+				{
+					Control->RequestAlignmentSave();
+					return;
+				}
+			}
+		}
+		RequestAlignmentSave();
+		return;
+	}
 	bLastCalibrationSaveSucceeded = false;
 	AActor* Root = ResolveVehicleRoot();
 	if (!Root || !MarkerProfile || DetectedCalib.Num() == 0)

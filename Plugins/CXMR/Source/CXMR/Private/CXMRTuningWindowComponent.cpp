@@ -376,7 +376,7 @@ FText UCXMRTuningWindowComponent::GetCalibrationMessage() const
 	if (Placement && CalibrationPhase == 2 && Placement->IsManualAlignment())
 	{
 		if (bAlignmentSaveFailed) { return CalibrationMessage; }
-		return FText::FromString(FString::Printf(TEXT("Alignment confirmed. Observe each configured marker: %d / %d captured. The vehicle stays fixed."),
+		return FText::FromString(FString::Printf(TEXT("Not saved yet. Observe each configured marker: %d / %d captured. Press Enter or select Save Alignment when ready."),
 			Placement->GetCapturedAlignmentMarkerCount(), Placement->GetRequiredAlignmentMarkerCount()));
 	}
 	return CalibrationMessage;
@@ -518,7 +518,7 @@ bool UCXMRTuningWindowComponent::ConfirmCalibration()
 	if (!IsValid(Root)) { return false; }
 	if (Placement->IsManualAlignment() && !Placement->BeginAlignmentCapture())
 	{
-		CalibrationMessage = LOCTEXT("NoConfiguredMarkers", "Configure calibration marker IDs in the vehicle marker profile first.");
+		CalibrationMessage = Placement->GetAlignmentSaveMessage();
 		return false;
 	}
 	CaptureSessionIdentity(Placement);
@@ -533,6 +533,20 @@ bool UCXMRTuningWindowComponent::CanSaveCalibration() const
 {
 	const UCXMRPlacementComponent* Placement = FindPlacement();
 	return GetCalibrationPhase() == 2 && Placement && (!Placement->IsManualAlignment() || Placement->CanSaveAlignment());
+}
+
+void UCXMRTuningWindowComponent::RequestAlignmentSave()
+{
+	UCXMRPlacementComponent* Placement = FindPlacement();
+	if (!Placement) { CalibrationMessage = LOCTEXT("SaveNoPlacement", "Not saved. Load a vehicle and marker profile first."); return; }
+	CancelInitialAlignment();
+	const bool bSaved = Placement->RequestAlignmentSave();
+	CaptureSessionIdentity(Placement);
+	const AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
+	if (IsValid(Root)) { ConfirmedPose = Root->GetActorTransform(); }
+	CalibrationPhase = bSaved ? 3 : Placement->HasAlignmentCapture() ? 2 : 1;
+	bAlignmentSaveFailed = !bSaved && Placement->CanSaveAlignment();
+	CalibrationMessage = Placement->GetAlignmentSaveMessage();
 }
 
 bool UCXMRTuningWindowComponent::SaveCalibration()

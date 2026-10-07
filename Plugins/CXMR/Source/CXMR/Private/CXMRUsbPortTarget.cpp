@@ -322,6 +322,8 @@ void ACXMRUsbPortTarget::Tick(float DeltaSeconds)
 	const bool bFreshPlug = PlugTipComponent && PlugTipComponent->GetPlugTip(Tip, Direction)
 		&& !Tip.ContainsNaN() && !Direction.ContainsNaN() && Direction.Normalize();
 	const float Dt = FMath::Max(0.f, DeltaSeconds);
+	const bool bPreviousAlignmentObservation = bHadAlignmentObservation;
+	bHadAlignmentObservation = false;
 	if (bFreshPlug)
 	{
 		LastTrackedTip = Tip;
@@ -357,7 +359,12 @@ void ACXMRUsbPortTarget::Tick(float DeltaSeconds)
 
 		if (LastDistance <= DistanceLimit && LastAngleDeg <= AngleLimit)
 		{
-			if (bFreshPlug) { AlignmentElapsed += Dt; }
+			if (bFreshPlug)
+			{
+				// 첫 유효 관측 이전의 프레임 시간은 세지 않음.
+				AlignmentElapsed = bPreviousAlignmentObservation ? AlignmentElapsed + Dt : 0.f;
+				bHadAlignmentObservation = true;
+			}
 			NewState = bWasAligned || (bFreshPlug && AlignmentElapsed >= FMath::Max(0.f, AlignmentDwellSeconds))
 				? ECXMRPortState::Aligned : ECXMRPortState::Near;
 		}
@@ -384,6 +391,7 @@ void ACXMRUsbPortTarget::Tick(float DeltaSeconds)
 			{
 				It->SetState(ECXMRPortState::Idle);
 				It->AlignmentElapsed = 0.f;
+				It->bHadAlignmentObservation = false;
 				It->ApproachAmount = 0.f;
 			}
 		}

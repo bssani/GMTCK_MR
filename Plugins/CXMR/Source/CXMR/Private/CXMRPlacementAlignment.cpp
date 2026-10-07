@@ -5,8 +5,13 @@
 #include "CXMRVehicleProfile.h"
 #include "CXMRMarkerProfile.h"
 #include "Engine/World.h"
+#include "Engine/Engine.h"
 #include "Components/SceneComponent.h"
 #include "TimerManager.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogCXMRAlignment, Log, All);
+
+#define LOCTEXT_NAMESPACE "CXMRAlignment"
 
 bool UCXMRPlacementComponent::GetDriverEyeWorld(FTransform& EyeWorld) const
 {
@@ -55,6 +60,7 @@ bool UCXMRPlacementComponent::AlignToDriverEyePose(FTransform HeadWorld)
 void UCXMRPlacementComponent::CancelAlignmentCapture()
 {
 	bCapturingAlignment = false;
+	AlignmentSaveMessage = FText::GetEmpty();
 	CapturedAlignmentMarkers.Reset();
 	CaptureMarkerIds.Reset();
 }
@@ -77,11 +83,28 @@ bool UCXMRPlacementComponent::BeginAlignmentCapture()
 	CancelAlignmentCapture();
 	AActor* Root = ResolveVehicleRoot();
 	const UCXMRVehicleLoaderComponent* Loader = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
-	if (!IsValid(Root) || !Loader || !IsValid(Loader->GetSpawnedVehicle()) || !Loader->Profile
-		|| !MarkerProfile || GetRequiredAlignmentMarkerCount() == 0 || (!bManualAlignment && !bCalibrated)) { return false; }
+	if (!IsValid(Root) || !Loader || !IsValid(Loader->GetSpawnedVehicle()) || !Loader->Profile)
+	{
+		AlignmentSaveMessage = LOCTEXT("VehicleRequired", "Not saved. Load a vehicle before confirming alignment.");
+		return false;
+	}
+	if (!MarkerProfile || GetRequiredAlignmentMarkerCount() == 0)
+	{
+		AlignmentSaveMessage = LOCTEXT("MarkersRequired", "Not saved. Configure calibration marker IDs in the vehicle marker profile.");
+		return false;
+	}
+	if (!bManualAlignment && !bCalibrated)
+	{
+		AlignmentSaveMessage = LOCTEXT("AlignmentRequired", "Not saved. Align the vehicle before confirming its position.");
+		return false;
+	}
 	const AActor* Vehicle = Loader->GetSpawnedVehicle();
 	if (Vehicle->GetClass() != Loader->Profile->VehicleActor.Get() || !Vehicle->GetRootComponent()
-		|| !Vehicle->GetRootComponent()->GetRelativeTransform().Equals(Loader->Profile->VehicleRootOffset, 0.001f)) { return false; }
+		|| !Vehicle->GetRootComponent()->GetRelativeTransform().Equals(Loader->Profile->VehicleRootOffset, 0.001f))
+	{
+		AlignmentSaveMessage = LOCTEXT("ModelChanged", "Not saved. Model settings changed; reload the vehicle and confirm alignment again.");
+		return false;
+	}
 	CaptureModelOffset = Loader->Profile->VehicleRootOffset;
 	CaptureModelClass = Loader->Profile->VehicleActor.ToSoftObjectPath();
 	CapturePose = Root->GetActorTransform();
@@ -135,14 +158,24 @@ bool UCXMRPlacementComponent::CanSaveAlignment() const
 bool UCXMRPlacementComponent::SaveAlignment()
 {
 	bLastCalibrationSaveSucceeded = false;
-	if (!CanSaveAlignment()) { return false; }
+	if (!CanSaveAlignment())
+	{
+		AlignmentSaveMessage = IsCapturePoseCurrent()
+			? FText::FromString(FString::Printf(TEXT("Not saved. %d / %d markers captured. Observe the remaining markers, then press Enter or select Save Alignment."), GetCapturedAlignmentMarkerCount(), GetRequiredAlignmentMarkerCount()))
+			: LOCTEXT("ConfirmAgain", "Not saved. Confirm alignment again to capture fresh marker observations.");
+		return false;
+	}
 	TArray<FCXMRMarkerEntry> Entries = MarkerProfile->Markers;
 	for (FCXMRMarkerEntry& Entry : Entries)
 	{
 		if (const FTransform* Relative = CapturedAlignmentMarkers.Find(Entry.MarkerId)) { Entry.LocalOffset = *Relative; }
 	}
 	// 파일 저장에 성공한 뒤 프로필과 기준 위치를 확정함.
-	if (!WriteCalibrationData(Entries, CaptureMarkerIds)) { return false; }
+	if (!WriteCalibrationData(Entries, CaptureMarkerIds))
+	{
+		AlignmentSaveMessage = LOCTEXT("SaveFailed", "Save failed. Previous alignment kept. Check the save location, then retry.");
+		return false;
+	}
 	MarkerProfile->Markers = MoveTemp(Entries);
 	SavedAlignmentMarkers = CaptureMarkerIds;
 	TArray<int32> Ids = SavedAlignmentMarkers.Array();
@@ -154,7 +187,34 @@ bool UCXMRPlacementComponent::SaveAlignment()
 	bAlignmentPoseLocked = true;
 	bRestoreNeedsConfirmation = false;
 	bCalibrated = true;
+	AlignmentSaveMessage = LOCTEXT("Saved", "Alignment saved.");
 	return true;
+}
+
+void UCXMRPlacementComponent::ReportAlignmentSaveMessage() const
+{
+	UE_LOG(LogCXMRAlignment, Log, TEXT("%s"), *AlignmentSaveMessage.ToString());
+	if (GEngine && GetWorld() && GetWorld()->IsGameWorld())
+	{
+		GEngine->AddOnScreenDebugMessage(static_cast<uint64>(GetUniqueID()), 8.f, bLastCalibrationSaveSucceeded ? FColor::Green : FColor::Yellow, AlignmentSaveMessage.ToString());
+	}
+}
+
+bool UCXMRPlacementComponent::RequestAlignmentSave()
+{
+	bLastCalibrationSaveSucceeded = false;
+	if (!HasAlignmentCapture())
+	{
+		if (BeginAlignmentCapture())
+		{
+			AlignmentSaveMessage = LOCTEXT("CaptureStarted", "Alignment confirmed. Observe all configured markers, then press Enter again to save.");
+		}
+		ReportAlignmentSaveMessage();
+		return false;
+	}
+	const bool bSaved = SaveAlignment();
+	ReportAlignmentSaveMessage();
+	return bSaved;
 }
 
 bool UCXMRPlacementComponent::ComputeSavedAlignmentPose(FTransform& Out, bool& bReady)
@@ -210,3 +270,5 @@ bool UCXMRPlacementComponent::ConfirmRestoredAlignment()
 	bCalibrated = true;
 	return true;
 }
+
+#undef LOCTEXT_NAMESPACE

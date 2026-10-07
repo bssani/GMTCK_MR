@@ -57,6 +57,7 @@ public:
 	void PlaceManually();
 	bool ConfirmCalibration();
 	bool SaveCalibration();
+	void RequestAlignmentSave();
 	bool CanConfirmCalibration() const;
 	bool CanSaveCalibration() const;
 	int32 GetCalibrationPhase() const;

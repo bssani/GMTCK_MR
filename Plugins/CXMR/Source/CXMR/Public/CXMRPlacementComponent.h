@@ -68,6 +68,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment", meta=(ToolTip="Confirm the final vehicle pose and collect fresh observations of every configured calibration marker.")) bool BeginAlignmentCapture();
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") bool CanSaveAlignment() const;
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment") bool SaveAlignment();
+	/** 저장 요청은 확인, 새 관측, 저장 순서로 처리함. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment", meta=(ToolTip="First request confirms the pose and starts fresh marker capture; request again after observing all configured markers to save.")) bool RequestAlignmentSave();
+	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") FText GetAlignmentSaveMessage() const { return AlignmentSaveMessage; }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") bool IsManualAlignment() const { return bManualAlignment; }
 	bool HasAlignmentCapture() const { return IsCapturePoseCurrent(); }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") bool NeedsRestoreConfirmation() const { return bRestoreNeedsConfirmation; }
@@ -285,6 +288,8 @@ private:
 	float LatchedNudgeYaw = 0.0f;
 	bool bHaveNudgeHeading = false;
 	bool bLastCalibrationSaveSucceeded = false;
+	FText AlignmentSaveMessage;
+	void ReportAlignmentSaveMessage() const;
 	// 수동 위치는 새 마커가 잡혀도 유지함.
 	bool bManualAlignment = false;
 	bool bAlignmentPoseLocked = false;
@@ -304,7 +309,7 @@ private:
 	TSet<int32> SavedAlignmentMarkers;
 	int32 SavedPrimaryMarker = 0;
 	bool IsCapturePoseCurrent() const;
-	bool WriteCalibrationData(const TArray<FCXMRMarkerEntry>& Entries, const TSet<int32>& ValidatedIds);
+	bool WriteCalibrationData(const TArray<FCXMRMarkerEntry>& Entries, const TSet<int32>& ValidatedIds, int32 PrimaryMarker = 0);
 	bool ComputeSavedAlignmentPose(FTransform& Out, bool& bReady);
 
 	/** 기준 위치에 임시 오프셋 적용함. */
