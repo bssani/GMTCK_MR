@@ -168,6 +168,12 @@ bool ACXMRPartAssembly::PrepareForReview(FString& OutError)
 			OutError = TEXT("Assembly contains an invalid actor or transform.");
 			return false;
 		}
+		// 중첩 조립체의 스테이징 상태를 원본으로 복원하지 않음.
+		if (Actor != this && Actor->IsA<ACXMRPartAssembly>())
+		{
+			OutError = TEXT("Nested part assemblies are not supported. Use regular child actors or mesh components.");
+			return false;
+		}
 
 		TArray<USceneComponent*> Scenes;
 		Actor->GetComponents(Scenes);
