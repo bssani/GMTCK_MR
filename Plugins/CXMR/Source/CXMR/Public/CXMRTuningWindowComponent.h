@@ -28,6 +28,9 @@ enum class ECXMRControlPage : uint8
 	Vehicle, View, Calibration, Display, USB, Diagnostics
 };
 
+/** 정렬 상태 표시등 등급. 표시 전용. */
+enum class ECXMRAlignmentTone : uint8 { Pending, Attention, Aligned, Error };
+
 UCLASS(ClassGroup = (CXMR), meta = (BlueprintSpawnableComponent), DisplayName = "CXMR Tuning Window")
 class CXMR_API UCXMRTuningWindowComponent : public UActorComponent
 {
@@ -66,6 +69,8 @@ public:
 	int32 GetCalibrationPhase() const;
 	FText GetCalibrationMessage() const;
 	FText GetAlignmentStatus(const UCXMRVehicleLoaderComponent* Loader) const;
+	/** 헤더 표시등용 정렬 상태와 등급. */
+	FText GetAlignmentState(const UCXMRVehicleLoaderComponent* Loader, ECXMRAlignmentTone& OutTone) const;
 	UCXMRPlacementComponent* FindPlacement() const;
 	bool HasCalibrationError() const { return bAlignmentSaveFailed; }
 

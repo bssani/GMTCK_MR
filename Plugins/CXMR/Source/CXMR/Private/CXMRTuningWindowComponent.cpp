@@ -415,18 +415,32 @@ FText UCXMRTuningWindowComponent::GetCalibrationMessage() const
 	return CalibrationMessage;
 }
 
-FText UCXMRTuningWindowComponent::GetAlignmentStatus(const UCXMRVehicleLoaderComponent* Loader) const
+FText UCXMRTuningWindowComponent::GetAlignmentState(const UCXMRVehicleLoaderComponent* Loader, ECXMRAlignmentTone& OutTone) const
 {
 	const UCXMRPlacementComponent* Placement = FindPlacement();
+	const TCHAR* State = TEXT("Alignment pending");
+	OutTone = ECXMRAlignmentTone::Pending;
+	if (Loader && Loader->GetSpawnedVehicle())
+	{
+		OutTone = ECXMRAlignmentTone::Attention;
+		if (IsInitialAlignmentPending()) { State = TEXT("Alignment in progress"); }
+		else if (Placement && Placement->NeedsRestoreConfirmation()) { State = TEXT("Restore needs confirmation"); }
+		else if (GetCalibrationPhase() == 2) { State = TEXT("Alignment confirmed; save pending"); }
+		else if (Placement && Placement->IsManualAlignment()) { State = TEXT("Manual alignment; confirmation pending"); }
+		else if (Placement && Placement->bCalibrated) { State = TEXT("Aligned"); OutTone = ECXMRAlignmentTone::Aligned; }
+		else { OutTone = ECXMRAlignmentTone::Pending; }
+	}
+	if (HasCalibrationError()) { OutTone = ECXMRAlignmentTone::Error; }
+	return FText::FromString(State);
+}
+
+FText UCXMRTuningWindowComponent::GetAlignmentStatus(const UCXMRVehicleLoaderComponent* Loader) const
+{
 	const FString Vehicle = Loader && Loader->Profile && Loader->GetSpawnedVehicle() ? Loader->Profile->DisplayName.ToString() : TEXT("No vehicle loaded");
-	const TCHAR* State = !Loader || !Loader->GetSpawnedVehicle() ? TEXT("Alignment pending")
-		: IsInitialAlignmentPending() ? TEXT("Alignment in progress")
-		: Placement && Placement->NeedsRestoreConfirmation() ? TEXT("Restore needs confirmation")
-		: GetCalibrationPhase() == 2 ? TEXT("Alignment confirmed; save pending")
-		: Placement && Placement->IsManualAlignment() ? TEXT("Manual alignment; confirmation pending")
-		: Placement && Placement->bCalibrated ? TEXT("Aligned") : TEXT("Alignment pending");
+	ECXMRAlignmentTone Tone;
+	const FString State = GetAlignmentState(Loader, Tone).ToString();
 	const FString Detail = HasCalibrationError() ? TEXT("   |   ") + GetCalibrationMessage().ToString() : FString();
-	return FText::FromString(FString::Printf(TEXT("%s   |   %s%s"), *Vehicle, State, *Detail));
+	return FText::FromString(FString::Printf(TEXT("%s   |   %s%s"), *Vehicle, *State, *Detail));
 }
 
 
