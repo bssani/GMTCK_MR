@@ -24,9 +24,12 @@ public:
 	virtual void Tick(const FGeometry& Geometry, double CurrentTime, float DeltaTime) override;
 
 private:
+	TSharedRef<SWidget> Header();
 	TSharedRef<SWidget> Navigation(ECXMRControlPage Page, const FText& Label);
 	TSharedRef<SWidget> RegistryPage(ECXMRControlPage Page, bool bAdvanced = false);
+	TSharedRef<SWidget> AlignmentSteps();
 	TSharedRef<SWidget> CalibrationPage();
+	TSharedRef<SWidget> SettingsPage(UCXMRControlPanelWidget* InViewer);
 	FText Status() const;
 	TWeakObjectPtr<UCXMRTuningWindowComponent> Control;
 	TWeakObjectPtr<UCXMRTuningSubsystem> Tuning;

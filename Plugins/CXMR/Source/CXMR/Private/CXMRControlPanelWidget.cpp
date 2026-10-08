@@ -10,6 +10,7 @@
 #include "CXMRPartVariantComponent.h"
 #include "EngineUtils.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Layout/SWrapBox.h"
 #include "Widgets/Text/STextBlock.h"
 
 #include "Engine/GameInstance.h"
@@ -27,11 +28,10 @@ namespace
 		return Viewer.IsValid() ? Viewer->FindLoader() : nullptr;
 	}
 
-	FLinearColor VehicleSelectionColor(TWeakObjectPtr<UCXMRControlPanelWidget> Viewer, TWeakObjectPtr<UCXMRVehicleProfile> Profile)
+	bool IsVehicleSelected(TWeakObjectPtr<UCXMRControlPanelWidget> Viewer, TWeakObjectPtr<UCXMRVehicleProfile> Profile)
 	{
 		const UCXMRVehicleLoaderComponent* Loader = FindReviewLoader(Viewer);
-		return Loader && Loader->Profile == Profile.Get() && Loader->GetSpawnedVehicle()
-			? FLinearColor::FromSRGBColor(FColor(222, 235, 253)) : FLinearColor::White;
+		return Loader && Loader->Profile == Profile.Get() && Loader->GetSpawnedVehicle();
 	}
 
 	FReply SelectVehicle(TWeakObjectPtr<UCXMRControlPanelWidget> Viewer, int32 Index, TWeakObjectPtr<UCXMRVehicleProfile> Profile)
@@ -48,12 +48,11 @@ namespace
 		return Loader && Loader->Profile == Profile.Get() && Option.IsValid() && Loader->GetPartVariants();
 	}
 
-	FLinearColor OptionSelectionColor(TWeakObjectPtr<UCXMRControlPanelWidget> Viewer, TWeakObjectPtr<UCXMRDesignOption> Option)
+	bool IsOptionSelected(TWeakObjectPtr<UCXMRControlPanelWidget> Viewer, TWeakObjectPtr<UCXMRDesignOption> Option)
 	{
 		const UCXMRVehicleLoaderComponent* Loader = FindReviewLoader(Viewer);
 		const UCXMRPartVariantComponent* Parts = Loader ? Loader->GetPartVariants() : nullptr;
-		return Parts && Option.IsValid() && Parts->GetActiveOption(Option->SlotId) == Option.Get()
-			? FLinearColor::FromSRGBColor(FColor(222, 235, 253)) : FLinearColor::White;
+		return Parts && Option.IsValid() && Parts->GetActiveOption(Option->SlotId) == Option.Get();
 	}
 
 	FReply SelectOption(TWeakObjectPtr<UCXMRControlPanelWidget> Viewer, TWeakObjectPtr<UCXMRVehicleProfile> Profile, TWeakObjectPtr<UCXMRDesignOption> Option)
@@ -135,18 +134,18 @@ TSharedRef<SWidget> UCXMRControlPanelWidget::RebuildWidget()
 
 	SAssignNew(Pages, SWidgetSwitcher)
 		.WidgetIndex_Lambda([Weak] { return Weak.IsValid() ? Weak->ActiveTab : 0; })
-		+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(BuildViewerPage()) ]
-		+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(BuildDisplayPage()) ];
+		+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeSurface(BuildViewerPage())) ]
+		+ SWidgetSwitcher::Slot()[ CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeSurface(BuildDisplayPage())) ];
 
 	return CXMRPanelUI::MakeBackground(
 		SNew(SVerticalBox)
-		+ SVerticalBox::Slot().AutoHeight().Padding(6.0f, 6.0f, 6.0f, 2.0f)
+		+ SVerticalBox::Slot().AutoHeight().Padding(16.0f, 16.0f, 16.0f, 12.0f)
 		[
 			CXMRPanelUI::MakeTabBar(Tabs,
 				[Weak] { return Weak.IsValid() ? Weak->ActiveTab : 0; },
 				[Weak](int32 Index) { if (Weak.IsValid()) { Weak->SetActiveTab(Index); } })
 		]
-		+ SVerticalBox::Slot().FillHeight(1.0f)
+		+ SVerticalBox::Slot().FillHeight(1.0f).Padding(16.0f, 0.0f, 12.0f, 16.0f)
 		[
 			Pages.ToSharedRef()
 		]);
@@ -207,9 +206,13 @@ TSharedRef<SWidget> UCXMRControlPanelWidget::BuildViewerPage()
 	UCXMRVehicleLoaderComponent* Loader = FindLoader();
 	ReviewAssets.Reset();
 	TSharedRef<SVerticalBox> Review = SNew(SVerticalBox);
-	TSharedRef<SVerticalBox> Vehicles = SNew(SVerticalBox);
-	Vehicles->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 14.f)[CXMRPanelUI::MakeHeader(LOCTEXT("Vehicles", "Vehicle"))];
-	if (Loader && Loader->Catalog)
+
+	// 실패 이유는 스크롤 없이 보이도록 맨 위에 둠.
+	Review->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 20.f)
+	[ CXMRPanelUI::MakeNotice(TAttribute<FText>::CreateLambda([Weak] { return SelectionFailure(Weak); }), CXMRPanelUI::ETone::Negative) ];
+
+	Review->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)[ CXMRPanelUI::MakeHeader(LOCTEXT("Vehicles", "Vehicle")) ];
+	if (Loader && Loader->Catalog && !Loader->Catalog->Vehicles.IsEmpty())
 	{
 		for (int32 Index = 0; Index < Loader->Catalog->Vehicles.Num(); ++Index)
 		{
@@ -217,44 +220,63 @@ TSharedRef<SWidget> UCXMRControlPanelWidget::BuildViewerPage()
 			if (!Profile) { continue; }
 			ReviewAssets.Add(Profile);
 			const TWeakObjectPtr<UCXMRVehicleProfile> Expected(Profile);
-			Vehicles->AddSlot().AutoHeight().Padding(0.f, 4.f)
-			[SNew(SButton).ButtonStyle(CXMRPanelUI::ButtonStyle()).TextStyle(CXMRPanelUI::BodyTextStyle()).HAlign(HAlign_Left).ContentPadding(FMargin(16.f, 12.f))
-				.ButtonColorAndOpacity_Lambda([Weak, Expected] { return VehicleSelectionColor(Weak, Expected); })
-				.Text(Profile->DisplayName.IsEmpty() ? FText::FromString(Profile->GetName()) : Profile->DisplayName)
-				.OnClicked_Lambda([Weak, Index, Expected] { return SelectVehicle(Weak, Index, Expected); })];
+			Review->AddSlot().AutoHeight().Padding(0.f, 3.f)
+			[
+				CXMRPanelUI::MakeChoice(Profile->DisplayName.IsEmpty() ? FText::FromString(Profile->GetName()) : Profile->DisplayName,
+					TAttribute<bool>::CreateLambda([Weak, Expected] { return IsVehicleSelected(Weak, Expected); }),
+					[Weak, Index, Expected] { return SelectVehicle(Weak, Index, Expected); })
+			];
 		}
 	}
 	else
 	{
-		Vehicles->AddSlot().AutoHeight()[SNew(STextBlock).Text(LOCTEXT("NoCatalog", "Assign a vehicle catalog to the loader to choose vehicles.")).AutoWrapText(true)];
+		Review->AddSlot().AutoHeight()[ CXMRPanelUI::MakeCaption(LOCTEXT("NoCatalog", "No vehicle catalog. Assign one to the Loader to choose vehicles here.")) ];
 	}
-	Review->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 16.f)[CXMRPanelUI::MakeSurface(Vehicles)];
-	TSharedRef<SVerticalBox> Options = SNew(SVerticalBox);
-	Options->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 14.f)[CXMRPanelUI::MakeHeader(LOCTEXT("Options", "Design options"))];
-	if (Loader && Loader->Profile && !Loader->Profile->DesignOptions.IsEmpty())
+
+	Review->AddSlot().AutoHeight().Padding(0.f, 28.f)[ CXMRPanelUI::MakeDivider() ];
+	Review->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)[ CXMRPanelUI::MakeHeader(LOCTEXT("Options", "Design options")) ];
+
+	// 같은 장착 위치의 옵션끼리 묶어 서로 바뀐다는 것을 보여 줌.
+	TArray<FName> SlotOrder;
+	TMap<FName, TArray<UCXMRDesignOption*>> BySlot;
+	if (Loader && Loader->Profile)
 	{
-		const TWeakObjectPtr<UCXMRVehicleProfile> ExpectedProfile(Loader->Profile);
 		for (const TSoftObjectPtr<UCXMRDesignOption>& OptionAsset : Loader->Profile->DesignOptions)
 		{
 			UCXMRDesignOption* Option = OptionAsset.LoadSynchronous();
 			if (!Option) { continue; }
 			ReviewAssets.Add(Option);
-			const TWeakObjectPtr<UCXMRDesignOption> ExpectedOption(Option);
-			Options->AddSlot().AutoHeight().Padding(0.f, 4.f)
-			[SNew(SButton).ButtonStyle(CXMRPanelUI::ButtonStyle()).TextStyle(CXMRPanelUI::BodyTextStyle()).HAlign(HAlign_Left).ContentPadding(FMargin(16.f, 12.f))
-				.IsEnabled_Lambda([Weak, ExpectedProfile, ExpectedOption] { return CanSelectOption(Weak, ExpectedProfile, ExpectedOption); })
-				.ButtonColorAndOpacity_Lambda([Weak, ExpectedOption] { return OptionSelectionColor(Weak, ExpectedOption); })
-				.Text(FText::Format(LOCTEXT("OptionSlot", "{0}  /  {1}"), Option->DisplayName.IsEmpty() ? FText::FromName(Option->OptionId) : Option->DisplayName, FText::FromName(Option->SlotId)))
-				.OnClicked_Lambda([Weak, ExpectedProfile, ExpectedOption] { return SelectOption(Weak, ExpectedProfile, ExpectedOption); })];
+			SlotOrder.AddUnique(Option->SlotId);
+			BySlot.FindOrAdd(Option->SlotId).Add(Option);
 		}
 	}
-	else
+	if (SlotOrder.IsEmpty())
 	{
-		Options->AddSlot().AutoHeight()[SNew(STextBlock).Text(LOCTEXT("NoOptions", "No design options are authored for the current vehicle. Add Design Option assets to its Vehicle Profile.")).AutoWrapText(true)];
+		Review->AddSlot().AutoHeight()[ CXMRPanelUI::MakeCaption(LOCTEXT("NoOptions", "This vehicle has no design options. Add Design Option assets to its Vehicle Profile.")) ];
+		return Review;
 	}
-	Review->AddSlot().AutoHeight()[CXMRPanelUI::MakeSurface(Options)];
-	Review->AddSlot().AutoHeight().Padding(4.f, 16.f)
-	[SNew(STextBlock).Text_Lambda([Weak] { return SelectionFailure(Weak); }).AutoWrapText(true).ColorAndOpacity(FLinearColor::FromSRGBColor(FColor(155, 43, 50)))];
+
+	Review->AddSlot().AutoHeight()
+	[ CXMRPanelUI::MakeCaption(LOCTEXT("OptionsHelp", "Options on the same mount replace each other. The vehicle and its alignment stay in place.")) ];
+	const TWeakObjectPtr<UCXMRVehicleProfile> ExpectedProfile(Loader->Profile);
+	for (const FName SlotId : SlotOrder)
+	{
+		Review->AddSlot().AutoHeight().Padding(0.f, 20.f, 0.f, 8.f)
+		[ CXMRPanelUI::MakeSubheader(FText::FromString(FName::NameToDisplayString(SlotId.ToString(), false))) ];
+		TSharedRef<SWrapBox> Pills = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.f, 8.f));
+		for (UCXMRDesignOption* Option : BySlot[SlotId])
+		{
+			const TWeakObjectPtr<UCXMRDesignOption> ExpectedOption(Option);
+			Pills->AddSlot()
+			[
+				CXMRPanelUI::MakePill(Option->DisplayName.IsEmpty() ? FText::FromName(Option->OptionId) : Option->DisplayName,
+					TAttribute<bool>::CreateLambda([Weak, ExpectedOption] { return IsOptionSelected(Weak, ExpectedOption); }),
+					[Weak, ExpectedProfile, ExpectedOption] { return SelectOption(Weak, ExpectedProfile, ExpectedOption); },
+					TAttribute<bool>::CreateLambda([Weak, ExpectedProfile, ExpectedOption] { return CanSelectOption(Weak, ExpectedProfile, ExpectedOption); }))
+			];
+		}
+		Review->AddSlot().AutoHeight()[ Pills ];
+	}
 	return Review;
 }
 
