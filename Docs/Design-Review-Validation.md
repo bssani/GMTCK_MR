@@ -71,3 +71,21 @@ Changes are uncommitted; no push or merge was performed.
 ## Git 게시 승인 (2026-10-08)
 
 검증 후 사용자가 현재 변경의 커밋과 `origin/feature/design-option-review` 게시를 승인했다. 위의 미커밋·미푸시 문구는 이 승인 전 점검 시점의 기록이다. `.codex/`는 게시에서 제외하며 기존 바이너리 변경과 새 소스·문서·Scripts는 포함한다. 테스트 이후 실행 코드 변경은 없다.
+
+## 후속 상태 오류 수정 (2026-10-08, 기준 6332833)
+
+현재 `project/pqdq-usb-access` 작업 트리에서 다음 두 리뷰 항목을 수정했다.
+
+- **P1 — 그룹 리셋 후 잘못된 Aligned 상태:** 파일 삭제가 성공한 뒤 원본 오프셋을 복원하고 현재 앵커를 기준으로 임시 조정값을 비운다. 기존 `Recalibrate()`로 보정 완료·수동/복원 잠금·캡처·관측 시각·표본 평균·마커 설정 이력·fit 오차·조정 방향·안정화 타이머를 초기화한다. 과거 관측으로 즉시 재계산하지 않으므로 새 관측 전에는 위치를 유지하고 Alignment pending을 표시한다. 삭제 실패 경로는 이전 상태를 유지한다.
+- **P2 — 중첩 PartAssembly의 비활성 상태 고착:** 후보 계층에 또 다른 PartAssembly가 있으면 교체 전 `PrepareForReview()`에서 영어 오류로 거부한다. 기존 옵션과 USB 접촉을 유지하고 거부한 후보·자식 조립체·USB를 정리한다. 하위 모델은 일반 Actor/ChildActor 또는 메시 컴포넌트로 구성한다. 운영 가이드에 이 제한을 추가했다.
+
+새 회귀 테스트는 `CXMR.ReviewState.ResetFreshObservations`, `ResetPendingSettle`, `NestedAssemblyRejected`다. 보정된 그룹을 리셋한 뒤 헤더·앵커·기본 freeze에서의 새 관측, 이전 표본 제외·안정화 시간 재시작, 실제 ChildActor 조립체 계층의 교체 거부·기존 옵션 보존·후보 정리를 검증한다. 기존 `CXMR.Alignment.Group.ResetFailure`에 삭제 실패 후 보정 완료 상태 보존도 추가했다.
+
+- **RED:** 수정 전 새 테스트 3개 모두 실패. `Saved/ReviewStateRedTests.log`, 프로세스 exit **255**, 엔진 기록 **-1**. 이전 안정화 타이머가 새 보정을 일찍 완료하는 실패까지 확인했다.
+- **GREEN 빌드:** `GMTCK_MREditor Win64 Development` 성공, exit **0**. `Saved/ReviewStateGreenBuild.log`.
+- **GREEN 전체 CXMR:** **78 통과 / 0 실패**, 프로세스·엔진 exit **0**. `Saved/ReviewStateGreenTests.log`. `CXMR.Panels.RenderPreview`도 포함한다.
+- 빌드 전 에디터가 실행 중이지 않음을 확인했고 빌드는 직렬로 수행했다. `git diff --check` 통과. 바이너리 애셋과 `.codex/`는 수정하지 않았다.
+
+이번 검증은 헤드셋 없이 실제 Unreal 자동화 월드에서 수행했다. 실제 헤드셋 마커 재관측·패키징은 검증하지 않았다. 중첩 PartAssembly 지원을 구현한 것은 아니며 기존 콘텐츠가 이 구조를 사용하면 일반 자식 Actor로 고쳐야 한다. 이번 후속 수정은 아직 커밋·푸시하지 않았다.
+
+검증 후 사용자가 후속 수정의 커밋과 main 머지를 승인했다. 위 미커밋·미푸시 문구는 승인 전 검증 시점의 기록이며, 이번 승인에 따라 USB 브랜치와 main에 게시한다. 검증 이후 실행 코드 변경은 없다.

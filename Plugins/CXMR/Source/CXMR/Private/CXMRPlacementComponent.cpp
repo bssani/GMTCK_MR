@@ -889,10 +889,6 @@ bool UCXMRPlacementComponent::TryResetCalibrationToAuthored()
 		ReportAlignmentSaveMessage();
 		return false;
 	}
-	CancelAlignmentCapture();
-	bManualAlignment = false;
-	bAlignmentPoseLocked = false;
-	bRestoreNeedsConfirmation = false;
 	SavedAlignmentMarkers.Reset();
 	SavedPrimaryMarker = 0;
 	LoadedAlignmentGroup = NAME_None;
@@ -903,14 +899,12 @@ bool UCXMRPlacementComponent::TryResetCalibrationToAuthored()
 	}
 
 	RestoreAuthoredOffsets();
+	// 이전 관측으로 앵커를 옮기지 않고 새 보정을 시작함.
+	RebaseToCurrentTransform();
+	Recalibrate();
 	// 차량별 원본 저장으로 이전 공용 파일이 다시 적용되지 않게 함.
 	const UCXMRVehicleLoaderComponent* Loader = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
 	if (Loader && Loader->Profile && MarkerProfile && GetAlignmentGroup().IsNone()) { SaveCalibrationToDisk(); }
-	TempMarkerLocationOffset = FVector::ZeroVector;
-	TempMarkerRotationOffset = FRotator::ZeroRotator;
-	PublishOffset();
-	RecomputeCalibration();
-
 	UE_LOG(LogCXMRPlacement, Log, TEXT("Marker calibration reset to the values the profile shipped with."));
 	return true;
 }

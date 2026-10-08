@@ -31,3 +31,10 @@ public:
 	ACXMRPartAuthoredActivityTestAssembly();
 	virtual void OnConstruction(const FTransform& Transform) override;
 };
+UCLASS(Transient, NotBlueprintable)
+class ACXMRPartNestedTestAssembly : public ACXMRPartVariantTestAssembly
+{
+	GENERATED_BODY()
+public:
+	ACXMRPartNestedTestAssembly();
+};

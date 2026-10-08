@@ -372,6 +372,78 @@ bool FCXMRAlignmentGroupResetTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRResetFreshObservationsTest, "CXMR.ReviewState.ResetFreshObservations",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRResetFreshObservationsTest::RunTest(const FString&)
+{
+	FEyeFixture Fixture;
+	UCXMRPlacementComponent* Placement = Fixture.Root->Placement;
+	const FName Group(*(TEXT("ResetState_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture.Profile, Group);
+	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+	if (!ConfigureEye(*this, Fixture.Profile) || !AlignEye(*this, Placement)
+		|| !SaveGroupPose(*this, Fixture, FTransform(FVector(100, 20, 30)), FTransform(FVector(220, 20, 30))))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Saved alignment is calibrated and frozen"), Placement->bCalibrated && Placement->bFreezeAfterCalibration);
+	const FTransform Before = Fixture.Root->GetActorTransform();
+	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Fixture.Root);
+	Control->RegisterComponent();
+	Control->ResetSharedAlignment();
+	Control->ResetSharedAlignment();
+	TestFalse(TEXT("Reset clears calibrated state"), Placement->bCalibrated);
+	TestFalse(TEXT("Reset clears manual alignment"), Placement->IsManualAlignment());
+	TestFalse(TEXT("Reset clears restore confirmation"), Placement->NeedsRestoreConfirmation());
+	TestFalse(TEXT("Reset clears restoration metadata"), Placement->HasSavedAlignment());
+	TestTrue(TEXT("Reset header returns to pending"), Control->GetAlignmentStatus(Fixture.Root->Loader).ToString().Contains(TEXT("Alignment pending")));
+	TestTrue(TEXT("Reset does not move the anchor from stale observations"), Fixture.Root->GetActorTransform().Equals(Before, 0.001f));
+	TestFalse(TEXT("Previous observations cannot confirm a new alignment"), Placement->BeginAlignmentCapture());
+	EyeMarker(Placement, 1, FTransform(FVector(600, 40, 60)));
+	TestFalse(TEXT("One new observation cannot complete the two-marker alignment"), Placement->bCalibrated);
+	TestTrue(TEXT("New marker updates placement despite the default freeze setting"), Fixture.Root->GetActorLocation().Equals(FVector(500, 40, 60), 0.01f));
+	EyeMarker(Placement, 2, FTransform(FVector(700, 40, 60)));
+	TestTrue(TEXT("Only a complete fresh pair calibrates again"), Placement->bCalibrated);
+	TestTrue(TEXT("Fresh pair uses authored marker offsets"), Fixture.Root->GetActorLocation().Equals(FVector(500, 40, 60), 0.01f));
+	return true;
+}
+
+namespace
+{
+	void CheckResetStillSettling(FAutomationTestBase& Test, FEyeFixture& Fixture)
+	{
+		Test.TestFalse(TEXT("Old settle timer cannot finish the new calibration early"), Fixture.Root->Placement->bCalibrated);
+		Test.TestTrue(TEXT("Old samples are excluded from the new fit"), Fixture.Root->GetActorLocation().Equals(FVector(800, 10, 20), 0.01f));
+	}
+	void CheckResetFinishedSettling(FAutomationTestBase& Test, FEyeFixture& Fixture)
+	{
+		Test.TestTrue(TEXT("New observations finish after their own settle interval"), Fixture.Root->Placement->bCalibrated);
+		Test.TestTrue(TEXT("Fresh sample mean keeps the new anchor"), Fixture.Root->GetActorLocation().Equals(FVector(800, 10, 20), 0.01f));
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRResetPendingSettleTest, "CXMR.ReviewState.ResetPendingSettle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRResetPendingSettleTest::RunTest(const FString&)
+{
+	TSharedPtr<FEyeFixture> Fixture = MakeShared<FEyeFixture>();
+	UCXMRPlacementComponent* Placement = Fixture->Root->Placement;
+	const FName Group(*(TEXT("ResetSettle_") + FGuid::NewGuid().ToString(EGuidFormats::Digits)));
+	SetAlignmentGroup(*this, Fixture->Profile, Group);
+	Fixture->Root->Loader->LoadVehicle(Fixture->Profile);
+	Placement->MinMarkersToCalibrate = 1;
+	Placement->CalibrationSettleSeconds = 0.2f;
+	EyeMarker(Placement, 1, FTransform(FVector(100, 0, 0)));
+	Fixture->World->GetTimerManager().Tick(0.f);
+	TestFalse(TEXT("Original calibration is still settling"), Placement->bCalibrated);
+	TestTrue(TEXT("Reset without a saved file succeeds"), Placement->TryResetCalibrationToAuthored());
+	Placement->CalibrationSettleSeconds = 0.5f;
+	EyeMarker(Placement, 1, FTransform(FVector(900, 10, 20)));
+	AddCommand(new FAdvanceEyeTimers(Fixture, 0.25f, [this, Fixture] { CheckResetStillSettling(*this, *Fixture); }));
+	AddCommand(new FAdvanceEyeTimers(Fixture, 0.3f, [this, Fixture] { CheckResetFinishedSettling(*this, *Fixture); }));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAlignmentGroupChangedResaveTest, "CXMR.Alignment.Group.ChangedScopeResave",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FCXMRAlignmentGroupChangedResaveTest::RunTest(const FString& Parameters)
@@ -544,6 +616,7 @@ bool FCXMRAlignmentGroupResetFailureTest::RunTest(const FString& Parameters)
 	FString After; FFileHelper::LoadFileToString(After, *Path);
 	TestEqual(TEXT("Failed deletion preserves the group file"), After, Before);
 	TestTrue(TEXT("Failed reset preserves restoration metadata"), Fixture.Root->Placement->HasSavedAlignment());
+	TestTrue(TEXT("Failed reset preserves calibrated state"), Fixture.Root->Placement->bCalibrated);
 	TestTrue(TEXT("Failed reset preserves the accepted runtime offset"), Fixture.Profile->MarkerProfile->Markers[0].LocalOffset.Equals(Offset));
 	TestTrue(TEXT("Failed reset preserves the accepted anchor"), Fixture.Root->GetActorTransform().Equals(Pose, 0.001));
 	TestEqual(TEXT("Failed reset preserves the completed panel phase"), Control->GetCalibrationPhase(), 3);

@@ -21,6 +21,13 @@ ACXMRPartVariantTestAssembly::ACXMRPartVariantTestAssembly()
 	Port->SetChildActorClass(ACXMRUsbPortTarget::StaticClass());
 }
 
+ACXMRPartNestedTestAssembly::ACXMRPartNestedTestAssembly()
+{
+	UChildActorComponent* Child = CreateDefaultSubobject<UChildActorComponent>(TEXT("NestedAssembly"));
+	Child->SetupAttachment(GetRootComponent());
+	Child->SetChildActorClass(ACXMRPartVariantTestAssembly::StaticClass());
+}
+
 void ACXMRPartForeignTestAssembly::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
@@ -375,6 +382,47 @@ bool FCXMRPartAuthoredActivityTest::RunTest(const FString&)
 	TestTrue(TEXT("Construction-authored actor tick restored"), Accepted->IsActorTickEnabled());
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRPartNestedRejectedTest, "CXMR.ReviewState.NestedAssemblyRejected",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRPartNestedRejectedTest::RunTest(const FString&)
+{
+	FPartWorld F;
+	UCXMRDesignOption* Original = F.Option(TEXT("Original"), TEXT("Console"), FVector::ZeroVector);
+	UCXMRDesignOption* Nested = F.Option(TEXT("Nested"), TEXT("Console"), FVector::ZeroVector);
+	Nested->AssemblyActor = ACXMRPartNestedTestAssembly::StaticClass();
+	F.Catalog({Original, Nested});
+	if (!TestTrue(TEXT("Original option selected"), F.Controller->SelectOption(Original)))
+	{
+		return false;
+	}
+	AActor* Accepted = F.Controller->GetActiveAssembly(TEXT("Console"));
+	ACXMRUsbPortTarget* Port = FindPort(Accepted);
+	if (!TestNotNull(TEXT("Original USB exists"), Port))
+	{
+		return false;
+	}
+	TestFalse(TEXT("Nested assembly rejected before replacing the original"), F.Controller->SelectOption(Nested));
+	TestTrue(TEXT("Review explains the unsupported nested assembly"), F.Controller->GetLastFailureReason().Contains(TEXT("Nested part assemblies")));
+	TestEqual(TEXT("Original assembly retained"), F.Controller->GetActiveAssembly(TEXT("Console")), Accepted);
+	TestEqual(TEXT("Original option retained"), F.Controller->GetActiveOption(TEXT("Console")), Original);
+	TestFalse(TEXT("Original remains visible"), Accepted->IsHidden());
+	TestFalse(TEXT("Original is not destroyed"), Accepted->IsActorBeingDestroyed());
+	TestTrue(TEXT("Original USB contact remains enabled"), Port->IsContactEnabled());
+	int32 Assemblies = 0;
+	int32 Ports = 0;
+	for (TActorIterator<ACXMRPartAssembly> It(F.World); It; ++It)
+	{
+		++Assemblies;
+	}
+	for (TActorIterator<ACXMRUsbPortTarget> It(F.World); It; ++It)
+	{
+		++Ports;
+	}
+	TestEqual(TEXT("Rejected parent and nested assembly cleaned up"), Assemblies, 1);
+	TestEqual(TEXT("Rejected nested USB children cleaned up"), Ports, 1);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRPartLifecycleTest, "CXMR.Parts.ContactAndOwnerCleanup",
 								 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FCXMRPartLifecycleTest::RunTest(const FString&)

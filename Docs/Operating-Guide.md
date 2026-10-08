@@ -522,6 +522,8 @@ VehicleRoot
    차량 로컬 좌표의 부착점은 고정한다. 같은 영역의 A/B는 **같은 SlotId**를 쓴다. 독립 교체 영역만 다른 슬롯으로 만든다.
 2. **CXMR Part Assembly**를 상속한 Blueprint를 옵션마다 만든다. 메시·collision·USB ChildActor를 한 조립체 안에 넣는다.
    자식은 이 소유 계층에 속해야 한다. 충돌이나 표식만 있으면 부품 모델로 인정하지 않는다.
+   자식으로 또 다른 **Part Assembly**를 넣지는 않는다. 중첩 조립체는 선택 전에 거부하며 기존 옵션을 유지한다.
+   하위 모델은 일반 Actor·ChildActor 또는 메시 컴포넌트로 구성한다.
 3. **CXMR Design Option** Data Asset에 고유 `Option Id`, 영어 `Display Name`, 대응 `Slot Id`, 조립체 Blueprint,
    `Slot Local Offset`(cm)을 넣는다. CAD 메시를 하나씩 옮겨 원점을 수리하지 말고 기존 그룹 전체를 조립체로 옮긴다.
 4. 차량 프로파일의 `Design Options`에 에셋을 넣는다. 고정 차량 모델에서는 교체할 영역을 빼야 두 콘솔이 겹치지 않는다.
