@@ -630,17 +630,24 @@ TSharedRef<SWidget> CXMRPanelUI::MakeRow(const FCXMRTunable& Tunable, const FRow
 		}
 		for (const float Direction : { -1.f, 1.f })
 		{
-			Controls->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(Direction > 0.f ? 4.f : 0.f, 0.f, 0.f, 0.f)
+			// SButton은 스타일 여백과 ContentPadding을 더함. 고정 폭 버튼은 둘 다 0으로 둬야 기호가 보임.
+			Controls->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(Direction > 0.f ? 6.f : 0.f, 0.f, 0.f, 0.f)
 			[
-				SNew(SBox).WidthOverride(36.0f)
+				SNew(SBox).WidthOverride(38.0f).HeightOverride(32.0f)
 				[
-					SNew(SButton).ButtonStyle(ButtonStyle()).TextStyle(BodyTextStyle()).HAlign(HAlign_Center)
-					.Text(Direction > 0.f ? LOCTEXT("Plus", "+") : LOCTEXT("Minus", "-"))
+					SNew(SButton).ButtonStyle(ButtonStyle())
+					.ContentPadding(FMargin(0.f)).NormalPaddingOverride(FMargin(0.f)).PressedPaddingOverride(FMargin(0.f))
+					.HAlign(HAlign_Center).VAlign(VAlign_Center)
+					.ToolTipText(Direction > 0.f ? LOCTEXT("PlusTip", "Increase (+)") : LOCTEXT("MinusTip", "Decrease (-)"))
 					.OnClicked_Lambda([Step, Direction] { if (Step) { Step(Direction); } return FReply::Handled(); })
+					[
+						SNew(STextBlock).Font(StrongFont(15))
+						.Text(Direction > 0.f ? LOCTEXT("Plus", "+") : LOCTEXT("Minus", "−"))
+					]
 				]
 			];
 		}
-		Row->AddSlot().AutoWidth().VAlign(VAlign_Center)[ SNew(SBox).WidthOverride(ControlWidth)[ Controls ] ];
+		Row->AddSlot().AutoWidth().VAlign(VAlign_Center)[ SNew(SBox).WidthOverride(ControlWidth).HAlign(HAlign_Right)[ Controls ] ];
 		break;
 	}
 

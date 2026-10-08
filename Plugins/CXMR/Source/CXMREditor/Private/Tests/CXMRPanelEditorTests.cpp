@@ -217,6 +217,21 @@ namespace
 		}
 	}
 
+	/** 보이는 스크롤 영역을 지정 위치로 옮김. 음수면 맨 끝. */
+	void ScrollPreviewTo(SWidget& Widget, float Offset)
+	{
+		if (Widget.GetTypeAsString() == TEXT("SScrollBox"))
+		{
+			SScrollBox& Scroll = static_cast<SScrollBox&>(Widget);
+			if (Offset < 0.f) { Scroll.ScrollToEnd(); }
+			else { Scroll.SetScrollOffset(Offset); }
+		}
+		if (FChildren* Children = Widget.GetChildren())
+		{
+			for (int32 Index = 0; Index < Children->Num(); ++Index) { ScrollPreviewTo(*Children->GetChildAt(Index), Offset); }
+		}
+	}
+
 	void ShowAdvancedPlacement(SWidget& Widget)
 	{
 		if (TSharedPtr<SWidget> Area = FindExpandableArea(Widget))
@@ -319,7 +334,17 @@ bool FCXMRPanelRenderTest::RunTest(const FString& Parameters)
 					TestTrue(TEXT("Preview image is saved"), FFileHelper::SaveArrayToFile(PNG, *(FPaths::ProjectSavedDir() / Filename)));
 				}
 			}
+			// 고정 폭 +/- 버튼처럼 첫 화면 아래에 있는 조작부도 확인함.
 			Control->SelectPage(ECXMRControlPage::Calibration);
+			FSlateApplication::Get().Tick();
+			ScrollPreviewTo(*Window, 420.f);
+			TestTrue(TEXT("Alignment adjustment preview saved"), SavePanelPreview(Window, TEXT("ControlPanelPreview_AlignmentAdjust.png")));
+			Control->SelectPage(ECXMRControlPage::Display);
+			FSlateApplication::Get().Tick();
+			ScrollPreviewTo(*Window, -1.f);
+			TestTrue(TEXT("Settings end preview saved"), SavePanelPreview(Window, TEXT("ControlPanelPreview_SettingsEnd.png")));
+			Control->SelectPage(ECXMRControlPage::Calibration);
+			ScrollPreviewTo(*Window, 0.f);
 			ShowAdvancedPlacement(*Window);
 			TestTrue(TEXT("Expanded Alignment preview saved"), SavePanelPreview(Window, TEXT("ControlPanelPreview_AlignmentAdvanced.png")));
 			Control->ResetSharedAlignment();
