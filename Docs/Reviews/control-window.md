@@ -30,3 +30,32 @@
 - 3번 제품 C++·TTF·라이선스·애셋·Config 변경 0. 빌드·자동화·에디터 MCP 미실행. 시안 HTML도 변경하지 않음.
 - 3번 완료 조건 1~8 미충족. 1·2번 검증 결과는 각 커밋 본문과 HANDOFF에 남김.
 - Claude가 Q1·Q2를 명세/시안에 확정하고 HANDOFF를 갱신하면 3번을 재개한다. push·베이스 머지 없음.
+
+## 재개 후 질문 — 2026-10-15 Codex
+
+- 1번 R2-1·R2-2를 `f47a30c`, 2번 M1-1을 `9bbf878`로 반영하고, HANDOFF 순서대로 작업 브랜치 사이에 merge함. 이 브랜치의 전달 merge는 `cf9d889`임. Q1·Q2의 답을 처음부터 다시 읽었고 그 정책은 명확함.
+- 시작 시 에디터 닫힘·작업 트리 깨끗함 확인. 제품 구현 전 SETTINGS와 기존 등록값을 추가 대조해 아래 차이를 확인함. 명세 D의 **"기본값이 시안과 다르면 질문한다"**, AGENTS의 **"명세가 이 파일·Docs/·플러그인 소스와 어긋나면 임의로 해석하지 말고 멈춰서 보고한다"**에 따라 중단함.
+
+### Q3 시안과 다른 기존 Bool의 레지스트리 Default — 답 대기
+
+- **문제:** `FCXMRTunable::Default`는 `CXMRTuningSubsystem.h:41`에서 0으로 초기화됨. `RegisterCoreTunables`의 `Make`는 Default를 바꾸지 않음. `CXMRTuningWindowComponent.cpp:157-160`의 `MR.VRBackground`, `:257-261`의 `Diagnostics.MarkerTracking`은 Default를 따로 지정하지 않고 등록해 실제 메타데이터는 둘 다 0임. 반면 시안 `prototype.html:383,415`는 둘 다 `def: true`임. `Depth.Test`·`Depth.EnvEstimation`의 기본값 변경은 명세 A.4가 명시적으로 허용하지만 위 두 항목에는 그 허용이 없음.
+- **영향:** Q2 기준의 변경 수·행 Changed·탭 reset이 현재 레지스트리 Default를 쓰면 시안과 반대가 됨. 특히 Diagnostics reset은 시안에서는 켜야 할 마커 추적을 끔.
+- **권장:** 명세 D에서 위 두 Bool의 등록 메타데이터 Default를 1로 고치는 것을 명시함. 기존 비저장 정책은 유지함. 런타임 MR 배경 상태와의 차이는 Q4에서 별도로 확정함.
+- **확인할 시험:** 두 ID의 Default가 시안과 일치함. 켬/끔에서 변경 수와 탭 reset이 시안의 true 기본값을 따름. 마커 추적 reset은 세션 실행 전 Varjo 함수를 호출하지 않음.
+
+### Q4 MR 시작 시 VR 배경의 실제 상태와 시안의 설정 상태 — 답 대기
+
+- **문제:** `CXMRSubsystem.h:76`의 `bCoupleVRBackgroundToMR` 기본값은 true임. `CXMRSubsystem.cpp:231-233`의 `SetMixedReality(true)`는 `SetVRBackgroundVisible(false)`로 실제 배경을 숨김. `MR.VRBackground.Get`(`CXMRTuningWindowComponent.cpp:158`)은 그 실제 상태를 읽음. 반면 시안은 MR 시작 상태에서도 `S.values.vrBackground = true`이며 `changedCount()`(`prototype.html:441`)는 이를 기본값과 같다고 셈. 시안의 MR·VR 전환은 이 설정값을 바꾸지 않음.
+- **영향:** Q3대로 Default를 1로만 고치면, MR로 정상 시작한 직후 실제 Get은 0이라 기본 창 아래 줄과 VR 탭에 변경 1개가 뜸. 시안의 기본 상태는 변경 0개임. MR 중 VR 탭에서 true로 reset하면 기존 setter가 MR 화면에 가상 방을 다시 보이게 함. 원래 레지스트리 getter/setter를 그대로 쓰는 것과 시안의 표시·reset을 동시에 맞출 수 없음.
+- **권장:** `MR.VRBackground`가 'VR에서 사용할 배경 선호값'을 뜻하고 MR 중 실제 배경 숨김은 별도 적용 상태로 다룰지 명세에서 확정함. 이 정책이면 기존 ID·키를 유지하고, MR 전환 중 선호값은 유지하며, VR 복귀 때 그 값을 적용해야 함. 단순히 기존 coupling을 끄면 MR에서 가상 방이 보이므로 그렇게 우회하지 않음. 기존 actual-state 의미를 유지하려면 시안의 변경 수·reset 동작을 Claude가 먼저 수정함.
+- **확인할 시험:** 기본 MR 시작 직후 변경 수, MR 중 VR 배경 설정·reset의 실제 가시성, VR 복귀 시 배경값, MR↔VR 반복 뒤 값·변경 수 보존.
+
+### 시안 브라우저 확인 제약
+
+- 로컬 HTML 소스의 SETTINGS·status·renderActions·renderAdjust·스타일을 파일로 읽음. 제품 구현 전에 원본을 브라우저로 열려 했으나 `file://` 주소는 브라우저 도구의 보안 정책이 거부함. 허용 형식이 http/https라는 이유였으며 우회하지 않음.
+- 명세가 제공한 게시 URL `https://claude.ai/artifact/4nuryji6K37fTp7a4mxsZw`는 앱 브라우저에서 "이 페이지를 보려면 로그인하세요"를 표시함. 사용자에게 직접 로그인 또는 로그인 없이 볼 수 있는 게시 URL을 요청함. 시안의 실제 화면을 이번 재개에서 확인했다고 주장하지 않음.
+
+### 이번 중단 결과
+
+- 제품 C++·TTF·라이선스·애셋·Config 변경 0. 시안·명세 변경 0. 이번 3번 빌드·시험·미리보기 생성·에디터 MCP 미실행. 이전 1·2번 빌드·시험을 3번 결과로 주장하지 않음.
+- 완료 조건 1~8은 아직 미충족. Q1·Q2 답은 유지하며 Q3·Q4와 시안 확인 가능 경로가 정해지면 재개함. HEAD에 질문 기록만 새 커밋함. push·베이스 머지 없음.
