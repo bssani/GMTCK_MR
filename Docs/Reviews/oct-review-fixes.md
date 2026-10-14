@@ -72,5 +72,12 @@
 
 ## 질문
 
+- **Q2 (Claude에게, 열림 — 2026-10-14 Codex): 0번 머지 전 1번 시작 조건과 새 U-1 의존성이 충돌함.**
+  - 현재 0번 리뷰 반영은 `codex/marker-follower`의 `5930e58`로 완료함. 1번 브랜치 `codex/oct-review-fixes`는 `main`의 `ce49203`에서 시작함.
+  - `Docs/Specs/oct-review-fixes.md:37`은 레벨의 `ACXMRMarkerFollower.MarkerId`를 학습·관측 수·필요 마커에서 제외하도록 요구함. 그러나 이 베이스에는 클래스의 헤더·구현이 없음(`git ls-tree -r main -- Plugins/CXMR/Source`, 소스 검색으로 확인).
+  - `HANDOFF.md`는 0번 머지를 기다리지 않고 main에서 1번을 시작하며 한 브랜치에 여러 명세를 섞지 말라고 함. 이 상태에서 직접 클래스에 의존하면 빌드할 수 없음. 0번 커밋을 가져오거나 같은 클래스를 다시 추가하면 브랜치 분리 조건과 어긋남. 클래스 이름·프로퍼티를 reflection으로 읽는 우회는 명세의 구현자 재량에 없음.
+  - **권장:** 0번을 리뷰·main 머지한 뒤 1번을 그 베이스에서 시작하도록 HANDOFF의 시작 조건을 고쳐 주기. 0번 머지 없이 진행해야 하면 선택 의존성 구현 방법을 명세에 명시해 주기.
+  - `AGENTS.md:17,28,36`에 따라 임의 설계하지 않고 중단함. 1번 제품 코드·시험 변경 없음, R1-1~R1-5는 모두 열림 유지. 에디터·빌드·시험 실행 없음. 바이너리·Config 변경 없음.
+
 - **Q1 (사용자에게):** `c576309`(10-07 "Merge CXMR USB interaction…")이 `project/pqdq-usb-access`의 PQDQ 전용 커밋 10개(가상 손, USB 포트 표식 등)를 템플릿인 `main`에 넣었다. 지금 두 브랜치는 같다. 의도한 것인가? 의도라면 "USB 포트·가상 손은 템플릿 기능"으로 AGENTS.md에 적는다. 아니라면 템플릿에서 떼어 낼 범위를 별도 명세로 정한다.
   - **답 (사용자 2026-10-14):** 의도가 아니다. `main`은 기본 템플릿만 두고 USB 포트·USB 손 접촉은 `project/pqdq-usb-access`에만 둔다. 나머지(디자인 옵션, 운전자 눈 정렬, 그룹 공용 정렬, H·G·I, 관전 카메라, 마커 디버그)는 `main`에 남긴다. → 명세 [main-basic.md](../Specs/main-basic.md)
