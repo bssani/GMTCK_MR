@@ -221,8 +221,6 @@ bool UCXMRPlacementComponent::SaveCalibrationToDisk()
 		ReportAlignmentSaveMessage();
 		return false;
 	}
-	TMap<int32, FTransform> WorldMarkers;
-	for (int32 Id : RequiredAlignmentMarkerIds()) { if (const FTransform* Pose = SeenMarkers.Find(Id)) { WorldMarkers.Add(Id, *Pose); } }
 	TSet<int32> CurrentIds;
 	for (const FCXMRMarkerEntry& Entry : MarkerProfile->Markers)
 	{
@@ -230,9 +228,9 @@ bool UCXMRPlacementComponent::SaveCalibrationToDisk()
 	}
 	const bool bSameMarkers = CurrentIds.Num() == SavedAlignmentMarkers.Num()
 		&& CurrentIds.Includes(SavedAlignmentMarkers);
-	// 같은 마커 구성이면 복원 정보 유지함. 바뀐 구성은 다시 확인해야 함.
-	if (bSameMarkers) { return WriteCalibrationData(MarkerProfile->Markers, SavedAlignmentMarkers, SavedPrimaryMarker, &WorldMarkers); }
-	if (!WriteCalibrationData(MarkerProfile->Markers, {}, 0, &WorldMarkers)) { return false; }
+	// 새 평균 캡처가 없는 원본 저장은 월드 위치 재사용 정보를 쓰지 않음.
+	if (bSameMarkers) { return WriteCalibrationData(MarkerProfile->Markers, SavedAlignmentMarkers, SavedPrimaryMarker); }
+	if (!WriteCalibrationData(MarkerProfile->Markers, {}, 0)) { return false; }
 	SavedAlignmentMarkers.Reset();
 	SavedPrimaryMarker = 0;
 	return true;

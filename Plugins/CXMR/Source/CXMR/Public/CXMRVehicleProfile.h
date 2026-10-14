@@ -39,8 +39,6 @@ public:
 	/** 원본 차량 로컬 좌표. +X는 운전자 정면 방향. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Alignment", meta=(EditCondition="bHasDriverEyeReference", ToolTip="Driver eye position and forward direction in the imported vehicle actor's local space. Do not apply VehicleRootOffset twice.")) FTransform DriverEyeReference = FTransform::Identity;
 
-	/** 고정 부품 장착점에서 비교할 설계 옵션. */
-
 	/** HF 평가용 착좌 프로필. 초기 정렬과 별도로 사용함. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CXMR|Vehicle", meta=(ToolTip="Optional HF seating references, separate from initial driver eye alignment.")) TSoftObjectPtr<UCXMRErgonomicsProfile> Ergonomics;
 
