@@ -76,13 +76,13 @@ Placement·Subsystem·Varjo 플러그인·설정·기존 애셋은 수정하지 
   - 명세 범위 밖 변경 없음, 애셋 변경 0.
 - **2026-10-15 시험을 막는 문제는 없다.**
 
-### R1-1 레벨에 놓은 액터의 크기가 첫 마커 이벤트에 1로 돌아감 — 반영함 (fix(cxmr): preserve follower scale and warn on off)
+### R1-1 레벨에 놓은 액터의 크기가 첫 마커 이벤트에 1로 돌아감 — 반영함 (5930e58)
 
 - 문제: `HandleMarkerPose`가 `SetActorTransform(MarkerToActor * FTransform(Rotation, Position))`로 옮긴다(`CXMRMarkerFollower.cpp:141`). 마커 포즈의 크기는 1이라서, 사용자가 레벨에 놓은 `BP_Dynamic` 액터를 Scale 0.3으로 줄여 두면 첫 감지에서 1로 커진다. 안내 문서는 "BP 안의 메시 크기를 맞춘다"고 했지만, 레벨에서 액터 크기를 바꾸는 사람이 흔하다.
 - 제안: 위치·회전만 마커에서 받고 액터의 지금 크기는 유지한다. 예: 합성 결과에 `SetScale3D(GetActorScale3D())` 뒤 `SetActorTransform`, 또는 `SetActorLocationAndRotation`.
 - 확인할 시험: 액터 크기를 (0.3, 0.3, 0.3)으로 두고 감지·이동 → 위치·회전은 마커를 따르고 크기는 그대로.
 
-### R1-2 시작할 때마다 "Marker tracking is off" 경고가 찍힘 — 반영함 (fix(cxmr): preserve follower scale and warn on off)
+### R1-2 시작할 때마다 "Marker tracking is off" 경고가 찍힘 — 반영함 (5930e58)
 
 - 문제: BeginPlay가 `HandleTrackingChanged(Subsystem->IsMarkerTrackingOn())`을 부른다(`CXMRMarkerFollower.cpp:52`). 그런데 마커 추적은 Placement가 세션이 뜬 뒤 스스로 켠다(`CXMRPlacementComponent.cpp:492-519`). 그래서 시작 시점에는 거의 항상 꺼져 있고, 매번 "Press V or turn it on" 경고가 남는다. 몇 초 뒤 추적이 저절로 켜지므로 시험하는 사람이 잘못 따라 할 수 있다.
 - 제안: BeginPlay에서는 상태만 맞추고 경고하지 않는다. 경고는 "추적이 켜져 있다가 꺼졌을 때"만 한다. 또는 세션이 뜬 뒤에도 일정 시간(마커 추적 시작 재시도와 같은 20초) 꺼져 있을 때만 한다.
