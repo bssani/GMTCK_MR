@@ -366,15 +366,19 @@ base station 추적은 원점이 base station에 묶여 있어서, inside-out보
 - [ ] 2023판으로도 같은 방법을 해 볼 수 있으면 같이 적는다. 그래야 비교가 된다.
 - [ ] 세 값이 1 mm 안에서 같으면 원점이 그대로인 것이다. 몇 mm 이상 다르면 원점이 움직이거나 마커 측정이 흔들리는 것이다. 두 가지는 지금 빌드로는 구분할 수 없다. 마커 좌표 로그(oct-review-fixes R1-5) 뒤에 구분한다.
 
-### 15-4. Dynamic이 되는지 확인 — 박스
+### 15-4. 박스에 붙인 마커를 메시가 잘 따라가는가 — Varjo 예제 맵으로
 
-지금 빌드에는 Dynamic 스위치가 없다(새 컨트롤 창 작업에서 고급 창 Diagnostics에 생긴다). 대신 보정 마커 하나의 모드를 바꿔서 확인한다. 마커 라벨의 모드 표시는 런타임이 실제로 보내는 값(`isPredicted`)이라, 라벨에 `Dynamic`이 뜨면 런타임이 Dynamic으로 추적하고 있다는 뜻이다.
+CXMR에는 마커를 따라 움직이는 메시가 없다. **Varjo 공식 예제 맵에 그 기능이 있다.** `BP_MarkerControls`가 마커마다 큐브(`BP_Marker`)를 띄운다. 그 큐브는 마커가 움직이면 따라가고, 놓치면 숨는다. 큐브에는 마커 ID와 추적 모드(Stationary/Dynamic)가 적혀 있다. 이 PC에서 확인한 위치는 `/Game/VRTemplate/Maps/VRTemplateMap`, `/Game/VarjoContent/VarjoMarkers/`다.
 
-- [ ] PIE 전에 `/Game/Vehicle/Example/DA_MarkerProfile_TestCar`에서 보정 마커 하나의 `Tracking Mode`를 `Dynamic`으로 바꾼다. 그 마커를 박스에 붙인다. **애셋은 저장하지 않고, 시험이 끝나면 되돌린다.**
-- [ ] PIE에서 튜닝 창의 "Show marker axes and labels"를 켠다. 그 마커 라벨이 `Dynamic`인지 본다. `Stationary`로 남으면 모드가 적용되지 않은 것이니 로그를 붙여 준다.
-- [ ] 박스를 들고 천천히, 그다음 빠르게 움직인다. 마커 축이 박스를 따라오는지 본다. 차는 고정 상태라 움직이지 않는 게 정상이다.
-- [ ] 모드를 `Stationary`로 되돌려 같은 동작을 한 번 더 한다. 축이 더 늦게 따라오면 Dynamic이 효과가 있는 것이다.
-- [ ] 결과는 한두 줄이면 된다(예: "라벨 Dynamic 뜸, Stationary보다 확실히 빨리 따라옴").
+- [ ] 헤드셋 PC 프로젝트에 위 두 폴더(`Content/VRTemplate`, `Content/VarjoContent`)가 있는지 본다. 리포에는 없다(`.gitignore`). 없으면 이 PC의 같은 폴더를 복사한다.
+- [ ] **박스에는 짝수 ID 마커를 붙인다.** 예제는 짝수 ID 마커만 Dynamic으로 바꾼다(`id % 2`, `Docs/Varjo-Capabilities.md` BP_MarkerControls).
+- [ ] `VRTemplateMap`을 열고 VR Preview로 실행한다. `V`로 마커 추적을 켠다. 박스 마커 위에 큐브가 뜨고 라벨이 `Stationary`인지 본다.
+- [ ] 박스를 들고 천천히, 그다음 빠르게 움직인다. 큐브가 얼마나 늦게 따라오는지, 멈췄을 때 떨리는지, 손이 마커를 가리면 언제 사라지는지 본다.
+- [ ] `C`를 누른다(짝수 마커 Dynamic). 이미 잡힌 마커에는 모드가 감지될 때 정해지므로, **`V`를 두 번 눌러 추적을 껐다 켠다.** 라벨이 `Dynamic`으로 바뀌었는지 본다.
+- [ ] 같은 동작을 다시 하고 Stationary 때와 비교한다.
+- [ ] 결과는 한두 줄이면 된다(예: "Stationary는 0.5초쯤 늦게 미끄러지듯 따라옴, Dynamic은 거의 바로 오지만 멈추면 조금 떨림").
+
+예제 맵이 없을 때의 대안: CXMR `L_Main`에서 튜닝 창 "Show marker axes and labels"를 켜면 마커 축과 라벨이 마커를 따라간다(메시는 아님). Dynamic은 보정 마커 하나의 `Tracking Mode`를 프로필(`DA_MarkerProfile_TestCar`)에서 바꿔야 한다. 애셋은 저장하지 말 것.
 
 ### 15-5. 결과와 함께 적을 것
 
