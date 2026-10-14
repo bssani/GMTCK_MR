@@ -366,19 +366,17 @@ base station 추적은 원점이 base station에 묶여 있어서, inside-out보
 - [ ] 2023판으로도 같은 방법을 해 볼 수 있으면 같이 적는다. 그래야 비교가 된다.
 - [ ] 세 값이 1 mm 안에서 같으면 원점이 그대로인 것이다. 몇 mm 이상 다르면 원점이 움직이거나 마커 측정이 흔들리는 것이다. 두 가지는 지금 빌드로는 구분할 수 없다. 마커 좌표 로그(oct-review-fixes R1-5) 뒤에 구분한다.
 
-### 15-4. 박스에 붙인 마커를 메시가 잘 따라가는가 — Varjo 예제 맵으로
+### 15-4. 박스에 붙인 마커를 메시가 잘 따라가는가
 
-CXMR에는 마커를 따라 움직이는 메시가 없다. **Varjo 공식 예제 맵에 그 기능이 있다.** `BP_MarkerControls`가 마커마다 큐브(`BP_Marker`)를 띄운다. 그 큐브는 마커가 움직이면 따라가고, 놓치면 숨는다. 큐브에는 마커 ID와 추적 모드(Stationary/Dynamic)가 적혀 있다. 이 PC에서 확인한 위치는 `/Game/VRTemplate/Maps/VRTemplateMap`, `/Game/VarjoContent/VarjoMarkers/`다.
+콘솔 명령 `CXMR.FollowMarker`로 한다(명세 `Docs/Specs/marker-follower.md`). **이 명령이 머지된 빌드에서만 된다.** 시험 PC에서 git pull 후 빌드한다. Varjo 예제 맵은 쓰지 않는다.
 
-- [ ] 헤드셋 PC 프로젝트에 위 두 폴더(`Content/VRTemplate`, `Content/VarjoContent`)가 있는지 본다. **git에는 처음부터 없었다**(2026-08-11 `.gitignore`로 제외). 개발 PC 디스크에만 남아 있다(2026-10-14 확인: 132개 파일, 예제 맵과 마커 BP가 참조하는 애셋이 전부 있음, 에디터로 열어 보지는 않음). 헤드셋 PC에 없으면 개발 PC의 `Downloads/GMTCK_MR_VarjoExample_Content.zip`을 프로젝트 폴더에 풀어 `Content/` 아래에 두 폴더가 생기게 한다. 에디터를 연 뒤 맵을 연다.
-- [ ] **박스에는 짝수 ID 마커를 붙인다.** 예제는 짝수 ID 마커만 Dynamic으로 바꾼다(`id % 2`, `Docs/Varjo-Capabilities.md` BP_MarkerControls).
-- [ ] `VRTemplateMap`을 열고 VR Preview로 실행한다. `V`로 마커 추적을 켠다. 박스 마커 위에 큐브가 뜨고 라벨이 `Stationary`인지 본다.
-- [ ] 박스를 들고 천천히, 그다음 빠르게 움직인다. 큐브가 얼마나 늦게 따라오는지, 멈췄을 때 떨리는지, 손이 마커를 가리면 언제 사라지는지 본다.
-- [ ] `C`를 누른다(짝수 마커 Dynamic). 이미 잡힌 마커에는 모드가 감지될 때 정해지므로, **`V`를 두 번 눌러 추적을 껐다 켠다.** 라벨이 `Dynamic`으로 바뀌었는지 본다.
-- [ ] 같은 동작을 다시 하고 Stationary 때와 비교한다.
+- [ ] 박스에 붙일 마커는 **차량 보정 마커와 다른 ID**로 한다.
+- [ ] PIE(VR Preview) 중 콘솔(`~`)에서 `CXMR.FollowMarker <ID> stationary`를 친다. 박스를 보이게 들면 그 자리에 색 박스가 뜨고, 라벨이 `Stationary`인지 본다.
+- [ ] 박스를 천천히, 그다음 빠르게 움직인다. 색 박스가 얼마나 늦게 따라오는지, 멈췄을 때 떨리는지, 손이 마커를 가리면 언제 `lost`가 되는지 본다.
+- [ ] `CXMR.FollowMarker <ID> dynamic`을 친다. 라벨이 `Dynamic`으로 바뀌는지 보고 같은 동작을 반복한다.
+- [ ] 끝나면 `CXMR.FollowMarker off`.
 - [ ] 결과는 한두 줄이면 된다(예: "Stationary는 0.5초쯤 늦게 미끄러지듯 따라옴, Dynamic은 거의 바로 오지만 멈추면 조금 떨림").
-
-예제 맵이 없을 때의 대안: CXMR `L_Main`에서 튜닝 창 "Show marker axes and labels"를 켜면 마커 축과 라벨이 마커를 따라간다(메시는 아님). Dynamic은 보정 마커 하나의 `Tracking Mode`를 프로필(`DA_MarkerProfile_TestCar`)에서 바꿔야 한다. 애셋은 저장하지 말 것.
+- [ ] 색 박스 중심은 마커 위치다. 마커 축 표시(튜닝 창 "Show marker axes and labels")를 같이 켜고, 빨강·초록·파랑 중 어느 축이 마커 면 바깥을 향하는지 사진 한 장을 남긴다. 나중에 실물 박스와 정확히 겹치게 할 때 필요하다.
 
 ### 15-5. 결과와 함께 적을 것
 
