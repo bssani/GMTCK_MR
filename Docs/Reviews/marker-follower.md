@@ -136,3 +136,11 @@ Placement·Subsystem·Varjo 플러그인·설정·기존 애셋은 수정하지 
 - 에디터: 사용자 `/Game/` BP 액터 Scale 0.3으로 두고 감지·이동 뒤 크기 확인. 기존 Details 확인은 `Saved/MarkerFollowerDetails1014.png`.
 - 헤드셋: not-tested. 체크리스트 §15-1·15-2 준비, §15-4 크기 유지·시작/추적 중단 경고 및 Stationary/Dynamic 비교, §15-5 기록.
 - 질문 없음. push·머지 없음.
+
+## 2회차 — 2026-10-14, `5930e58`
+
+- 재현(Claude, worktree): `-DisableAdaptiveUnity` 빌드 성공, CXMR·GMTCK_MR 경고·오류 0. `CXMR.` 84/84(새 시험 2개 포함).
+- R1-1 → **반영 확인 (`5930e58`).** 마커 포즈에 액터의 지금 크기를 넣어 옮긴다(`CXMRMarkerFollower.cpp:142-145`). 시험 `CXMR.MarkerFollower.PreservePlacedScale`는 감지·이동 두 번 모두 크기 0.3 유지를 확인한다.
+- R1-2 → **반영 확인 (`5930e58`).** 시작할 때는 상태만 맞추고(`:52-53`), 켜져 있다가 꺼질 때 한 번만 경고한다(`:164`). 시험 `CXMR.MarkerFollower.TrackingOffWarningAfterEnabled`는 처음 꺼짐에는 경고가 없고, 켜졌다 꺼지면 한 번 경고하는 것을 확인한다.
+- **열린 항목 없음 — 리뷰 통과.** 헤드셋 시험 상태는 not-tested다(체크리스트 §15-4).
+
