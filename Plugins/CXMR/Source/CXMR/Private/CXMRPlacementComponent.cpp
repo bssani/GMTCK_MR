@@ -437,7 +437,7 @@ void UCXMRPlacementComponent::RecomputeCalibration()
 	if (bHavePose)
 	{
 		BaseVehicleTransform = VehicleWorld;
-		 bHaveBasePose = true;
+		bHaveBasePose = true;
 		ApplyPlacement();
 	}
 
@@ -1323,7 +1323,7 @@ void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator
 		CancelAlignmentCapture();
 		bManualAlignment = true;
 		bAlignmentPoseLocked = true;
-			if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
+		if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
 	}
 	TempMarkerLocationOffset += DeltaLocation;
 	TempMarkerRotationOffset += DeltaRotation;
@@ -1340,47 +1340,21 @@ void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator
 
 void UCXMRPlacementComponent::SaveMarkerOffsetToProfile()
 {
-	if (bManualAlignment || bCapturingAlignment || (!GetAlignmentGroup().IsNone() && !HasSavedAlignment()))
+	// 자동 보정·복원 뒤에도 새 평균으로만 저장함.
+	if (GetWorld())
 	{
-		// 패널 상태도 단축키와 같은 저장 절차로 갱신함.
-		if (GetWorld())
+		for (TActorIterator<AActor> It(GetWorld()); It; ++It)
 		{
-			for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+			if (It->IsActorBeingDestroyed()) { continue; }
+			UCXMRTuningWindowComponent* Control = It->FindComponentByClass<UCXMRTuningWindowComponent>();
+			if (Control && Control->IsRegistered() && Control->FindPlacement() == this)
 			{
-				if (It->IsActorBeingDestroyed()) { continue; }
-				UCXMRTuningWindowComponent* Control = It->FindComponentByClass<UCXMRTuningWindowComponent>();
-				if (Control && Control->IsRegistered() && Control->FindPlacement() == this)
-				{
-					Control->RequestAlignmentSave();
-					return;
-				}
+				Control->RequestAlignmentSave();
+				return;
 			}
 		}
-		RequestAlignmentSave();
-		return;
 	}
-	bLastCalibrationSaveSucceeded = false;
-	AActor* Root = ResolveVehicleRoot();
-	if (!Root || !MarkerProfile || !HaveAllAlignmentMarkers())
-	{
-		AlignmentSaveMessage = FText::FromString(TEXT("Not saved. Missing markers: ") + GetMissingAlignmentMarkerIds());
-		ReportAlignmentSaveMessage();
-		return;
-	}
-	TArray<FCXMRMarkerEntry> Entries = MarkerProfile->Markers;
-	TMap<int32, FTransform> WorldMarkers;
-	const FTransform Shown = Root->GetActorTransform();
-	for (FCXMRMarkerEntry& Entry : Entries)
-	{
-		if (Entry.Role != ECXMRMarkerRole::Calibration || Entry.MarkerId <= 0 || IsFollowerMarker(Entry.MarkerId)) { continue; }
-		const FTransform* InView = SeenMarkers.Find(Entry.MarkerId);
-		if (!InView) { return; }
-		Entry.LocalOffset = InView->GetRelativeTransform(Shown);
-		WorldMarkers.Add(Entry.MarkerId, *InView);
-	}
-	if (!WriteCalibrationData(Entries, SavedAlignmentMarkers, SavedPrimaryMarker, &WorldMarkers)) { return; }
-	MarkerProfile->Markers = MoveTemp(Entries);
-	RebaseToCurrentTransform();
+	RequestAlignmentSave();
 }
 
 void UCXMRPlacementComponent::ResetMarkerOffset()

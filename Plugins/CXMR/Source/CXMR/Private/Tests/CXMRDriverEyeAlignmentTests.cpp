@@ -1206,8 +1206,9 @@ bool FCXMRCaptureMeanOriginTest::RunTest(const FString&)
 	const FString Path = Placement->GetCalibrationFilePath();
 	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
 	Fixture.Root->SetActorTransform(FTransform::Identity);
-	EyeMarker(Placement, 1, First); EyeMarker(Placement, 2, Second);
-	TestTrue(TEXT("Unchanged origin is identified"), Placement->WasWorldPoseReused());
+	EyeMarker(Placement, 1, FTransform(First.GetRotation(), First.GetLocation() + FVector(0.1, 0, 0)));
+	EyeMarker(Placement, 2, FTransform(Second.GetRotation(), Second.GetLocation() + FVector(0.1, 0, 0)));
+	TestTrue(TEXT("Origin within tolerance is identified"), Placement->WasWorldPoseReused());
 	TestTrue(TEXT("Restored world pose is exact to 0.001 cm"), Fixture.Root->GetActorTransform().Equals(Final, 0.001));
 	Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
 	EyeMarker(Placement, 1, FTransform(First.GetRotation(), First.GetLocation() + FVector(5, 0, 0)));
@@ -1224,6 +1225,67 @@ bool FCXMRCaptureMeanOriginTest::RunTest(const FString&)
 	TestTrue(TEXT("Old files remain compatible"), Placement->bCalibrated && Fixture.Root->GetActorTransform().Equals(Final, 0.001));
 	GLog->FlushThreadedLogs();
 	TestEqual(TEXT("Each restoration logs one Log-level line per marker"), Logs.Restores, 6);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAutomaticAlignmentSaveTest, "CXMR.Alignment.OctReview.AutomaticAlignmentSave",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRAutomaticAlignmentSaveTest::RunTest(const FString&)
+{
+	for (int32 Mode = 0; Mode < 3; ++Mode)
+	{
+		FEyeFixture Fixture;
+		UCXMRPlacementComponent* Placement = Fixture.Root->Placement;
+		if (Mode == 2)
+		{
+			SetAlignmentGroup(*this, Fixture.Profile, FName(*(TEXT("AutoSave_") + FGuid::NewGuid().ToString(EGuidFormats::Digits))));
+			Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+		}
+		const FTransform First(FVector(100, 0, 0)), Second(FVector(200, 0, 0));
+		EyeMarker(Placement, 1, First); EyeMarker(Placement, 2, Second);
+		TestTrue(TEXT("Markers automatically calibrate"), Placement->bCalibrated);
+		if (Mode > 0)
+		{
+			TestTrue(TEXT("Initial capture starts"), Placement->BeginAlignmentCapture());
+			EyeMarker(Placement, 1, First); EyeMarker(Placement, 2, Second);
+			TestTrue(TEXT("Initial alignment saves"), Placement->SaveAlignment());
+			Fixture.Root->Loader->LoadVehicle(Fixture.Profile);
+			EyeMarker(Placement, 1, First); EyeMarker(Placement, 2, Second);
+			TestTrue(TEXT("Saved alignment automatically restores"), Placement->bCalibrated && Placement->HasSavedAlignment());
+		}
+		TestFalse(TEXT("No manual movement before shortcut"), Placement->IsManualAlignment());
+		const FString Path = Placement->GetCalibrationFilePath();
+		FString Before; FFileHelper::LoadFileToString(Before, *Path);
+		const FTransform Final = Fixture.Root->GetActorTransform();
+		Placement->AlignmentCaptureMinSamples = 3;
+		Placement->ProcessEvent(Placement->FindFunctionChecked(TEXT("HandleSaveOffsetRequest")), nullptr);
+		TestTrue(TEXT("Enter starts a fresh capture in every automatic state"), Placement->HasAlignmentCapture());
+		FString During; FFileHelper::LoadFileToString(During, *Path);
+		TestEqual(TEXT("Starting capture leaves the file unchanged"), During, Before);
+		for (double Noise : {0.0, -0.2, 0.2})
+		{
+			EyeMarker(Placement, 1, FTransform(First.GetLocation() + FVector(Noise, 0, 0)));
+			EyeMarker(Placement, 2, FTransform(Second.GetLocation() + FVector(Noise, 0, 0)));
+			if (Noise != 0.2) { TestFalse(TEXT("Partial samples do not save"), Placement->WasLastCalibrationSaveSuccessful()); }
+		}
+		TestTrue(TEXT("Complete fresh means automatically save"), Placement->WasLastCalibrationSaveSuccessful());
+		TestTrue(TEXT("LocalOffset uses the mean"), Placement->MarkerProfile->Markers[0].LocalOffset.Equals(First.GetRelativeTransform(Final), 0.001));
+		FString Saved; FFileHelper::LoadFileToString(Saved, *Path);
+		TSharedPtr<FJsonObject> Data;
+		if (!TestTrue(TEXT("Saved JSON reads"), FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Saved), Data))) { return false; }
+		const TArray<TSharedPtr<FJsonValue>>* WorldMarkers = nullptr;
+		if (!TestTrue(TEXT("Capture writes markerWorld"), Data->TryGetArrayField(TEXT("markerWorld"), WorldMarkers))) { return false; }
+		for (const TSharedPtr<FJsonValue>& Item : *WorldMarkers)
+		{
+			const TSharedPtr<FJsonObject> Marker = Item->AsObject();
+			TestEqual(TEXT("markerWorld uses the mean rather than final noise"), Marker->GetNumberField(TEXT("x")), Marker->GetNumberField(TEXT("id")) * 100.0);
+		}
+		TestTrue(TEXT("Direct profile save remains supported"), Placement->SaveCalibrationToDisk());
+		FFileHelper::LoadFileToString(Saved, *Path);
+		FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Saved), Data);
+		TestFalse(TEXT("Direct save omits worldPose without a new mean"), Data->HasField(TEXT("worldPose")));
+		TestFalse(TEXT("Direct save omits raw markerWorld"), Data->HasField(TEXT("markerWorld")));
+	}
 	return true;
 }
 
