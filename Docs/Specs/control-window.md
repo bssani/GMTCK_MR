@@ -88,7 +88,9 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
 - **행은 레지스트리 항목으로 만든다.** 라벨·도움말·단위·선택지 문구는 레지스트리 항목(`FCXMRTunable::Label` / `Help` / `Unit` / `Options`, `CXMRTuningSubsystem.h:26-55`)에 시안 문구를 넣어 **한 곳에만** 둔다.
   - 지금 패널이 문구를 따로 덮어쓰는 표(`SCXMRControlPanel.cpp:159` 부근 `DescribeRow`)와 쓰지 않는 페이지 값(`ECXMRControlPage`의 View·Diagnostics 접기)은 없앤다. 리뷰 H-5를 같이 해결한다.
 - 숫자의 최소·최대·간격은 지금 등록값을 쓴다. 시안의 범위는 참고용이다. **기본값이 시안과 다르면 질문한다.**
-- 탭 이름 옆 `●`, 행의 `Changed · default …`, `Reset <탭> to defaults`, 아래 줄 문구는 시안대로 한다. "바뀐 설정"은 기본 창 아래 줄의 수와 같은 기준이다: 고급 창의 저장되는 설정 중 `Default`와 다른 것.
+- 탭 이름 옆 `●`, 행의 `Changed · default …`, `Reset <탭> to defaults`, 아래 줄 문구는 시안대로 한다. "바뀐 설정"은 기본 창 아래 줄의 수와 같은 기준이다: **고급 창에 행이 있는 설정(읽기·실행 행 제외) 중 지금 값이 `Default`와 다른 것.** 저장 여부는 따지지 않는다 — 시안 `changedCount()`와 같다(Q2 답, 2026-10-15).
+  - 저장하지 않는 세션 설정(`Diagnostics.DynamicMarkers`, `Diagnostics.HandSkeleton`·`MarkerLabels`·`MarkerTracking`, `MR.Masking` 등)도 기본값과 다르면 세고, 탭 `●`·행 `Changed`를 띄우며, `Reset <탭> to defaults`가 되돌린다. 진행자가 "지금 평소와 다른 것이 켜져 있다"를 알게 하는 줄이라서다. H 키처럼 키로 바꿔도 같다.
+  - 창에 행이 없는 등록 항목(아래 "창에서 빠지는 등록 항목")은 세지도 되돌리지도 않는다.
 - `requires`: 앞 설정이 꺼지면 행을 흐리게 하고 도움말 뒤에 `Turn on “…” first.`를 붙인다.
 - 실행 행: 버튼 문구는 `Run`, 삭제는 `Delete` → `Click again to delete`(5초)다. 결과 문구는 버튼 왼쪽에 성공색으로 표시한다.
 - **창에서 빠지는 등록 항목**:
@@ -97,7 +99,8 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
   - `Vehicle.SaveOffset` / `Recalibrate` / `ResetOffset` / `Away` / `Right` / `Up` / `Turn` / `MoveStep`(기본 창)
   - `Port.*`(main-basic에서 삭제됨)
   - 1번(oct-review-fixes)에서 새로 생기는 프로퍼티(마커당 최소 표본 수, 캡처 시간 제한)와 0번 Marker Follower의 값. 시안에 없으므로 창에 넣지 않는다. 레지스트리에 등록했다면 창에서만 뺀다.
-  - 이 밖에 시안에 없는 등록 항목을 찾으면 질문한다. 2026-10-15 Claude가 확인했을 때 지금 등록된 47개는 전부 시안이나 이 목록에 자리가 있었다.
+  - `Hands.OffsetForward` / `OffsetRight` / `OffsetUp`(`CXMRHandDebugComponent.cpp:265-283`). `Snap hand to marker`가 보정해 저장하는 결과값이다(`:399-401`). 등록·저장·Snap은 그대로 두고 창에서만 뺀다. 손 보정을 되돌리려면 Snap을 다시 한다(Q1 답, 2026-10-15).
+  - 이 밖에 시안에 없는 등록 항목을 찾으면 질문한다. 2026-10-15 Claude가 등록 47개를 대조할 때 `Hands.Offset*` 셋을 놓쳤다(Codex Q1). 그 셋을 위에 더했다.
 - **새로 등록할 항목** (`SETTINGS`의 `new:`):
   - `MR.StartInMR`
   - 마커 평균 시간(`CalibrationSettleSeconds`)
@@ -200,3 +203,4 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
 - 2026-10-14: 시안 4판 — 시선 점(G)·Foveated(I) 행 삭제(사용자 결정, 10-08에 이미 지워진 기능)
 - 2026-10-14: 시안 5판 — 박스 따라가기 기능은 만들지 않기로(사용자: "dynamic 되는지 확인만"). Moving objects 자리를 빼고 탭 이름은 Vehicle 그대로, 고급 창 Diagnostics에 Dynamic 스위치 하나 추가
 - 2026-10-15: 1번의 새 프로퍼티는 창에 넣지 않음, "Dynamic tracking for all markers"를 끌 때 Marker Follower 마커는 그 액터의 모드로 — Codex가 멈추지 않게 미리 확정
+- 2026-10-15: Q1·Q2 답 — `Hands.Offset*`은 창에서만 뺌. "바뀐 설정"은 저장 여부와 무관하게 창에 행이 있는 설정 기준(시안 `changedCount()`와 같게)
