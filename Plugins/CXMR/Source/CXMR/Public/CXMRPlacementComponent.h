@@ -70,7 +70,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment", meta=(ToolTip="Confirm the final vehicle pose and collect fresh observations of every configured calibration marker.")) bool BeginAlignmentCapture();
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") bool CanSaveAlignment() const;
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment") bool SaveAlignment();
-	/** 저장 요청은 확인, 새 관측, 저장 순서로 처리함. */
+	/** 한 번 요청하면 새 평균을 모아 자동 저장함. */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment", meta=(ToolTip="Start fresh marker capture and save automatically when every configured marker has enough samples.")) bool RequestAlignmentSave();
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") FText GetAlignmentSaveMessage() const { return AlignmentSaveMessage; }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") bool IsManualAlignment() const { return bManualAlignment; }
