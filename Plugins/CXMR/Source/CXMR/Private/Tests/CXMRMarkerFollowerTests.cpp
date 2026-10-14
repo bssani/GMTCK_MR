@@ -55,7 +55,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRMarkerFollowerPoseTest, "CXMR.MarkerFollow
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FCXMRMarkerFollowerPoseTest::RunTest(const FString& Parameters)
 {
-	AddExpectedError(TEXT("Marker tracking is off."), EAutomationExpectedErrorFlags::Contains, 1);
 	FMarkerFollowerFixture Fixture;
 	ACXMRMarkerFollower* Actor = Fixture.Spawn();
 	Actor->MarkerToActor = FTransform(FRotator(15, 30, -10), FVector(11, -7, 20));
@@ -90,7 +89,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRMarkerFollowerLossTest, "CXMR.MarkerFollow
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FCXMRMarkerFollowerLossTest::RunTest(const FString& Parameters)
 {
-	AddExpectedError(TEXT("Marker tracking is off."), EAutomationExpectedErrorFlags::Contains, 1);
 	FMarkerFollowerFixture Fixture;
 	ACXMRMarkerFollower* Actor = Fixture.Spawn();
 	const FTransform Marker(FRotator(0, 25, 0), FVector(10, 20, 30));
@@ -120,7 +118,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRMarkerFollowerWaitingTest, "CXMR.MarkerFol
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FCXMRMarkerFollowerWaitingTest::RunTest(const FString& Parameters)
 {
-	AddExpectedError(TEXT("Marker tracking is off."), EAutomationExpectedErrorFlags::Contains, 1);
 	AddExpectedError(TEXT("Marker Id is 0."), EAutomationExpectedErrorFlags::Contains, 1);
 	FMarkerFollowerFixture Fixture;
 	ACXMRMarkerFollower* Actor = Fixture.Spawn();
@@ -152,7 +149,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRMarkerFollowerWarningsTest, "CXMR.MarkerFo
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FCXMRMarkerFollowerWarningsTest::RunTest(const FString& Parameters)
 {
-	AddExpectedError(TEXT("Marker tracking is off."), EAutomationExpectedErrorFlags::Contains, 2);
 	AddExpectedError(TEXT("Marker 42 is a calibration marker."), EAutomationExpectedErrorFlags::Contains, 2);
 	AddExpectedError(TEXT("Multiple actors follow Marker 42."), EAutomationExpectedErrorFlags::Contains, 1);
 	FMarkerFollowerFixture Fixture;
@@ -169,6 +165,43 @@ bool FCXMRMarkerFollowerWarningsTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("First duplicate still follows"), First->GetActorTransform().Equals(Marker));
 	TestTrue(TEXT("Second duplicate still follows"), Second->GetActorTransform().Equals(Marker));
 	TestTrue(TEXT("Follower does not move the calibration anchor"), Root->GetActorTransform().Equals(RootBefore));
+	return true;
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRMarkerFollowerScaleTest, "CXMR.MarkerFollower.PreservePlacedScale",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRMarkerFollowerScaleTest::RunTest(const FString& Parameters)
+{
+	FMarkerFollowerFixture Fixture;
+	ACXMRMarkerFollower* Actor = Fixture.Spawn();
+	const FVector PlacedScale(0.3, 0.3, 0.3);
+	Actor->SetActorScale3D(PlacedScale);
+	Actor->MarkerToActor = FTransform(FRotator(15, 30, -10), FVector(11, -7, 20));
+	for (int32 Index = 0; Index < 2; ++Index)
+	{
+		const FTransform Marker(FRotator(-25, 65 + Index * 30, 12), FVector(130 + Index * 50, -85, 40));
+		Fixture.Pose(42, Marker, Index == 0);
+		FTransform Expected = Actor->MarkerToActor * Marker;
+		Expected.SetScale3D(PlacedScale);
+		TestTrue(TEXT("Detected and moved preserve scale while following location and rotation"), Actor->GetActorTransform().Equals(Expected, 0.001f));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRMarkerFollowerTrackingWarningTest, "CXMR.MarkerFollower.TrackingOffWarningAfterEnabled",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FCXMRMarkerFollowerTrackingWarningTest::RunTest(const FString& Parameters)
+{
+	AddExpectedError(TEXT("Marker tracking is off."), EAutomationExpectedErrorFlags::Contains, 1);
+	FMarkerFollowerFixture Fixture;
+	ACXMRMarkerFollower* Actor = Fixture.Spawn();
+	Fixture.Subsystem->OnMarkerTrackingChanged.Broadcast(false);
+	Fixture.Subsystem->OnMarkerTrackingChanged.Broadcast(true);
+	Fixture.Pose(42, FTransform(FVector(10, 20, 30)));
+	Fixture.Subsystem->OnMarkerTrackingChanged.Broadcast(false);
+	TestFalse(TEXT("Turning tracking off invalidates observation"), Actor->IsMarkerTracked());
+	Fixture.Subsystem->OnMarkerTrackingChanged.Broadcast(false);
+	Fixture.Subsystem->OnMarkerTrackingChanged.Broadcast(true);
+	Fixture.Subsystem->OnMarkerTrackingChanged.Broadcast(false);
 	return true;
 }
 #endif

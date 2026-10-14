@@ -76,13 +76,13 @@ Placement·Subsystem·Varjo 플러그인·설정·기존 애셋은 수정하지 
   - 명세 범위 밖 변경 없음, 애셋 변경 0.
 - **2026-10-15 시험을 막는 문제는 없다.**
 
-### R1-1 레벨에 놓은 액터의 크기가 첫 마커 이벤트에 1로 돌아감 — 열림
+### R1-1 레벨에 놓은 액터의 크기가 첫 마커 이벤트에 1로 돌아감 — 반영함 (fix(cxmr): preserve follower scale and warn on off)
 
 - 문제: `HandleMarkerPose`가 `SetActorTransform(MarkerToActor * FTransform(Rotation, Position))`로 옮긴다(`CXMRMarkerFollower.cpp:141`). 마커 포즈의 크기는 1이라서, 사용자가 레벨에 놓은 `BP_Dynamic` 액터를 Scale 0.3으로 줄여 두면 첫 감지에서 1로 커진다. 안내 문서는 "BP 안의 메시 크기를 맞춘다"고 했지만, 레벨에서 액터 크기를 바꾸는 사람이 흔하다.
 - 제안: 위치·회전만 마커에서 받고 액터의 지금 크기는 유지한다. 예: 합성 결과에 `SetScale3D(GetActorScale3D())` 뒤 `SetActorTransform`, 또는 `SetActorLocationAndRotation`.
 - 확인할 시험: 액터 크기를 (0.3, 0.3, 0.3)으로 두고 감지·이동 → 위치·회전은 마커를 따르고 크기는 그대로.
 
-### R1-2 시작할 때마다 "Marker tracking is off" 경고가 찍힘 — 열림
+### R1-2 시작할 때마다 "Marker tracking is off" 경고가 찍힘 — 반영함 (fix(cxmr): preserve follower scale and warn on off)
 
 - 문제: BeginPlay가 `HandleTrackingChanged(Subsystem->IsMarkerTrackingOn())`을 부른다(`CXMRMarkerFollower.cpp:52`). 그런데 마커 추적은 Placement가 세션이 뜬 뒤 스스로 켠다(`CXMRPlacementComponent.cpp:492-519`). 그래서 시작 시점에는 거의 항상 꺼져 있고, 매번 "Press V or turn it on" 경고가 남는다. 몇 초 뒤 추적이 저절로 켜지므로 시험하는 사람이 잘못 따라 할 수 있다.
 - 제안: BeginPlay에서는 상태만 맞추고 경고하지 않는다. 경고는 "추적이 켜져 있다가 꺼졌을 때"만 한다. 또는 세션이 뜬 뒤에도 일정 시간(마커 추적 시작 재시도와 같은 20초) 꺼져 있을 때만 한다.
@@ -99,3 +99,40 @@ Placement·Subsystem·Varjo 플러그인·설정·기존 애셋은 수정하지 
 ## 질문
 
 없음.
+
+# Codex 리뷰 반영 결과 — 2026-10-14
+
+## ① 바뀐 파일
+
+- `Private/CXMRMarkerFollower.cpp`, `Public/CXMRMarkerFollower.h`: 레벨 액터 크기 유지, 시작 상태는 조용히 읽고 켜짐→꺼짐 때만 경고 한 번.
+- `Private/Tests/CXMRMarkerFollowerTests.cpp`: 기존 4개 시험의 시작 경고 기대 제거, PreservePlacedScale·TrackingOffWarningAfterEnabled 추가.
+- `Docs/Headset-Test-Checklist.md`: §15-4의 두 기존 결함 안내를 수정 뒤 확인 절차로 교체.
+- `Docs/Reviews/marker-follower.md`: R1-1·R1-2 상태와 이 보고.
+
+## ② 완료 조건·리뷰 상태
+
+- R1-1·R1-2 반영. 0.3 배율 액터의 감지·이동 위치/회전과 배율 유지, 시작 추적 꺼짐·중복 off 무경고, on→off 경고 한 번 확인.
+- 명세 1·2: 합성 시험 통과. 런타임 모드 호출의 기존 대체 확인 한계는 그대로.
+- 명세 3: 공개 BP 프로퍼티 변경 없음. 이전 임시 BP 확인 증거를 유지하며 이번에는 에디터를 열지 않음.
+- 명세 4: -DisableAdaptiveUnity 빌드 성공, 경고·오류 0. CXMR. 발견/완료/성공 84, 실패 0, 종료 0.
+- 명세 5: 바이너리·Config 변경 0. 만드는 법은 그대로, 결함 안내만 갱신.
+
+## ③ 명세와 다르게 한 것
+
+- 리뷰 제안의 켜짐→꺼짐 조건 선택. 시작부터 꺼져 있을 때 경고하던 기존 경계 동작을 R1-2 요청에 따라 수정함. 새 타이머 없음.
+- 모드 요청·차량 보정·학습은 변경하지 않음. Learn의 박스 마커 제외는 1번 작업으로 넘김.
+- 전체 빌드·시험은 변경 끝에 각 1회 실행. 임시 BP 확인 재실행 없음(공개 BP 표면 변경 없음).
+
+## ④ API 소스 확인
+
+- `C:/Program Files/Epic Games/UE_5.7/Engine/Source/Runtime/Core/Public/Math/TransformVectorized.h:947`: SetScale3D.
+- `C:/Program Files/Epic Games/UE_5.7/Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h:1713`: GetActorScale3D. SetActorTransform은 기존 경로 유지.
+- `Plugins/CXMR/Source/CXMR/Public/CXMRSubsystem.h:158`: IsMarkerTrackingOn은 캐시 getter. `Private/CXMRSubsystem.cpp:565-568`: 실제 상태 변경 때 델리게이트. 새 Varjo API 호출 없음.
+
+## ⑤ 로컬에서 확인할 것
+
+- 빌드 로그: `Saved/MarkerFollowerReviewBuild1014.log`.
+- 전체 시험 로그: `Saved/MarkerFollowerReviewTests1014.log`, 84/84, 종료 0. 자동화 초기 엔진 리소스 경고·nohmd OpenXR 메시지는 빌드 경고와 구분함.
+- 에디터: 사용자 `/Game/` BP 액터 Scale 0.3으로 두고 감지·이동 뒤 크기 확인. 기존 Details 확인은 `Saved/MarkerFollowerDetails1014.png`.
+- 헤드셋: not-tested. 체크리스트 §15-1·15-2 준비, §15-4 크기 유지·시작/추적 중단 경고 및 Stationary/Dynamic 비교, §15-5 기록.
+- 질문 없음. push·머지 없음.

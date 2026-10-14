@@ -67,6 +67,7 @@ private:
 	bool bModePending = true;
 	bool bModeApplied = false;
 	bool bWarnedTrackingOff = false;
+	bool bTrackingEnabled = false;
 
 	UFUNCTION() void HandleMarkerPose(int32 Id, FVector Position, FRotator Rotation, FVector2D Size);
 	UFUNCTION() void HandleMarkerLost(int32 Id);

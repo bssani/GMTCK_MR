@@ -49,7 +49,8 @@ void ACXMRMarkerFollower::BeginPlay()
 		Subsystem->OnMarkerMoved.AddDynamic(this, &ACXMRMarkerFollower::HandleMarkerPose);
 		Subsystem->OnMarkerLost.AddDynamic(this, &ACXMRMarkerFollower::HandleMarkerLost);
 		Subsystem->OnMarkerTrackingChanged.AddDynamic(this, &ACXMRMarkerFollower::HandleTrackingChanged);
-		HandleTrackingChanged(Subsystem->IsMarkerTrackingOn());
+		// 세션 준비 전 자동 추적 시작을 기다리므로 초기 꺼짐은 경고하지 않음.
+		bTrackingEnabled = Subsystem->IsMarkerTrackingOn();
 		// 캐시 조회는 런타임을 부르지 않으며 감지된 ID만 성공함.
 		TryApplyTrackingMode();
 	}
@@ -138,7 +139,10 @@ void ACXMRMarkerFollower::HandleMarkerPose(int32 Id, FVector Position, FRotator 
 	SetActorHiddenInGame(false);
 	if (bFollow)
 	{
-		SetActorTransform(MarkerToActor * FTransform(Rotation, Position));
+		FTransform FollowPose = MarkerToActor * FTransform(Rotation, Position);
+		// 레벨에서 맞춘 박스 크기는 마커 포즈로 덮어쓰지 않음.
+		FollowPose.SetScale3D(GetActorScale3D());
+		SetActorTransform(FollowPose);
 	}
 	UpdateLabel();
 	if (bFound) { OnMarkerFound(); }
@@ -157,7 +161,7 @@ void ACXMRMarkerFollower::HandleTrackingChanged(bool bEnabled)
 {
 	if (!bEnabled)
 	{
-		if (!bWarnedTrackingOff)
+		if (bTrackingEnabled && !bWarnedTrackingOff)
 		{
 			UE_LOG(LogCXMRMarkerFollower, Warning, TEXT("Marker tracking is off. Press V or turn it on in the control window."));
 			bWarnedTrackingOff = true;
@@ -167,6 +171,7 @@ void ACXMRMarkerFollower::HandleTrackingChanged(bool bEnabled)
 		bCanConfigure = false;
 		bModePending = true;
 	}
+	bTrackingEnabled = bEnabled;
 }
 
 void ACXMRMarkerFollower::Tick(float DeltaSeconds)

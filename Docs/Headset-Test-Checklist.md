@@ -378,8 +378,8 @@ base station 추적은 원점이 base station에 묶여 있어서, inside-out보
 6. 결과는 한두 줄이면 된다.
 
 - **박스가 보이는 상태로 Learn marker layout을 누르지 않는다.** 지금은 보이는 마커를 전부 차량 보정 마커로 등록한다(리뷰 `Docs/Reviews/marker-follower.md`, 1번 작업에서 고침).
-- `BP_Dynamic` 크기는 BP 안의 메시로 맞춘다. 레벨에 놓은 액터의 Scale을 바꾸면 첫 마커 이벤트에 1로 돌아간다(같은 리뷰 R1-1).
-- 시작할 때 로그에 "Marker tracking is off"가 한 번 찍혀도, 몇 초 뒤 추적이 저절로 켜지면 정상이다(같은 리뷰 R1-2).
+- `BP_Dynamic` 크기는 BP 안의 메시나 레벨 액터의 Scale로 맞춘다. 감지·이동 뒤에도 레벨 액터의 크기가 유지되는지 본다(같은 리뷰 R1-1 반영).
+- 시작 전 추적 꺼짐에는 경고하지 않는다. 추적이 켜졌다 꺼질 때만 "Marker tracking is off" 경고가 한 번 나오는지 본다(같은 리뷰 R1-2 반영).
 
 이 절의 실제 헤드셋 시험 상태는 **not-tested**다. 로컬 빌드·합성 이벤트 시험은 실제 마커 추적 결과가 아니다.
 
