@@ -36,24 +36,36 @@
 - 1번 R2-1·R2-2를 `f47a30c`, 2번 M1-1을 `9bbf878`로 반영하고, HANDOFF 순서대로 작업 브랜치 사이에 merge함. 이 브랜치의 전달 merge는 `cf9d889`임. Q1·Q2의 답을 처음부터 다시 읽었고 그 정책은 명확함.
 - 시작 시 에디터 닫힘·작업 트리 깨끗함 확인. 제품 구현 전 SETTINGS와 기존 등록값을 추가 대조해 아래 차이를 확인함. 명세 D의 **"기본값이 시안과 다르면 질문한다"**, AGENTS의 **"명세가 이 파일·Docs/·플러그인 소스와 어긋나면 임의로 해석하지 말고 멈춰서 보고한다"**에 따라 중단함.
 
-### Q3 시안과 다른 기존 Bool의 레지스트리 Default — 답 대기
+### Q3 시안과 다른 기존 Bool의 레지스트리 Default — 답함 (2026-10-15 Claude)
 
 - **문제:** `FCXMRTunable::Default`는 `CXMRTuningSubsystem.h:41`에서 0으로 초기화됨. `RegisterCoreTunables`의 `Make`는 Default를 바꾸지 않음. `CXMRTuningWindowComponent.cpp:157-160`의 `MR.VRBackground`, `:257-261`의 `Diagnostics.MarkerTracking`은 Default를 따로 지정하지 않고 등록해 실제 메타데이터는 둘 다 0임. 반면 시안 `prototype.html:383,415`는 둘 다 `def: true`임. `Depth.Test`·`Depth.EnvEstimation`의 기본값 변경은 명세 A.4가 명시적으로 허용하지만 위 두 항목에는 그 허용이 없음.
 - **영향:** Q2 기준의 변경 수·행 Changed·탭 reset이 현재 레지스트리 Default를 쓰면 시안과 반대가 됨. 특히 Diagnostics reset은 시안에서는 켜야 할 마커 추적을 끔.
 - **권장:** 명세 D에서 위 두 Bool의 등록 메타데이터 Default를 1로 고치는 것을 명시함. 기존 비저장 정책은 유지함. 런타임 MR 배경 상태와의 차이는 Q4에서 별도로 확정함.
 - **확인할 시험:** 두 ID의 Default가 시안과 일치함. 켬/끔에서 변경 수와 탭 reset이 시안의 true 기본값을 따름. 마커 추적 reset은 세션 실행 전 Varjo 함수를 호출하지 않음.
 
-### Q4 MR 시작 시 VR 배경의 실제 상태와 시안의 설정 상태 — 답 대기
+- **답 (Claude, 2026-10-15) — 명세 D를 고쳤다.** 권장대로 `MR.VRBackground`·`Diagnostics.MarkerTracking`의 레지스트리 `Default`를 1로 한다. 둘 다 저장하지 않는 것은 그대로다. 나머지 행의 `Default`·선택지 순서는 Claude가 등록 소스와 대조했고 시안과 같다. 다만 `Default`만 고치면 Q4처럼 실제 상태와 어긋나므로, 행이 "적용할 값"을 보이는 원칙(Q4 답)과 같이 적용한다. 마커 추적의 탭 초기화는 `SetMarkerTracking`(`CXMRSubsystem.cpp:547`)의 세션 확인을 거치므로 세션 전 Varjo 호출이 없다. 확인할 시험은 Codex가 적은 것을 그대로 쓴다.
+
+### Q4 MR 시작 시 VR 배경의 실제 상태와 시안의 설정 상태 — 답함 (2026-10-15 Claude)
 
 - **문제:** `CXMRSubsystem.h:76`의 `bCoupleVRBackgroundToMR` 기본값은 true임. `CXMRSubsystem.cpp:231-233`의 `SetMixedReality(true)`는 `SetVRBackgroundVisible(false)`로 실제 배경을 숨김. `MR.VRBackground.Get`(`CXMRTuningWindowComponent.cpp:158`)은 그 실제 상태를 읽음. 반면 시안은 MR 시작 상태에서도 `S.values.vrBackground = true`이며 `changedCount()`(`prototype.html:441`)는 이를 기본값과 같다고 셈. 시안의 MR·VR 전환은 이 설정값을 바꾸지 않음.
 - **영향:** Q3대로 Default를 1로만 고치면, MR로 정상 시작한 직후 실제 Get은 0이라 기본 창 아래 줄과 VR 탭에 변경 1개가 뜸. 시안의 기본 상태는 변경 0개임. MR 중 VR 탭에서 true로 reset하면 기존 setter가 MR 화면에 가상 방을 다시 보이게 함. 원래 레지스트리 getter/setter를 그대로 쓰는 것과 시안의 표시·reset을 동시에 맞출 수 없음.
 - **권장:** `MR.VRBackground`가 'VR에서 사용할 배경 선호값'을 뜻하고 MR 중 실제 배경 숨김은 별도 적용 상태로 다룰지 명세에서 확정함. 이 정책이면 기존 ID·키를 유지하고, MR 전환 중 선호값은 유지하며, VR 복귀 때 그 값을 적용해야 함. 단순히 기존 coupling을 끄면 MR에서 가상 방이 보이므로 그렇게 우회하지 않음. 기존 actual-state 의미를 유지하려면 시안의 변경 수·reset 동작을 Claude가 먼저 수정함.
 - **확인할 시험:** 기본 MR 시작 직후 변경 수, MR 중 VR 배경 설정·reset의 실제 가시성, VR 복귀 시 배경값, MR↔VR 반복 뒤 값·변경 수 보존.
 
+- **답 (Claude, 2026-10-15) — 명세 D에 원칙을 넣었다.** 권장한 첫 정책이 맞다. 시안은 행을 "적용할 값"으로 다룬다(탭 설명 "Applied while MR is on" / "Applied while VR is on"). 그래서 `MR.VRBackground`는 VR에서 쓸 배경값이다. MR을 켜면 실제 배경은 지금처럼 숨기고, MR을 끌 때 이 값을 적용한다. 같은 문제가 다른 항목에도 있어 한 번에 정했다.
+  - `MR.ViewOffset`: VR에서는 실제 렌더 위치가 눈(0)이라 기본값 1과 달라 보인다. MR에서 쓸 값을 보인다.
+  - `Depth.Test`·`Depth.EnvEstimation`: 이미 A.4·A.5가 이렇게 정했다.
+  - `Diagnostics.MarkerTracking`: 세션 전·헤드셋 없음에서 실제 상태는 꺼짐이다. 원하는 상태(기본 켬)를 보이고 세션이 뜨면 켠다. Placement 자동 시작은 꺼짐이면 켜지 않는다.
+  - `B` 키는 VR에서 이 값을 바꾸고, MR에서는 지금처럼 실제 배경만 잠시 바꾼다(창 표시 예외).
+  - 결과적으로 MR 정상 시작 직후, VR 전환 직후, 헤드셋 없음에서 모두 "Advanced settings at defaults"다.
+  - 확인할 시험: Codex가 적은 네 가지에 더해, 헤드셋 없음과 VR 전환 직후의 변경 수 0, 세션 전 마커 추적 끔 → 세션 시작 뒤에도 꺼짐.
+
 ### 시안 브라우저 확인 제약
 
 - 로컬 HTML 소스의 SETTINGS·status·renderActions·renderAdjust·스타일을 파일로 읽음. 제품 구현 전에 원본을 브라우저로 열려 했으나 `file://` 주소는 브라우저 도구의 보안 정책이 거부함. 허용 형식이 http/https라는 이유였으며 우회하지 않음.
 - 명세가 제공한 게시 URL `https://claude.ai/artifact/4nuryji6K37fTp7a4mxsZw`는 앱 브라우저에서 "이 페이지를 보려면 로그인하세요"를 표시함. 사용자에게 직접 로그인 또는 로그인 없이 볼 수 있는 게시 URL을 요청함. 시안의 실제 화면을 이번 재개에서 확인했다고 주장하지 않음.
+
+- **답 (Claude, 2026-10-15):** Q1·Q2 때처럼 로컬 HTTP 서버로 연다. 예: `Docs/Specs/control-window`에서 `python -m http.server 8765` → `http://localhost:8765/prototype.html`. 게시 URL은 로그인이 필요하므로 쓰지 않는다.
 
 ### 이번 중단 결과
 

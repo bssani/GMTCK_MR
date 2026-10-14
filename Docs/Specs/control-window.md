@@ -91,6 +91,20 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
 - 탭 이름 옆 `●`, 행의 `Changed · default …`, `Reset <탭> to defaults`, 아래 줄 문구는 시안대로 한다. "바뀐 설정"은 기본 창 아래 줄의 수와 같은 기준이다: **고급 창에 행이 있는 설정(읽기·실행 행 제외) 중 지금 값이 `Default`와 다른 것.** 저장 여부는 따지지 않는다 — 시안 `changedCount()`와 같다(Q2 답, 2026-10-15).
   - 저장하지 않는 세션 설정(`Diagnostics.DynamicMarkers`, `Diagnostics.HandSkeleton`·`MarkerLabels`·`MarkerTracking`, `MR.Masking` 등)도 기본값과 다르면 세고, 탭 `●`·행 `Changed`를 띄우며, `Reset <탭> to defaults`가 되돌린다. 진행자가 "지금 평소와 다른 것이 켜져 있다"를 알게 하는 줄이라서다. H 키처럼 키로 바꿔도 같다.
   - 창에 행이 없는 등록 항목(아래 "창에서 빠지는 등록 항목")은 세지도 되돌리지도 않는다.
+- **행이 보여 주고 바꾸는 것은 "적용할 값"이다** — 지금 실제 상태가 아니다(Q3·Q4 답, 2026-10-15). 시안의 탭 설명대로 MR 탭은 "Applied while MR is on", VR 탭은 "Applied while VR is on"이다. 모드·세션 때문에 실제 상태가 잠시 다른 항목은 값을 따로 두고, 조건이 되면 적용한다. A.4·A.5의 깊이 설정이 이미 그렇다. 바뀐 수·`Changed`·탭 초기화는 이 값으로 계산한다. 그래서 MR로 정상 시작한 직후, VR로 바꾼 직후, 헤드셋이 없을 때 모두 "Advanced settings at defaults"다. 해당 항목:
+  - `Depth.Test`·`Depth.EnvEstimation`: MR에서 쓸 값(A.4·A.5).
+  - `MR.ViewOffset`: MR에서 쓸 렌더 위치. VR에서 창을 열어도 이 값을 보인다. VR에서의 렌더 위치 규칙(`SyncViewOffsetWithMode`, `CXMRSubsystem.cpp:280`)은 바꾸지 않는다.
+  - `MR.VRBackground`: VR에서 쓸 배경. 저장하지 않는 것은 지금 그대로다.
+    - MR을 켜면 실제 배경은 지금처럼 숨긴다(`CXMRSubsystem.cpp:231-233`). MR을 끌 때는 지금처럼 항상 켜지 않고 이 값을 적용한다.
+    - MR 중에 이 행을 바꾸면 값만 바뀌고 VR로 돌아갈 때 적용한다.
+    - `B` 키: VR에서는 이 값을 바꾼다. MR에서는 지금처럼 실제 배경만 잠시 보이고 숨기며 값은 그대로다. 창에 행이 없는 임시 상태이고 다음 모드 전환에서 풀린다. "키로 바꾼 상태가 창에 보여야 한다"의 예외로 둔다.
+    - 꺼짐 + VR이 시안 문구 "Virtual car on an empty background."의 상태다.
+  - `Diagnostics.MarkerTracking`: 원하는 상태(기본 켬, 저장 안 함).
+    - 끄면 바로 끈다. 켜면 세션이 있으면 바로 켜고, 없으면 세션이 뜰 때 켠다(A.2의 세션 대기 틀). 20초가 지난 뒤 세션이 떠도 켠다.
+    - Placement의 자동 시작(`TryStartMarkerTracking`, `CXMRPlacementComponent.cpp:495`)은 이 값이 꺼짐이면 켜지 않는다.
+    - 세션 전에는 Varjo를 부르지 않는다. `SetMarkerTracking`이 이미 세션을 확인한다(`CXMRSubsystem.cpp:547`). 탭 초기화도 이 경로만 쓴다.
+- 레지스트리 `Default`가 시안 `def`와 다른 두 항목은 시안대로 고친다: `MR.VRBackground`·`Diagnostics.MarkerTracking`의 `Default`를 1로(Q3 답). 2026-10-15 Claude가 나머지 행의 `Default`·선택지 순서를 등록 소스와 대조했다. 시안과 같다.
+- 코드가 스스로 바꾸는 값도 지금 값으로 센다. 예: 차량에 눈 기준점이 있으면 눈 정렬·조정 때 `Vehicle.Pivot`이 `Driver eye reference`로 바뀐다(`CXMRPlacementAlignment.cpp:53`, `CXMRPlacementComponent.cpp:1252`). 이 동작은 바꾸지 않는다.
 - `requires`: 앞 설정이 꺼지면 행을 흐리게 하고 도움말 뒤에 `Turn on “…” first.`를 붙인다.
 - 실행 행: 버튼 문구는 `Run`, 삭제는 `Delete` → `Click again to delete`(5초)다. 결과 문구는 버튼 왼쪽에 성공색으로 표시한다.
 - **창에서 빠지는 등록 항목**:
@@ -204,3 +218,4 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
 - 2026-10-14: 시안 5판 — 박스 따라가기 기능은 만들지 않기로(사용자: "dynamic 되는지 확인만"). Moving objects 자리를 빼고 탭 이름은 Vehicle 그대로, 고급 창 Diagnostics에 Dynamic 스위치 하나 추가
 - 2026-10-15: 1번의 새 프로퍼티는 창에 넣지 않음, "Dynamic tracking for all markers"를 끌 때 Marker Follower 마커는 그 액터의 모드로 — Codex가 멈추지 않게 미리 확정
 - 2026-10-15: Q1·Q2 답 — `Hands.Offset*`은 창에서만 뺌. "바뀐 설정"은 저장 여부와 무관하게 창에 행이 있는 설정 기준(시안 `changedCount()`와 같게)
+- 2026-10-15: Q3·Q4 답 — 행은 실제 상태가 아니라 "적용할 값"을 보임(깊이·View offset·VR 배경·마커 추적). `MR.VRBackground`·`Diagnostics.MarkerTracking` 기본값 1
