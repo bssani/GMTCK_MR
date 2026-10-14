@@ -10,7 +10,7 @@
 - 사용자 헤드셋 확인: 2026-10-14 "확인했다"고 받음. 확인한 항목·결과는 기록되지 않았다.
 - 리뷰 방법: `code-review` 스킬로 후보를 뽑고, Claude가 항목마다 코드를 직접 읽어 확인했다. 확인하지 못한 것은 "추정"으로 적었다.
 
-### R1-1 정렬 저장이 마커 한 프레임 값으로 저장됨 — 열림
+### R1-1 정렬 저장이 마커 한 프레임 값으로 저장됨 — 반영함 (fix: stabilize calibration saves and restores)
 
 - 문제: `CXMRPlacementAlignment.cpp:123`의 `BeginAlignmentCapture`가 `bAlignmentPoseLocked = true`로 만든다. 그러면 `CXMRPlacementComponent.cpp:245`의 `bAveraging`이 꺼진다. 캡처 중 `CXMRPlacementComponent.cpp:276`은 이벤트마다 그 마커의 **원시 표본 하나**로 `CapturedAlignmentMarkers`를 덮어쓴다. `SaveAlignment`(`CXMRPlacementAlignment.cpp:173`)는 마지막 표본을 `LocalOffset`으로 저장한다.
   - 영향: 저장값에 그 순간 한 프레임의 노이즈가 고정 오차로 들어간다. 그룹 파일이면 같은 그룹의 모든 차량이 그 오차를 물려받는다. 09-16에 고친 문제("한 프레임 값이 차 위치를 정함", `CXMRPlacementComponent.h:132` 툴팁)와 같은 종류다. 복원 쪽은 잠금이 풀린 상태에서 평균을 쓰므로, 매 세션 달라지지는 않고 **저장할 때 한 번 생긴 오차가 계속 남는다**.
@@ -20,14 +20,14 @@
   - 경로 확인: 키로 차를 옮기면 `MoveVehicleTo`(`CXMRPlacementComponent.cpp:1260-1261`)가 `bManualAlignment`·`bAlignmentPoseLocked`를 켠다. 그래서 저장(`SaveMarkerOffsetToProfile`, `:1330`)이 차량별 저장이 아니라 이 캡처 경로로 간다. 복원은 잠금이 풀린 상태에서 `CalibrationSettleSeconds`(1.5초, `.h:98`) 동안 평균을 내고, 마커 2개 이상이면 위치만으로 맞춘다(`CXMRPlacementAlignment.cpp:251-263`). 저장 때 한 프레임의 위치 노이즈가 `LocalOffset`에 남아 그만큼 차가 옮겨진다.
   - 예측: 원인이 이것이면, **한 번 저장한 뒤 여러 번 다시 불러올 때 매번 거의 같은 자리로 어긋난다.** 다시 불러올 때마다 다른 자리로 가면 복원 쪽(관측 각도에 따른 마커 추정 차이, 보이는 마커 수)을 따로 봐야 한다. R1-5의 로그로 가린다.
 
-### R1-2 컨트롤 창이 매 프레임 레벨 전체 액터를 수십 번 훑음 — 열림
+### R1-2 컨트롤 창이 매 프레임 레벨 전체 액터를 수십 번 훑음 — 반영함 (fix: stabilize calibration saves and restores)
 
 - 문제: `UCXMRTuningWindowComponent::FindPlacement`(`CXMRTuningWindowComponent.cpp:350`)는 `TActorIterator<AActor>`로 레벨 전체를 돌며 `FindComponentByClass`를 부른다. 이 파일 안 17곳에서 부르고, 그중 상당수가 Slate 속성 람다라 창이 열려 있으면 그릴 때마다 실행된다. 차량은 스폰된 액터라 반복 순서상 뒤쪽에 있다. 그래서 레벨 액터 수만큼 매번 다 돈다.
   - 영향: 측정하지 않은 **추정**이다. 실제 CAD 레벨처럼 액터가 수천 개면 MR 프레임 시간에 직접 얹힌다. 테스트 맵에서는 드러나지 않는다.
 - 제안: `UCXMRControlPanelWidget::FindLoader`(`CXMRControlPanelWidget.cpp:184-196`)의 `CachedLoader` 방식(약한 포인터 캐시 + 월드·소유자 유효성 확인 뒤 재탐색)을 그대로 쓴다.
 - 확인할 시험: 캐시된 Placement의 액터를 파괴하거나 차량을 다시 로드한 뒤 `FindPlacement`가 새 컴포넌트를 찾는지. 유효한 동안에는 같은 포인터를 돌려주는지.
 
-### R1-3 차량별 저장 파일을 거부할 때 아무 안내가 없음 — 열림
+### R1-3 차량별 저장 파일을 거부할 때 아무 안내가 없음 — 반영함 (fix: stabilize calibration saves and restores)
 
 - 문제: `LoadCalibrationFromDisk`(`CXMRPlacementPersistence.cpp:193`)는 그룹이 없는 경로에서 `AlignmentStorageMessage`를 비운 채(`:196`) 시작한다. 그 뒤 다음 경우마다 메시지 없이 `false`를 돌려준다.
   - 차량 프로필 경로·`VehicleRootOffset`·차량 클래스가 저장 때와 다를 때(`:224-230`)
@@ -37,14 +37,14 @@
 - 제안: 거부 사유별로 `AlignmentStorageMessage`를 채우고 `LogCXMRAlignment`에 Warning으로 남긴다. 사유는 모델 설정 변경, 마커 구성 변경(추가된 ID 나열), 파일 손상이다. 그룹 경로의 일반 문구(`:197`)도 같은 방식으로 사유를 구분하면 좋다(권장). 파일을 거부하는 조건 자체는 바꾸지 않는다.
 - 확인할 시험: 사유별로 파일을 만들고 로드 → `false` + 사유에 맞는 메시지. 정상 파일이면 메시지가 비어 있는지.
 
-### R1-4 정렬 확정을 취소해도 위치 잠금이 남음 — 열림
+### R1-4 정렬 확정을 취소해도 위치 잠금이 남음 — 반영함 (fix: stabilize calibration saves and restores)
 
 - 문제: `BeginAlignmentCapture`(`CXMRPlacementAlignment.cpp:123`)는 `bAlignmentPoseLocked = true`로 만든다. 하지만 `CancelAlignmentCapture`(`:60-66`)는 잠금을 되돌리지 않는다. 캡처는 차 이동·마커 추적 끄기·차량 교체로도 취소된다(`CXMRPlacementComponent.cpp:215`, `:273`).
   - 영향: 마커 추종 모드(`bFreezeAfterCalibration=false`, 기본값 아님 `CXMRPlacementComponent.h:89`)에서 한 번 확정을 눌렀다가 취소되면, `Recalibrate` 전까지 차가 마커를 따라가지 않는다(`CXMRPlacementComponent.cpp:279`, `:415`에서 바로 return). 기본 설정(freeze)에서는 보정 뒤 어차피 고정이라 드러나지 않는다.
 - 제안: 캡처 시작 전 잠금 상태를 저장해 두고 취소 때 되돌린다. 저장 성공(`CXMRPlacementAlignment.cpp:190`)은 지금처럼 잠근다.
 - 확인할 시험: 추종 모드에서 확정 → 차 이동으로 취소 → 다음 마커 이벤트에 차가 따라가는지. freeze 모드 동작은 그대로인지.
 
-### R1-5 저장·복원 정확도를 헤드셋 로그로 가릴 수 없음 — 열림
+### R1-5 저장·복원 정확도를 헤드셋 로그로 가릴 수 없음 — 반영함 (fix: stabilize calibration saves and restores)
 
 - 문제: 저장·복원 때 로그는 마커 수만 남긴다(`CXMRPlacementComponent.cpp:484`, `:1391`). R1-1의 사용자 보고가 저장 쪽 노이즈인지, 복원 쪽 차이인지 헤드셋 PC 로그로 구분할 수 없다. 이 PC에는 Varjo 런타임이 없어 재현할 수 없고, 사용자가 헤드셋 PC 로그를 붙여 주는 것이 유일한 증거다.
 - 제안: `LogCXMRAlignment`에 Log 수준으로 남긴다.
@@ -95,3 +95,18 @@
 
 - **Q1 (사용자에게):** `c576309`(10-07 "Merge CXMR USB interaction…")이 `project/pqdq-usb-access`의 PQDQ 전용 커밋 10개(가상 손, USB 포트 표식 등)를 템플릿인 `main`에 넣었다. 지금 두 브랜치는 같다. 의도한 것인가? 의도라면 "USB 포트·가상 손은 템플릿 기능"으로 AGENTS.md에 적는다. 아니라면 템플릿에서 떼어 낼 범위를 별도 명세로 정한다.
   - **답 (사용자 2026-10-14):** 의도가 아니다. `main`은 기본 템플릿만 두고 USB 포트·USB 손 접촉은 `project/pqdq-usb-access`에만 둔다. 나머지(디자인 옵션, 운전자 눈 정렬, 그룹 공용 정렬, H·G·I, 관전 카메라, 마커 디버그)는 `main`에 남긴다. → 명세 [main-basic.md](../Specs/main-basic.md)
+
+## Codex 구현 기록 — 2026-10-15
+
+- R1-1: 저장 전용 CaptureSamples, 최소 10표본/마커, 캡처 10초 제한. UI·Enter 요청은 자동 저장하며 누락·만료·시간 초과·외부 위치 변경·차량 변경은 전체 취소. 저수준 BeginAlignmentCapture/SaveAlignment API는 명시적 캡처·쓰기로 유지해 표본·파일 교체를 따로 검증함.
+- R1-2: FindPlacement 약한 포인터 캐시. 월드·소유자·파괴·등록 상태를 확인하고 무효하면 재탐색.
+- R1-3: 모델 메타데이터 변경, 마커 구성 변경(ID 포함), 파일 손상에 메시지·LogCXMRAlignment Warning. 거부 조건과 구 파일 fallback 유지.
+- R1-4: 취소 시 캡처 이전 잠금 복원, 저장 성공 시 잠금 유지. 원래 수동 잠금도 유지.
+- R1-5: 마커별 표본 수·흩어짐·평균 월드 위치·회전·LocalOffset·후보/최종 Root·yaw·fit, cm/deg 소수 둘째 자리. CXMR.DumpMarkers 등록. 시험은 직접 Log 출력 장치로 줄 수를 검증하며 UE 5.7 비동기 로그를 flush 후 셈.
+- U-1: 필요 마커 전부와 유효한 fit이 있을 때만 배치·정착·완료. 일부 마커 임시 배치·복원 확인 API/버튼·MinMarkersToCalibrate 제거. Follower ID를 학습·관측 수·필요 마커에서 제외. 원본 초기화는 Q3 예외대로 관측 없는 원본 파일을 기록.
+- U-2: 선택 worldPose/markerWorld 필드(단일 마커 yaw 검증용 회전 포함). 정착 평균과 최대 위치 변화 0.3cm, 단일 마커 yaw 0.3deg로 재사용 결정. 불완전 선택 필드는 마커 복원으로 fallback. 같은 세션 공용 차량 교체 유지.
+- 새 시험 7개: CaptureMeanAndOrigin, RequiredMarkersAndFollower, CaptureCancelAndExpiry, CaptureTimeout, PlacementCache, LoadRejectionReasons, SingleMarkerOriginYaw. 기존 Group 복원·자동 저장·ResetFailure, SequentialSaveRestore, PanelCaptureWorkflow, FailedSave, KeyboardConfirmCaptureSave, StandaloneSaveRequest, SharedMarkerProfile, LegacyFileAndReset, ResaveMetadata, PanelRestoredResave, ResetFreshObservations/ResetPendingSettle, DegenerateMarkers, Panels.CalibrationWorkflow 기대값·fixture를 U-1에 맞춤.
+- 최초 전체 시험 84/90, 보정 후 최종 전체 **91/91**, Fail 0, `TEST COMPLETE. EXIT CODE: 0`, 프로세스 exit 0. 로그 `Saved/CodexOctAutomationVerified.log`. 실패 보정은 관련 범위로 확인했으며 의도적인 red·스트레스 실행은 하지 않음.
+- 최초 빌드 Printf 리터럴 검사 오류 1건을 고친 뒤 최종 `-DisableAdaptiveUnity` 빌드 성공. 최종 로그 `Saved/CodexOctBuildVerified.log`, CXMR/GMTCK_MR 경고·오류 0. 새 API 소스: TimerManager.h:162-169, World.h:2756, IConsoleManager.h:2123-2136, OutputDeviceRedirector.h:70-88. Varjo 호출 추가 없음; 월드 좌표 근거 VarjoMarkersPlugin.cpp:86-98.
+- 완료 조건 1~8 충족(1~4 코드·자동화, 5 빌드, 6 전체 시험, 7 바이너리 변경 0, 8 Operating Guide/Headset Checklist 갱신). 에디터 애셋 작업 없음. 헤드셋 §3·§5·§13·§15-3은 사용자 PC에서 **not-tested**.
+- 추가 질문 없음. Q2·Q3 답 반영. push·베이스 머지 없음.

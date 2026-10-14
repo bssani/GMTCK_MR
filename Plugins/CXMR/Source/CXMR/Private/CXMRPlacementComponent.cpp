@@ -188,7 +188,7 @@ int32 UCXMRPlacementComponent::CurrentMarkerCount() const
 	int32 Count = 0;
 	for (const TPair<int32, FTransform>& Seen : SeenMarkers)
 	{
-		Count += IsMarkerObservationCurrent(Seen.Key) ? 1 : 0;
+		Count += !IsFollowerMarker(Seen.Key) && IsMarkerObservationCurrent(Seen.Key) ? 1 : 0;
 	}
 	return Count;
 }
@@ -196,6 +196,7 @@ int32 UCXMRPlacementComponent::CurrentMarkerCount() const
 void UCXMRPlacementComponent::HandleMarkerLost(int32 MarkerId)
 {
 	MarkerLastObserved.Remove(MarkerId);
+	if (bCapturingAlignment && CaptureMarkerIds.Contains(MarkerId)) { CheckAlignmentCapture(); }
 	const bool bWasCalibrationMarker = DetectedCalib.Remove(MarkerId) > 0;
 	MarkerSamples.Remove(MarkerId);
 	// 재관측 시 이전 평균을 버림. 안 보이는 동안 옮겨졌을 수 있음.
@@ -226,10 +227,13 @@ void UCXMRPlacementComponent::HandleMarkerTrackingChanged(bool bEnabled)
 
 void UCXMRPlacementComponent::HandleMarkerPose(int32 MarkerId, const FVector& Position, const FRotator& Rotation, bool bIsFirstSighting)
 {
-	if (Mode != ECXMRPlacementMode::MarkerAnchor || !MarkerProfile || MarkerId == 0 || Position.ContainsNaN() || Rotation.ContainsNaN())
+	if (Mode != ECXMRPlacementMode::MarkerAnchor || !MarkerProfile || MarkerId <= 0 || IsFollowerMarker(MarkerId) || Position.ContainsNaN() || Rotation.ContainsNaN())
 	{
 		return;
 	}
+	// 갱신이 끊긴 뒤 들어온 표본으로 만료를 숨기지 않음.
+	if (bCapturingAlignment && !HaveAllAlignmentMarkers()) { CheckAlignmentCapture(); }
+	if (!HaveAllAlignmentMarkers() && GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
 	if (!IsMarkerObservationCurrent(MarkerId))
 	{
 		MarkerSamples.Remove(MarkerId);
@@ -273,7 +277,9 @@ void UCXMRPlacementComponent::HandleMarkerPose(int32 MarkerId, const FVector& Po
 		if (!IsCapturePoseCurrent()) { CancelAlignmentCapture(); }
 		else if (CaptureMarkerIds.Contains(MarkerId))
 		{
-			CapturedAlignmentMarkers.Add(MarkerId, Pose.GetRelativeTransform(CapturePose));
+			const FTransform Mean = CaptureSamples.FindOrAdd(MarkerId).Add(Position, Rotation);
+			CapturedAlignmentMarkers.Add(MarkerId, Mean.GetRelativeTransform(CapturePose));
+			CheckAlignmentCapture();
 		}
 	}
 	if (bAlignmentPoseLocked) { return; }
@@ -333,7 +339,12 @@ FTransform UCXMRPlacementComponent::FMarkerSamples::Mean() const
 
 FTransform UCXMRPlacementComponent::AccumulateSample(int32 MarkerId, const FVector& Position, const FRotator& Rotation)
 {
-	FMarkerSamples& Samples = MarkerSamples.FindOrAdd(MarkerId);
+	return MarkerSamples.FindOrAdd(MarkerId).Add(Position, Rotation);
+}
+
+FTransform UCXMRPlacementComponent::FMarkerSamples::Add(const FVector& Position, const FRotator& Rotation)
+{
+	FMarkerSamples& Samples = *this;
 	const FQuat Q = Rotation.Quaternion();
 	Samples.PositionSum += Position;
 	Samples.ForwardSum  += Q.GetForwardVector();
@@ -367,12 +378,13 @@ bool UCXMRPlacementComponent::ComputeCalibrationPose(FTransform& VehicleWorld, b
 	{
 		FCXMRMarkerEntry Entry;
 		if (!IsMarkerObservationCurrent(It.Key()) || !MarkerProfile ||
-			!MarkerProfile->FindEntry(It.Key(), Entry) || Entry.Role != ECXMRMarkerRole::Calibration)
+			!MarkerProfile->FindEntry(It.Key(), Entry) || Entry.Role != ECXMRMarkerRole::Calibration || IsFollowerMarker(It.Key()))
 		{
 			It.RemoveCurrent();
 		}
 	}
 
+	if (!HaveAllAlignmentMarkers()) { return false; }
 	bool bHavePose = false;
 	bool bMultiMarkerSolved = false;
 	if (!SavedAlignmentMarkers.IsEmpty()) { return ComputeSavedAlignmentPose(VehicleWorld, bOutReady); }
@@ -384,7 +396,7 @@ bool UCXMRPlacementComponent::ComputeCalibrationPose(FTransform& VehicleWorld, b
 		bMultiMarkerSolved = ComputeMultiMarkerTransform(VehicleWorld, LayoutFitError);
 		bHavePose = bMultiMarkerSolved;
 	}
-	if (!bHavePose && DetectedCalib.Num() > 0 && MarkerProfile)
+	if (!bHavePose && DetectedCalib.Num() == 1 && MarkerProfile)
 	{
 		const TPair<int32, FTransform>& First = *DetectedCalib.CreateConstIterator();
 		FCXMRMarkerEntry Entry;
@@ -405,9 +417,9 @@ bool UCXMRPlacementComponent::ComputeCalibrationPose(FTransform& VehicleWorld, b
 	const bool bFitAcceptable = bMultiMarkerSolved && FMath::IsFinite(LayoutFitError) &&
 		LayoutFitError <= FMath::Max(0.f, MaxCalibrationFitError);
 	bOutReady = bHavePose && !VehicleWorld.ContainsNaN() &&
-		DetectedCalib.Num() >= FMath::Max(1, MinMarkersToCalibrate) &&
-		(MinMarkersToCalibrate <= 1 || bFitAcceptable);
-	return bHavePose && !VehicleWorld.ContainsNaN();
+		DetectedCalib.Num() == GetRequiredAlignmentMarkerCount() &&
+		(GetRequiredAlignmentMarkerCount() == 1 || bFitAcceptable);
+	return bOutReady;
 }
 
 void UCXMRPlacementComponent::RecomputeCalibration()
@@ -422,21 +434,12 @@ void UCXMRPlacementComponent::RecomputeCalibration()
 	bool bReady = false;
 	const bool bHavePose = ComputeCalibrationPose(VehicleWorld, bReady);
 
-	// 단일·다중 마커 모두 같은 경로에서 수동 오프셋을 적용함.
-
 	if (bHavePose)
 	{
 		BaseVehicleTransform = VehicleWorld;
-		bHaveBasePose = true;
+		 bHaveBasePose = true;
+		ApplyPlacement();
 	}
-	else if (!bHaveBasePose)
-	{
-		// 마커와 기준 위치가 없으면 현재 차량 위치를 기준으로 조정함.
-		BaseVehicleTransform = Root->GetActorTransform();
-		bHaveBasePose = true;
-	}
-
-	ApplyPlacement();
 
 	// 위치 고정은 이 컴포넌트에만 적용함. 전체 추적을 끄면 동적 마커도 멈춤.
 
@@ -475,11 +478,11 @@ void UCXMRPlacementComponent::FinishCalibration()
 		return;
 	}
 	// 타이머 종료 시 관측 수와 계산 품질을 다시 확인함.
+	ChooseRestoredWorldPose(VehicleWorld);
 	BaseVehicleTransform = VehicleWorld;
 	bHaveBasePose = true;
 	ApplyPlacement();
-	bRestoreNeedsConfirmation = !SavedAlignmentMarkers.IsEmpty() && DetectedCalib.Num() < 2;
-	bCalibrated = !bRestoreNeedsConfirmation;
+	bCalibrated = true;
 	if (!SavedAlignmentMarkers.IsEmpty()) { bAlignmentPoseLocked = true; }
 	UE_LOG(LogCXMRPlacement, Log, TEXT("Calibrated from %d marker(s)%s."), DetectedCalib.Num(),
 		bFreezeAfterCalibration ? TEXT(" - placement frozen until Recalibrate") : TEXT(""));
@@ -542,7 +545,6 @@ void UCXMRPlacementComponent::Recalibrate()
 	CancelAlignmentCapture();
 	bManualAlignment = false;
 	bAlignmentPoseLocked = false;
-	bRestoreNeedsConfirmation = false;
 	bCalibrated = false;
 	DetectedCalib.Reset();
 	SeenMarkers.Reset();
@@ -610,7 +612,6 @@ void UCXMRPlacementComponent::PlaceInFrontOfPawn()
 	CancelAlignmentCapture();
 	bAlignmentPoseLocked = true;
 	bManualAlignment = true;
-	bRestoreNeedsConfirmation = false;
 	bHaveBasePose = true;
 	TempMarkerLocationOffset = FVector::ZeroVector;
 	TempMarkerRotationOffset = FRotator::ZeroRotator;
@@ -662,9 +663,12 @@ void UCXMRPlacementComponent::SetMarkerProfile(UCXMRMarkerProfile* NewProfile, b
 	CancelAlignmentCapture();
 	bManualAlignment = false;
 	bAlignmentPoseLocked = false;
-	bRestoreNeedsConfirmation = false;
 	SavedAlignmentMarkers.Reset();
 	SavedPrimaryMarker = 0;
+	bHaveSavedWorldPose = false;
+	bUsedSavedWorldPose = false;
+	SavedMarkerWorld.Reset();
+	OriginMovement = -1.f;
 	LoadedAlignmentGroup = NAME_None;
 	if (bForceReload) { bCalibrationLoaded = false; }
 	MarkerProfile = NewProfile;
@@ -791,6 +795,14 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 		return;
 	}
 
+	if (GetRequiredAlignmentMarkerCount() > 0 && !HaveAllAlignmentMarkers())
+	{
+		bLastCalibrationSaveSucceeded = false;
+		AlignmentSaveMessage = FText::FromString(TEXT("Not saved. Missing markers: ") + GetMissingAlignmentMarkerIds());
+		ReportAlignmentSaveMessage();
+		return;
+	}
+
 	// 현재 차량 위치를 기준으로 마커 배치를 기록함.
 
 	const FTransform VehicleWorld = Root->GetActorTransform();
@@ -800,7 +812,7 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 	TMap<int32, FTransform> LearnedMarkers;
 	for (const TPair<int32, FTransform>& Seen : SeenMarkers)
 	{
-		if (!IsMarkerObservationCurrent(Seen.Key))
+		if (IsFollowerMarker(Seen.Key) || !IsMarkerObservationCurrent(Seen.Key))
 		{
 			continue;
 		}
@@ -834,7 +846,7 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 
 	for (const FCXMRMarkerEntry& Entry : MarkerProfile->Markers)
 	{
-		if (Entry.Role == ECXMRMarkerRole::Calibration && Entry.MarkerId != 0 && !LearnedMarkers.Contains(Entry.MarkerId))
+		if (Entry.Role == ECXMRMarkerRole::Calibration && Entry.MarkerId > 0 && !IsFollowerMarker(Entry.MarkerId) && !LearnedMarkers.Contains(Entry.MarkerId))
 		{
 			UE_LOG(LogCXMRPlacement, Warning,
 				TEXT("Marker %d is in the layout but was not in view while learning: its offset is from an earlier setup."),
@@ -850,7 +862,6 @@ void UCXMRPlacementComponent::LearnMarkerLayout()
 
 	// 학습한 배치가 현재 위치를 재현하므로 임시 오프셋을 비움.
 	DetectedCalib = MoveTemp(LearnedMarkers);
-	MarkerSamples.Reset();
 	bCalibrated = false;
 	if (UWorld* World = GetWorld())
 	{
@@ -891,6 +902,10 @@ bool UCXMRPlacementComponent::TryResetCalibrationToAuthored()
 	}
 	SavedAlignmentMarkers.Reset();
 	SavedPrimaryMarker = 0;
+	bHaveSavedWorldPose = false;
+	bUsedSavedWorldPose = false;
+	SavedMarkerWorld.Reset();
+	OriginMovement = -1.f;
 	LoadedAlignmentGroup = NAME_None;
 	AlignmentStorageMessage = FText::GetEmpty();
 	if (bHasFile)
@@ -904,7 +919,7 @@ bool UCXMRPlacementComponent::TryResetCalibrationToAuthored()
 	Recalibrate();
 	// 차량별 원본 저장으로 이전 공용 파일이 다시 적용되지 않게 함.
 	const UCXMRVehicleLoaderComponent* Loader = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
-	if (Loader && Loader->Profile && MarkerProfile && GetAlignmentGroup().IsNone()) { SaveCalibrationToDisk(); }
+	if (Loader && Loader->Profile && MarkerProfile && GetAlignmentGroup().IsNone()) { WriteCalibrationData(MarkerProfile->Markers, {}); }
 	UE_LOG(LogCXMRPlacement, Log, TEXT("Marker calibration reset to the values the profile shipped with."));
 	return true;
 }
@@ -1259,7 +1274,6 @@ void UCXMRPlacementComponent::MoveVehicleTo(FTransform VehicleWorld)
 	CancelAlignmentCapture();
 	bManualAlignment = true;
 	bAlignmentPoseLocked = true;
-	bRestoreNeedsConfirmation = false;
 	if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
 
 	// 저장과 학습에 쓰도록 결과를 차량 기준 오프셋으로 변환함. Adjust = Base * Desired^-1.
@@ -1309,8 +1323,7 @@ void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator
 		CancelAlignmentCapture();
 		bManualAlignment = true;
 		bAlignmentPoseLocked = true;
-		bRestoreNeedsConfirmation = false;
-		if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
+			if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
 	}
 	TempMarkerLocationOffset += DeltaLocation;
 	TempMarkerRotationOffset += DeltaRotation;
@@ -1348,52 +1361,25 @@ void UCXMRPlacementComponent::SaveMarkerOffsetToProfile()
 	}
 	bLastCalibrationSaveSucceeded = false;
 	AActor* Root = ResolveVehicleRoot();
-	if (!Root || !MarkerProfile || DetectedCalib.Num() == 0)
+	if (!Root || !MarkerProfile || !HaveAllAlignmentMarkers())
 	{
-		UE_LOG(LogCXMRPlacement, Warning, TEXT("Cannot save marker offset: no vehicle, no profile, or no layout marker in view"));
+		AlignmentSaveMessage = FText::FromString(TEXT("Not saved. Missing markers: ") + GetMissingAlignmentMarkerIds());
+		ReportAlignmentSaveMessage();
 		return;
 	}
-
-	if (TempMarkerLocationOffset.IsNearlyZero() && TempMarkerRotationOffset.IsNearlyZero())
-	{
-		UE_LOG(LogCXMRPlacement, Log, TEXT("Nothing to save: marker offset is zero"));
-		return;
-	}
-
-	// 다음 실행에서도 현재 차량 위치를 재현해야 함.
-	// 보이는 마커는 현재 차량 위치에서 다시 기록함.
-
-	// 안 보이는 마커도 같은 변환으로 옮겨서 배치를 유지함.
-
+	TArray<FCXMRMarkerEntry> Entries = MarkerProfile->Markers;
+	TMap<int32, FTransform> WorldMarkers;
 	const FTransform Shown = Root->GetActorTransform();
-	const FTransform Adjust(TempMarkerRotationOffset, TempMarkerLocationOffset);
-	int32 FromView = 0;
-	int32 Shifted = 0;
-	for (FCXMRMarkerEntry& Entry : MarkerProfile->Markers)
+	for (FCXMRMarkerEntry& Entry : Entries)
 	{
-		if (Entry.Role != ECXMRMarkerRole::Calibration || Entry.MarkerId == 0)
-		{
-			continue;
-		}
-		if (const FTransform* InView = DetectedCalib.Find(Entry.MarkerId))
-		{
-			Entry.LocalOffset = InView->GetRelativeTransform(Shown);
-			++FromView;
-		}
-		else
-		{
-			Entry.LocalOffset = Entry.LocalOffset * Adjust;
-			++Shifted;
-		}
+		if (Entry.Role != ECXMRMarkerRole::Calibration || Entry.MarkerId <= 0 || IsFollowerMarker(Entry.MarkerId)) { continue; }
+		const FTransform* InView = SeenMarkers.Find(Entry.MarkerId);
+		if (!InView) { return; }
+		Entry.LocalOffset = InView->GetRelativeTransform(Shown);
+		WorldMarkers.Add(Entry.MarkerId, *InView);
 	}
-
-	UE_LOG(LogCXMRPlacement, Log,
-		TEXT("Adjustment saved into the marker layout: %d marker(s) from view, %d shifted. Loc=(%.1f, %.1f, %.1f) cm, Yaw=%.1f deg"),
-		FromView, Shifted, TempMarkerLocationOffset.X, TempMarkerLocationOffset.Y, TempMarkerLocationOffset.Z,
-		TempMarkerRotationOffset.Yaw);
-
-	SaveCalibrationToDisk();
-	// 저장한 위치를 새 기준으로 사용함.
+	if (!WriteCalibrationData(Entries, SavedAlignmentMarkers, SavedPrimaryMarker, &WorldMarkers)) { return; }
+	MarkerProfile->Markers = MoveTemp(Entries);
 	RebaseToCurrentTransform();
 }
 

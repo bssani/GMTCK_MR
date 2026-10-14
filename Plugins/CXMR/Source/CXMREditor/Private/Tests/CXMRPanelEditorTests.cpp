@@ -11,6 +11,8 @@
 #include "CXMRDesktopPanelComponent.h"
 #include "CXMRTuningWindowComponent.h"
 #include "CXMRPlacementComponent.h"
+#include "CXMRVehicleRoot.h"
+#include "Engine/StaticMeshActor.h"
 #include "CXMRMarkerProfile.h"
 #include "CXMRUsbPortTarget.h"
 #include "CXMRVehicleLoaderComponent.h"
@@ -120,71 +122,47 @@ bool FCXMRPanelCalibrationTest::RunTest(const FString& Parameters)
 {
 	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
 	GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
-	AActor* Owner = World->SpawnActor<AActor>();
-	USceneComponent* Root = NewObject<USceneComponent>(Owner);
-	Owner->SetRootComponent(Root);
-	Root->RegisterComponent();
-	UCXMRPlacementComponent* Placement = NewObject<UCXMRPlacementComponent>(Owner);
-	Placement->RegisterComponent();
+	ACXMRVehicleRoot* Owner = World->SpawnActor<ACXMRVehicleRoot>();
+	UCXMRPlacementComponent* Placement = Owner->Placement;
+	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Owner); Control->RegisterComponent();
+	TestFalse(TEXT("No vehicle cannot save"), Control->SaveCalibration());
 	UCXMRMarkerProfile* Profile = NewObject<UCXMRMarkerProfile>(Owner);
 	Profile->CalibrationId = TEXT("PanelTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
-	Placement->MarkerProfile = Profile;
-	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Owner);
-	Control->RegisterComponent();
-	TestFalse(TEXT("Save requires an explicit alignment confirmation"), Control->SaveCalibration());
-	Control->StartCalibration();
-	TestFalse(TEXT("Start cannot manufacture successful marker alignment"), Control->CanConfirmCalibration());
-	Placement->bCalibrated = true; // 계산 품질은 배치 검사에서 확인함. 여기서는 UI 연결만 검사함.
-	TestTrue(TEXT("Actual completed calibration unlocks confirmation"), Control->ConfirmCalibration());
-	Owner->SetActorLocation(FVector(0.1f, 0.f, 0.f));
-	TestFalse(TEXT("Moving the vehicle invalidates the prior confirmation"), Control->CanSaveCalibration());
-	Owner->SetActorLocation(FVector::ZeroVector);
-	TestFalse(TEXT("Returning to the old pose cannot restore an invalidated confirmation"), Control->CanSaveCalibration());
-	TestTrue(TEXT("Moved pose can be explicitly confirmed again"), Control->ConfirmCalibration());
+	FCXMRMarkerEntry Entry; Entry.MarkerId = 1; Profile->Markers.Add(Entry);
+	UCXMRVehicleProfile* Vehicle = NewObject<UCXMRVehicleProfile>(Owner);
+	Vehicle->VehicleActor = ACXMRVehicleRoot::StaticClass(); Vehicle->MarkerProfile = Profile;
+	Owner->Loader->LoadVehicle(Vehicle);
+	Placement->CalibrationSettleSeconds = 0.f; Placement->AlignmentCaptureMinSamples = 2;
+	auto Observe = [Placement]
+	{
+		struct FParams { int32 Id; FVector Position; FRotator Rotation; FVector2D Size; } Params{1, FVector(100,0,0), FRotator::ZeroRotator, FVector2D(10,10)};
+		Placement->ProcessEvent(Placement->FindFunctionChecked(TEXT("HandleMarkerMoved")), &Params);
+	};
+	Control->StartCalibration(); TestFalse(TEXT("Start cannot manufacture calibration"), Control->CanConfirmCalibration());
+	Observe(); TestTrue(TEXT("Real marker calibration enables a save request"), Control->ConfirmCalibration());
+	TestFalse(TEXT("Capture needs fresh samples"), Placement->WasLastCalibrationSaveSuccessful());
+	Owner->SetActorLocation(FVector(0.1,0,0)); Observe();
+	TestFalse(TEXT("External movement cancels capture"), Placement->HasAlignmentCapture());
+	Owner->SetActorLocation(FVector(100,0,0)); Control->RequestAlignmentSave(); Observe(); Observe();
 	const FString Path = Placement->GetCalibrationFilePath();
-	TestTrue(TEXT("Confirmed calibration can be saved"), Control->SaveCalibration());
-	TestTrue(TEXT("Success corresponds to an actual saved file"), FPaths::FileExists(Path));
-	TestEqual(TEXT("Successful save finishes the workflow"), Control->GetCalibrationPhase(), 3);
+	TestTrue(TEXT("Single request writes after fresh samples"), Placement->WasLastCalibrationSaveSuccessful() && FPaths::FileExists(Path));
+	TestEqual(TEXT("Automatic save finishes the workflow"), Control->GetCalibrationPhase(), 3);
 	IFileManager::Get().Delete(*Path);
-
-	// 테스트 GUID 경로에 폴더를 만들어 저장 실패 재현함.
-	Control->StartCalibration();
-	Placement->bCalibrated = true;
-	Control->ConfirmCalibration();
-	IFileManager::Get().MakeDirectory(*Path);
-	TestFalse(TEXT("Failed file write cannot report success"), Control->SaveCalibration());
-	TestEqual(TEXT("Save failure stays on the confirmation step for retry"), Control->GetCalibrationPhase(), 2);
-	IFileManager::Get().DeleteDirectory(*Path, false, false);
-	Placement->MarkerProfile = NewObject<UCXMRMarkerProfile>(Owner);
-	TestEqual(TEXT("Changing profile invalidates an old workflow"), Control->GetCalibrationPhase(), 0);
-	TestFalse(TEXT("Old profile confirmation cannot save the new one"), Control->SaveCalibration());
-
-	UCXMRVehicleLoaderComponent* Loader = NewObject<UCXMRVehicleLoaderComponent>(Owner);
-	Loader->RegisterComponent();
-	UCXMRVehicleProfile* FirstVehicle = NewObject<UCXMRVehicleProfile>(Owner);
-	UCXMRVehicleProfile* SecondVehicle = NewObject<UCXMRVehicleProfile>(Owner);
-	FirstVehicle->VehicleActor = ACXMRUsbPortTarget::StaticClass();
-	SecondVehicle->VehicleActor = ACXMRUsbPortTarget::StaticClass();
-	FirstVehicle->MarkerProfile = Placement->MarkerProfile.Get();
-	SecondVehicle->MarkerProfile = Placement->MarkerProfile.Get();
-	SecondVehicle->VehicleRootOffset.SetLocation(FVector(10.f, 0.f, 0.f));
-	Loader->LoadVehicle(FirstVehicle);
-	Control->StartCalibration();
-	Placement->bCalibrated = true;
-	Control->ConfirmCalibration();
-	Loader->LoadVehicle(SecondVehicle);
-	TestNotNull(TEXT("Replacement vehicle spawned"), Loader->GetSpawnedVehicle());
-	TestEqual(TEXT("Vehicles using the same marker profile still invalidate confirmation"), Control->GetCalibrationPhase(), 0);
-	TestFalse(TEXT("A replacement vehicle requires a new alignment confirmation"), Control->CanSaveCalibration());
-	Loader->LoadVehicle(FirstVehicle);
-	TestFalse(TEXT("Switching back cannot restore the previous confirmation"), Control->CanSaveCalibration());
-	Control->StartCalibration();
-	Placement->bCalibrated = true;
-	TestTrue(TEXT("Reloaded vehicle can receive a fresh confirmation"), Control->ConfirmCalibration());
-	Loader->UnloadVehicle();
-	TestFalse(TEXT("Unloading the confirmed vehicle invalidates its confirmation"), Control->CanSaveCalibration());
-	World->DestroyWorld(false);
-	GEngine->DestroyWorldContext(World);
+	Control->StartCalibration(); Observe(); IFileManager::Get().MakeDirectory(*Path);
+	Control->RequestAlignmentSave(); Observe(); Observe();
+	TestFalse(TEXT("Failed write cancels the request"), Placement->HasAlignmentCapture());
+	TestFalse(TEXT("Failed write cannot claim success"), Placement->WasLastCalibrationSaveSuccessful());
+	IFileManager::Get().DeleteDirectory(*Path,false,false);
+	Control->RequestAlignmentSave(); Observe(); Observe();
+	TestTrue(TEXT("New request retries with new samples"), Placement->WasLastCalibrationSaveSuccessful());
+	UCXMRVehicleProfile* Second = DuplicateObject<UCXMRVehicleProfile>(Vehicle, Owner); Second->VehicleRootOffset.SetLocation(FVector(10,0,0));
+	Control->RequestAlignmentSave(); Owner->Loader->LoadVehicle(Second);
+	TestEqual(TEXT("Same-profile replacement invalidates the UI session"), Control->GetCalibrationPhase(), 0);
+	TestFalse(TEXT("Replacement is not calibrated without new observations"), Control->CanSaveCalibration());
+	Observe(); TestTrue(TEXT("Replacement can request a fresh save"), Control->ConfirmCalibration());
+	Owner->Loader->UnloadVehicle(); TestFalse(TEXT("Unloaded vehicle cannot save"), Control->CanSaveCalibration());
+	IFileManager::Get().Delete(*Path); IFileManager::Get().Delete(*FPaths::ChangeExtension(Path,TEXT("startup.json")));
+	World->DestroyWorld(false); GEngine->DestroyWorldContext(World);
 	return true;
 }
 

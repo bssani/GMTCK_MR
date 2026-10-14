@@ -12,6 +12,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "HAL/IConsoleManager.h"
+#include "UObject/UObjectIterator.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCXMRDebug, Log, All);
 
@@ -22,6 +23,16 @@ static TAutoConsoleVariable<int32> CVarDebugMarkers(
 	TEXT("  0: off\n")
 	TEXT("  1: on"),
 	ECVF_Cheat);
+
+static FAutoConsoleCommandWithWorld GCXMRDumpMarkers(
+	TEXT("CXMR.DumpMarkers"), TEXT("Log every observed marker world pose in cm and degrees."),
+	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+	{
+		for (TObjectIterator<UCXMRMarkerDebugComponent> It; It; ++It)
+		{
+			if (World && It->GetWorld() == World && It->IsRegistered()) { It->DumpMarkers(); }
+		}
+	}));
 
 UCXMRMarkerDebugComponent::UCXMRMarkerDebugComponent()
 {
@@ -181,7 +192,7 @@ void UCXMRMarkerDebugComponent::DumpMarkers() const
 	{
 		const FCXMRDebugMarker& M = Pair.Value;
 		UE_LOG(LogCXMRDebug, Warning,
-			TEXT("  id=%-4d %s  pos=(%.1f, %.1f, %.1f)  rot=(P%.1f Y%.1f R%.1f)  moves=%d  last=%.2fs"),
+			TEXT("  id=%-4d %s  pos=(%.2f, %.2f, %.2f) cm  rot=(P%.2f Y%.2f R%.2f) deg  moves=%d  last=%.2fs"),
 			Pair.Key, M.bLost ? TEXT("LOST   ") : TEXT("tracked"),
 			M.Position.X, M.Position.Y, M.Position.Z,
 			M.Rotation.Pitch, M.Rotation.Yaw, M.Rotation.Roll, M.MoveCount, M.LastUpdateTime);
