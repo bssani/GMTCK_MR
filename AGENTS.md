@@ -39,6 +39,7 @@ Varjo XR-4 MR로 실물(clay 모형·의자·박스) 위에 가상 차량을 겹
 ## 코드 주석·UI 문구
 
 - UI 문구와 에디터 툴팁은 영어로 쓴다.
+- 데스크톱 창(컨트롤 창·고급 설정 창)의 모양과 문구는 [Docs/Specs/control-window/prototype.html](Docs/Specs/control-window/prototype.html)이 기준이다(CX Toolkit "Showroom" 색, Pretendard Std 글꼴, 2026-10-14 사용자 승인). 새 행·문구를 더할 때도 이 시안의 말투와 형식을 따른다.
 - 코드 주석은 짧은 한국어로 쓴다. 끝을 `~함`·`~음`이나 명사로 맺는다. 무엇을 하는지보다 **왜** 그런지를 쓴다. 지금 코드의 주석이 기준이다.
 
 ```cpp
