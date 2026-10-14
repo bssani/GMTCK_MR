@@ -370,7 +370,7 @@ base station 추적은 원점이 base station에 묶여 있어서, inside-out보
 
 CXMR에는 마커를 따라 움직이는 메시가 없다. **Varjo 공식 예제 맵에 그 기능이 있다.** `BP_MarkerControls`가 마커마다 큐브(`BP_Marker`)를 띄운다. 그 큐브는 마커가 움직이면 따라가고, 놓치면 숨는다. 큐브에는 마커 ID와 추적 모드(Stationary/Dynamic)가 적혀 있다. 이 PC에서 확인한 위치는 `/Game/VRTemplate/Maps/VRTemplateMap`, `/Game/VarjoContent/VarjoMarkers/`다.
 
-- [ ] 헤드셋 PC 프로젝트에 위 두 폴더(`Content/VRTemplate`, `Content/VarjoContent`)가 있는지 본다. 리포에는 없다(`.gitignore`). 없으면 이 PC의 같은 폴더를 복사한다.
+- [ ] 헤드셋 PC 프로젝트에 위 두 폴더(`Content/VRTemplate`, `Content/VarjoContent`)가 있는지 본다. **git에는 처음부터 없었다**(2026-08-11 `.gitignore`로 제외). 개발 PC 디스크에만 남아 있다(2026-10-14 확인: 132개 파일, 예제 맵과 마커 BP가 참조하는 애셋이 전부 있음, 에디터로 열어 보지는 않음). 헤드셋 PC에 없으면 개발 PC의 `Downloads/GMTCK_MR_VarjoExample_Content.zip`을 프로젝트 폴더에 풀어 `Content/` 아래에 두 폴더가 생기게 한다. 에디터를 연 뒤 맵을 연다.
 - [ ] **박스에는 짝수 ID 마커를 붙인다.** 예제는 짝수 ID 마커만 Dynamic으로 바꾼다(`id % 2`, `Docs/Varjo-Capabilities.md` BP_MarkerControls).
 - [ ] `VRTemplateMap`을 열고 VR Preview로 실행한다. `V`로 마커 추적을 켠다. 박스 마커 위에 큐브가 뜨고 라벨이 `Stationary`인지 본다.
 - [ ] 박스를 들고 천천히, 그다음 빠르게 움직인다. 큐브가 얼마나 늦게 따라오는지, 멈췄을 때 떨리는지, 손이 마커를 가리면 언제 사라지는지 본다.
