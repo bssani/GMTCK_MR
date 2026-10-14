@@ -59,3 +59,43 @@ Placement·Subsystem·Varjo 플러그인·설정·기존 애셋은 수정하지 
 ## 질문
 
 없음. Claude가 `main...codex/marker-follower`를 리뷰하면 된다. push·머지 없음.
+
+---
+
+# Claude 리뷰
+
+## 1회차 — 2026-10-14, `7400a5d`
+
+- 재현(Claude, 별도 worktree, 새로 받은 상태):
+  - `-DisableAdaptiveUnity` 빌드 성공. CXMR·GMTCK_MR 경고·오류 0.
+  - 경고 5건은 Varjo 플러그인 소스(`VarjoHandInteraction.cpp` C5038·C4996)다. 이 PC의 작업 폴더는 이미 빌드돼 있어 안 보였을 뿐이고, git으로 새로 받은 시험 PC에서도 똑같이 보인다. 무시해도 된다.
+  - `CXMR.` 82/82 통과.
+- 확인한 것:
+  - 감지 전 모드 요청 금지: 정상. `UCXMRSubsystem::GetMarkerTrackingMode`는 이벤트로 받은 ID(`PluginMarkerIds`)만 Varjo에 묻는다(`CXMRSubsystem.cpp:590-593`). 그래서 BeginPlay의 시도는 세션 전 Varjo를 부르지 않는다. 설정은 `IsXRSessionRunning()`으로 막혀 있다(`:587`). 보고 ③의 대체 확인에 동의한다.
+  - 라벨 방향: X축을 머리 쪽으로 돌린다. 마커 디버그와 같은 규칙이다(`CXMRMarkerDebugComponent.cpp:235`).
+  - 명세 범위 밖 변경 없음, 애셋 변경 0.
+- **2026-10-15 시험을 막는 문제는 없다.**
+
+### R1-1 레벨에 놓은 액터의 크기가 첫 마커 이벤트에 1로 돌아감 — 열림
+
+- 문제: `HandleMarkerPose`가 `SetActorTransform(MarkerToActor * FTransform(Rotation, Position))`로 옮긴다(`CXMRMarkerFollower.cpp:141`). 마커 포즈의 크기는 1이라서, 사용자가 레벨에 놓은 `BP_Dynamic` 액터를 Scale 0.3으로 줄여 두면 첫 감지에서 1로 커진다. 안내 문서는 "BP 안의 메시 크기를 맞춘다"고 했지만, 레벨에서 액터 크기를 바꾸는 사람이 흔하다.
+- 제안: 위치·회전만 마커에서 받고 액터의 지금 크기는 유지한다. 예: 합성 결과에 `SetScale3D(GetActorScale3D())` 뒤 `SetActorTransform`, 또는 `SetActorLocationAndRotation`.
+- 확인할 시험: 액터 크기를 (0.3, 0.3, 0.3)으로 두고 감지·이동 → 위치·회전은 마커를 따르고 크기는 그대로.
+
+### R1-2 시작할 때마다 "Marker tracking is off" 경고가 찍힘 — 열림
+
+- 문제: BeginPlay가 `HandleTrackingChanged(Subsystem->IsMarkerTrackingOn())`을 부른다(`CXMRMarkerFollower.cpp:52`). 그런데 마커 추적은 Placement가 세션이 뜬 뒤 스스로 켠다(`CXMRPlacementComponent.cpp:492-519`). 그래서 시작 시점에는 거의 항상 꺼져 있고, 매번 "Press V or turn it on" 경고가 남는다. 몇 초 뒤 추적이 저절로 켜지므로 시험하는 사람이 잘못 따라 할 수 있다.
+- 제안: BeginPlay에서는 상태만 맞추고 경고하지 않는다. 경고는 "추적이 켜져 있다가 꺼졌을 때"만 한다. 또는 세션이 뜬 뒤에도 일정 시간(마커 추적 시작 재시도와 같은 20초) 꺼져 있을 때만 한다.
+- 확인할 시험: 추적 꺼진 상태로 BeginPlay → 경고 없음. 켜졌다 꺼짐 → 경고 한 번.
+
+### 1번 작업으로 넘기는 것 (이 브랜치에서 고치지 않음)
+
+- **Learn marker layout이 박스 마커를 차량 보정 마커로 등록한다.**
+  - `LearnMarkerLayout`은 지금 보이는 마커 중 프로필에 없는 것을 전부 보정 마커로 더한다(`CXMRPlacementComponent.cpp:799-830`). Placement는 모든 마커를 `SeenMarkers`에 담는다(`:247-251`).
+  - 박스가 보이는 채로 누르면 움직이는 마커가 차 배치에 들어간다. 컨트롤 창의 "N in view" 수(`CurrentMarkerCount`, `:186-193`)에도 박스 마커가 섞인다.
+  - Placement 코드라 0번 범위 밖이다. 1번(oct-review-fixes U-1)에 "Marker Follower가 쓰는 ID는 학습·관측 수에서 뺀다"를 더한다.
+  - 2026-10-15 시험에서는 **박스가 보이는 상태로 Learn marker layout을 누르지 않는다**(체크리스트 §15-4에 적음).
+
+## 질문
+
+없음.
