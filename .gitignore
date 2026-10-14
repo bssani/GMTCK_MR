@@ -77,7 +77,15 @@ DerivedDataCache/*
 # Dev tooling — NOT part of the CXMR template (the template is cloned per-program).
 # UnrealAgent: in-editor MCP server (Claude bridge). .mcp.json: machine-local MCP config.
 Plugins/UnrealAgent/
+Plugins/McpAutomationBridge/
+.unrealagent/
 .mcp.json
+# .codex: Codex 앱의 이 PC 전용 설정(에디터 MCP 주소, 절대경로 시작 훅).
+.codex/
+
+# Current handoff between Claude Code (spec/review) and the Codex desktop app (implementation).
+# Durable records live in Docs/Specs and Docs/Reviews.
+/HANDOFF.md
 
 # Agent skills installed via the `skills` CLI. Kept global (user-level), not per-repo,
 # so if a project-scope install ever lands here, don't commit it.
