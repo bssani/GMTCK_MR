@@ -117,7 +117,7 @@
 - 1회차 R1-1 ~ R1-5는 반영을 확인했다. 상태를 커밋 해시로 바꿨다.
 - U-1(전부 보여야 보정·저장·복원, 1개 마커 임시 배치·복원 확인 제거, Marker Follower 제외), U-2(`worldPose`·`markerWorld`, 원점 비교), Q3 답(누락·만료·시간 제한 취소, 원본 초기화 예외)을 명세와 대조했다. 아래 두 항목만 열림이다.
 
-### R2-1 넘버패드 Enter가 자동 보정·복원 뒤에는 평균 캡처 없이 한 프레임 값으로 저장함 — 반영함 (fix: always capture fresh alignment means)
+### R2-1 넘버패드 Enter가 자동 보정·복원 뒤에는 평균 캡처 없이 한 프레임 값으로 저장함 — 반영함 (`f47a30c`)
 
 - 문제: `SaveMarkerOffsetToProfile`(`CXMRPlacementComponent.cpp:1341`)은 수동 정렬·캡처 중·그룹 미저장일 때만 캡처 요청으로 보낸다. 마커로 자동 보정됐거나 저장 정렬을 자동 복원한 뒤(수동 이동 없음)에는 바로 쓰는 분기(`:1362-1383`)로 간다. 이 분기는 `SeenMarkers`를 `LocalOffset`과 `markerWorld`로 쓴다. 보정이 끝나면 `SeenMarkers`는 평균이 아니라 마지막 원시 표본이다(`:249`, `bCalibrated`면 `bAveraging`이 꺼짐).
   - 경로: 넘버패드 Enter → `CXMRVarjoInputComponent.cpp:276` `RequestSaveMarkerOffset` → `HandleSaveOffsetRequest`(`CXMRPlacementComponent.cpp:1290`) → 이 분기.
@@ -127,7 +127,7 @@
 - 제안: `SaveMarkerOffsetToProfile`은 상태와 관계없이 지금 수동 정렬 분기와 같은 캡처 요청으로 보내고, 바로 쓰는 분기는 지운다. `BeginAlignmentCapture`가 이미 `bCalibrated`를 받으므로(`CXMRPlacementAlignment.cpp:191`) 자동 보정 상태에서도 캡처가 시작된다. `SaveCalibrationToDisk`의 바로 쓰는 분기는 `worldPose`·`markerWorld`를 쓰지 않거나(다음 복원은 마커 기준), 캡처로 보낸다. 고른 쪽을 보고 ③에 적는다. `CXMRPlacementComponent.h:73` 주석("확인, 새 관측, 저장 순서")도 한 번 누르기에 맞게 고친다.
 - 확인할 시험: 마커로 자동 보정된 상태와 저장 정렬을 자동 복원한 상태(수동 이동 없음) 각각에서 `HandleSaveOffsetRequest` → 캡처가 시작되고(`HasAlignmentCapture`) 파일은 아직 그대로다. 노이즈 표본을 최소 수만큼 넣은 뒤 저장된 `LocalOffset`·`markerWorld`가 마지막 표본이 아니라 평균이다. 그룹 정렬을 복원한 상태에서도 같은 시험.
 
-### R2-2 U-2 정확 재사용 시험이 마커 기준 계산과 구분되지 않음 — 반영함 (fix: always capture fresh alignment means)
+### R2-2 U-2 정확 재사용 시험이 마커 기준 계산과 구분되지 않음 — 반영함 (`f47a30c`)
 
 - 문제: `CXMR.Alignment.OctReview.CaptureMeanAndOrigin`(`CXMRDriverEyeAlignmentTests.cpp:1229-1230`)은 저장 평균과 똑같은 마커 위치로 복원한다. 이때는 마커 기준 계산도 정확히 `Final`을 낸다. 그래서 "Restored world pose is exact to 0.001 cm"는 `worldPose`를 실제로 차에 썼는지 확인하지 못한다. 확인하는 것은 `WasWorldPoseReused` 플래그뿐이다. U-2의 효용은 마커가 노이즈만큼 달라도 저장한 자리에 그대로 놓는 것이다.
 - 확인할 시험: 두 마커를 허용 오차 안(예: 둘 다 +0.1 cm)으로 옮겨 복원 → 재사용이고 Root가 `Final`과 0.001 cm 안이다. 마커 기준 계산이었다면 0.1 cm 어긋났을 것이므로 이 시험이 둘을 가른다.
@@ -148,3 +148,10 @@
 - 완료 조건 1~4·7·8: 기존 구현 유지 + 위 보완. 5·6: -DisableAdaptiveUnity 빌드 성공, CXMR·GMTCK_MR 경고·오류 0, CXMR. 92/92 성공·종료 코드 0. 로그 Saved/Codex1015_Oct_Build.log, Saved/Codex1015_Oct_Test.log. 바이너리·Config 변경 없음.
 - 추가 Varjo API 없음. 엔진 FTransform::GetRelativeTransform은 Engine/Source/Runtime/Core/Public/Math/TransformNonVectorized.h:525, AActor::GetActorTransform은 Engine/Source/Runtime/Engine/Classes/GameFramework/Actor.h 소스로 확인함.
 - 로컬에서 확인할 것: 에디터 작업 없음. 헤드셋 체크리스트 §3·§5·§13·§15-3은 사용자 헤드셋 PC에서 not-tested. 질문 없음.
+
+## 3회차 — 2026-10-15, `f47a30c` — 통과
+
+- 재현: `-DisableAdaptiveUnity` 빌드 성공, CXMR·GMTCK_MR 경고·오류 0(`Saved/ClaudeReview1015b_Build1.log`). `CXMR.` **92/92 통과**(`Saved/ClaudeReview1015b_Test1.log`). 보고와 같다. 바이너리 애셋 변경 0.
+- R2-1: `SaveMarkerOffsetToProfile`의 바로 쓰는 분기가 지워져 Enter·`Vehicle.SaveOffset`은 어떤 상태에서도 캡처 요청으로 간다. `SaveCalibrationToDisk`는 `worldPose`·`markerWorld`를 쓰지 않는 쪽을 골랐다(보고 ③). 새 시험 `CXMR.Alignment.OctReview.AutomaticAlignmentSave`가 자동 보정·개별 복원·그룹 복원 세 상태에서 캡처 시작·파일 유지·평균 저장·직접 저장의 필드 생략을 확인한다.
+- R2-2: 두 마커를 +0.1 cm 옮겨 복원해도 Root가 저장 위치와 0.001 cm 안이다. 마커 기준 계산이면 0.1 cm 어긋나므로 둘을 가른다.
+- 열린 항목 없음. 머지는 사용자 승인 뒤. 헤드셋(체크리스트 §3·§5·§13·§15-3)은 `not-tested`.
