@@ -370,13 +370,18 @@ base station 추적은 원점이 base station에 묶여 있어서, inside-out보
 
 **CXMR Marker Follower** 클래스로 한다(명세 `Docs/Specs/marker-follower.md`). **이 클래스가 머지된 빌드에서만 된다.** 시험 PC에서 git pull 후 빌드한다. Varjo 예제 맵은 쓰지 않는다.
 
-- [ ] `/Game/` 아래에 Blueprint Class를 만들고 부모로 **CXMR Marker Follower**를 고른다(예: `BP_Dynamic`). 루트 아래에 실물 박스 크기의 Static Mesh를 붙인다.
-- [ ] Details의 `Marker Id`에 박스 마커 번호를 넣는다. **차량 보정 마커와 다른 번호.** `Tracking Mode`는 Stationary로 시작한다. `L_Main`에 놓는다.
-- [ ] VR Preview에서 박스를 보이게 든다. 메시가 박스로 오고 라벨이 `Stationary`인지 본다.
-- [ ] 박스를 천천히, 그다음 빠르게 움직인다. 메시가 얼마나 늦게 따라오는지, 멈췄을 때 떨리는지, 손이 마커를 가리면 언제 `lost`가 되는지 본다.
-- [ ] 레벨의 `BP_Dynamic`을 고르고 Details에서 `Tracking Mode`를 Dynamic으로 바꾼다(PIE 중에도 됨). 라벨이 `Dynamic`이 되면 같은 동작을 반복한다.
-- [ ] 마커 축 표시(튜닝 창 "Show marker axes and labels")를 켜고, 빨강·초록·파랑 중 어느 축이 마커 면 바깥을 향하는지 사진 한 장을 남긴다. 메시를 실물 박스에 정확히 겹치려면 `Marker To Actor`를 맞춰야 하는데, 그때 필요하다.
-- [ ] 결과는 한두 줄이면 된다(예: "Stationary는 0.5초쯤 늦게 미끄러지듯 따라옴, Dynamic은 거의 바로 오지만 멈추면 조금 떨림").
+1. [Operating-Guide §3-2](Operating-Guide.md#3-2-마커를-따라가는-메시-만들기)의 "만드는 법"대로 `BP_Dynamic`을 만들어 `L_Main`에 놓는다. `Tracking Mode`는 Stationary로 시작한다.
+2. VR Preview에서 박스를 보이게 든다. 메시가 박스로 오고, 라벨이 `Stationary`인지 본다.
+3. 박스를 천천히, 그다음 빠르게 움직인다. 메시가 얼마나 늦게 따라오는지, 멈췄을 때 떨리는지, 손이 마커를 가리면 언제 `lost`가 되는지 본다.
+4. 레벨에 놓은 `BP_Dynamic`을 고르고 Details에서 `Tracking Mode`를 Dynamic으로 바꾼다. PIE 중 바꿔도 된다. 라벨이 `Dynamic`이 되면 3을 반복한다.
+5. 마커 축 표시(튜닝 창 "Show marker axes and labels")를 켜고, 빨강·초록·파랑 중 어느 축이 마커 면 바깥을 향하는지 사진 한 장을 남긴다.
+6. 결과는 한두 줄이면 된다.
+
+- **박스가 보이는 상태로 Learn marker layout을 누르지 않는다.** 지금은 보이는 마커를 전부 차량 보정 마커로 등록한다(리뷰 `Docs/Reviews/marker-follower.md`, 1번 작업에서 고침).
+- `BP_Dynamic` 크기는 BP 안의 메시나 레벨 액터의 Scale로 맞춘다. 감지·이동 뒤에도 레벨 액터의 크기가 유지되는지 본다(같은 리뷰 R1-1 반영).
+- 시작 전 추적 꺼짐에는 경고하지 않는다. 추적이 켜졌다 꺼질 때만 "Marker tracking is off" 경고가 한 번 나오는지 본다(같은 리뷰 R1-2 반영).
+
+이 절의 실제 헤드셋 시험 상태는 **not-tested**다. 로컬 빌드·합성 이벤트 시험은 실제 마커 추적 결과가 아니다.
 
 ### 15-5. 결과와 함께 적을 것
 
