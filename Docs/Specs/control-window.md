@@ -64,8 +64,7 @@
 | Away … Turn ⟳ | `Vehicle.Away` / `Right` / `Up` / `Turn`의 Step(+1·−1). Turn은 `Vehicle.YawStep` |
 | Change since last save | 마지막 저장·버리기·보정 뒤 누른 조정량의 합. 진행자 기준 방향(Away·Right·Up)과 회전, cm·° |
 | First-time setup의 Align to my eyes | 지금의 눈 정렬 시작(`UCXMRTuningWindowComponent::StartInitialAlignment`, `CXMRTuningWindowComponent.cpp:535`) |
-| Scene 탭 Vehicle 목록 | Loader 카탈로그 차량. "Alignment group" 문구는 그룹이 있을 때만, 없으면 그 줄을 숨긴다 |
-| Scene 탭 Moving objects | **3번에서는 만들지 않는다.** 4번 [moving-object.md](moving-object.md)에서 만든다. 고급 창 Calibration 탭의 "Moving objects" 묶음도 마찬가지다 |
+| Vehicle 탭 차량 목록 | Loader 카탈로그 차량. "Alignment group" 문구는 그룹이 있을 때만, 없으면 그 줄을 숨긴다 |
 | 바뀐 고급 설정 수 문구, Advanced settings… | 고급 창 열기 |
 
 - **상태 판정**: Placement가 상태 하나를 구조체로 낸다. 담을 것: 단계(시작 대기·없음·마커 대기·정착 중·정렬됨·조정됨·저장 중), 복원 종류(world·markers·new·saved), 원점 이동 거리, 빠진 마커 ID, 진행률 0~1. 문구는 이 구조체에서 만드는 순수 함수로 하고 시험한다. 각 경우는 시안 `status()`와 1:1이다.
@@ -103,6 +102,7 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
   - 마커 평균 시간(`CalibrationSettleSeconds`)
   - 원점 재사용 허용 오차 두 개(oct-review-fixes U-2의 프로퍼티)
   - 마커 좌표 로그 실행(oct-review-fixes R1-5의 `CXMR.DumpMarkers`)
+  - `Diagnostics.DynamicMarkers` — "Dynamic tracking for all markers". 켜면 감지된 모든 마커(새로 감지되는 마커 포함)에 Dynamic 모드를 건다. 끄면 각 마커를 원래 모드로 되돌린다(보정 마커는 프로필 값, 나머지는 Stationary). **저장하지 않는 설정**이라 앱을 다시 켜면 꺼져 있다. 마커 라벨(`CXMRMarkerDebugComponent.cpp:223-224`)이 이미 마커별 모드를 보여 주므로, 확인은 라벨과 축으로 한다. 10-07에 지운 `C` 키와 같은 기능이고, 키는 되살리지 않는다.
 
 ### E. 모양 — CX Toolkit "Showroom"
 
@@ -196,4 +196,5 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
 
 - 2026-10-14: 처음 작성 (Claude). 시안 승인 — 사용자
 - 2026-10-14: Vehicle 탭에서 디자인 옵션 삭제(시안 3판) — 사용자 결정, main-basic에서 기능도 뺌
-- 2026-10-14: 시안 4판 — 시선 점(G)·Foveated(I) 행 삭제(사용자 결정, 10-08에 이미 지워진 기능), 탭 이름 Vehicle → Scene, Moving objects 자리 추가(4번 명세에서 구현)
+- 2026-10-14: 시안 4판 — 시선 점(G)·Foveated(I) 행 삭제(사용자 결정, 10-08에 이미 지워진 기능)
+- 2026-10-14: 시안 5판 — 박스 따라가기 기능은 만들지 않기로(사용자: "dynamic 되는지 확인만"). Moving objects 자리를 빼고 탭 이름은 Vehicle 그대로, 고급 창 Diagnostics에 Dynamic 스위치 하나 추가

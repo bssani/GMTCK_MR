@@ -265,7 +265,6 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
     <div class="proto-toggles">
       <label><input type="checkbox" id="mk3"> Marker 3 in view</label>
       <label><input type="checkbox" id="mk7"> Marker 7 in view</label>
-      <label><input type="checkbox" id="mk21"> Box marker 21 in view</label>
     </div>
   </section>
 
@@ -290,7 +289,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
 
       <div class="tabs" role="tablist" aria-label="Control sections">
         <button class="tab" role="tab" id="tab-cal" aria-controls="panel-cal" type="button">Calibration</button>
-        <button class="tab" role="tab" id="tab-veh" aria-controls="panel-veh" type="button">Scene</button>
+        <button class="tab" role="tab" id="tab-veh" aria-controls="panel-veh" type="button">Vehicle</button>
       </div>
 
       <div class="tabpanel" role="tabpanel" id="panel-cal" aria-labelledby="tab-cal">
@@ -328,11 +327,6 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
           <div class="choices" role="radiogroup" aria-label="Vehicle" id="vehList"></div>
           <div class="cap">Both vehicles share one saved alignment, so switching keeps the car in place.</div>
         </div>
-        <div class="sec">
-          <div class="sec-h"><h3>Moving objects</h3></div>
-          <div class="markers" id="objList"></div>
-          <div class="cap">While on, the virtual object follows the markers on the real one. Turn it off to leave the virtual object where it is.</div>
-        </div>
       </div>
 
       <div class="winfoot">
@@ -359,7 +353,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
     <ul>
       <li><b>Starts in MR.</b> As soon as the headset session runs, MR, the depth test and real-world depth turn on, so the reviewer sees their own hands. Before that the window says so instead of showing a mode that is not real yet.</li>
       <li><b>Mode and calibration status sit outside the tabs.</b> Whatever tab is open, the facilitator can see whether the car is aligned and what is missing.</li>
-      <li><b>Two tasks, two tabs.</b> Calibration for every session; Scene for switching cars and turning moving objects such as a tracked box on or off. First-time rig setup is folded away.</li>
+      <li><b>Two tasks, two tabs.</b> Calibration for every session; Vehicle for switching cars. First-time rig setup is folded away.</li>
       <li><b>One next action at a time.</b> Save alignment only lights up when there is an unsaved change and every marker is in view; otherwise the reason is written under it.</li>
       <li><b>Advanced settings live in their own window</b>, split by MR, VR, calibration and diagnostics. The control window counts how many settings differ from the defaults, so a forgotten change is visible.</li>
     </ul>
@@ -402,8 +396,6 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
     { id: "retake", reg: "Vehicle.RetakeHeading", tab: "Calibration", group: "Fine-adjust keys", label: "Use the way I face now", type: "action" },
     { id: "pivot", reg: "Vehicle.Pivot", tab: "Calibration", group: "Fine-adjust keys", label: "Turn around", help: "The point the car rotates around when you press Turn.", type: "seg", options: ["Markers", "Viewer", "Vehicle origin", "Driver eye reference"], def: "Markers" },
     { id: "padSpeed", reg: "Input.OffsetAdjustSpeed", tab: "Calibration", group: "Fine-adjust keys", label: "Numpad speed", help: "Movement while a numpad key is held, per second (cm or °).", type: "number", min: 0.5, max: 50, step: 0.5, unit: "/s", def: 10 },
-    { id: "objMode", reg: "new: Objects.TrackingMode", tab: "Calibration", group: "Moving objects", label: "Marker tracking for moving objects", help: "Dynamic follows movement with less lag but more jitter. Stationary is steadier but trails behind a moving box. Car calibration markers always stay Stationary.", type: "seg", options: ["Dynamic", "Stationary"], def: "Dynamic" },
-    { id: "objLost", reg: "new: Objects.WhenLost", tab: "Calibration", group: "Moving objects", label: "When an object's markers are lost", help: "Hold keeps the virtual object where it was last seen. Hide removes it until a marker is seen again.", type: "seg", options: ["Hold last position", "Hide"], def: "Hold last position" },
     { id: "learn", reg: "Vehicle.LearnMarkers", tab: "Calibration", group: "Marker layout", label: "Learn marker layout", help: "Records where each marker sits on the car, from the car's current position. Needs every marker in view.", type: "action", needsMarkers: true },
     { id: "front", reg: "Vehicle.PlaceInFront", tab: "Calibration", group: "Marker layout", label: "Place car in front of me", help: "For a walk-around without markers. The car is placed 2.5 m ahead, facing you.", type: "action" },
     { id: "resetGroup", reg: "group alignment reset", tab: "Calibration", group: "Marker layout", label: "Delete saved alignment for PreviewRig", help: "Affects every vehicle in the group. The second click must come within 5 seconds.", type: "action", danger: true },
@@ -421,6 +413,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
     { id: "specSpeed", reg: "Spectator.OrbitSpeed", tab: "Diagnostics", group: "Monitor", label: "Orbit speed", type: "number", min: -45, max: 45, step: 0.5, unit: "°/s", def: 8 },
     { id: "rdMonitor", reg: "Spectator.Output", tab: "Diagnostics", group: "Monitor", label: "Monitor picture", type: "readout", value: () => S.values.specMode === "Headset mirror" ? "Headset mirror" : "Spectator camera, 1920 × 1080" },
     { id: "tracking", reg: "Diagnostics.MarkerTracking", tab: "Diagnostics", group: "Tracking", label: "Marker tracking", help: "Leave on. Turning it off stops calibration and restore.", type: "toggle", def: true },
+    { id: "dynamicAll", reg: "new: Diagnostics.DynamicMarkers", tab: "Diagnostics", group: "Tracking", label: "Dynamic tracking for all markers", help: "For checking moving markers only. Markers follow movement faster but jitter more, so calibration is less accurate while this is on. Marker labels show each marker's mode. Not saved.", type: "toggle", def: false },
     { id: "dump", reg: "new: CXMR.DumpMarkers", tab: "Diagnostics", group: "Logs", label: "Write marker positions to log", type: "action" },
     { id: "mrState", reg: "Diagnostics.MRState", tab: "Diagnostics", group: "Logs", label: "Write MR state to log", type: "action" }
   ];
@@ -429,8 +422,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
 
   // ---------- state ----------
   const S = {
-    session: "running", mode: "MR", seen: { 3: true, 7: true, 21: true, 22: false }, calib: "aligned", restore: "world",
-    objects: [{ id: "box", name: "Box", markers: [21, 22], on: true }],
+    session: "running", mode: "MR", seen: { 3: true, 7: true }, calib: "aligned", restore: "world",
     shift: 0.12, adj: { away: 0, right: 0, up: 0, turn: 0 }, hasSave: true, step: 1,
     tab: "cal", advOpen: true, advTab: "MR", vehicle: "A",
     values: {}, progress: 0, scenario: "world", armed: false, done: {}, headingNote: "Yaw 12.0°, set at the first key press"
@@ -490,9 +482,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
   function applyScenario(id) {
     stopTimer();
     S.scenario = id; S.adj = { away: 0, right: 0, up: 0, turn: 0 };
-    const box = { 21: S.seen[21], 22: S.seen[22] };
     SCENARIOS.find(s => s.id === id).apply();
-    Object.assign(S.seen, box);
     render();
   }
 
@@ -621,19 +611,6 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
     $("vehList").innerHTML = VEHICLES.map(v => `<button class="choice" type="button" role="radio" aria-checked="${S.vehicle === v.id}" data-veh="${v.id}"><span class="radio"></span><span>${esc(v.name)}</span></button>`).join("");
   }
 
-  function renderObjects() {
-    const live = S.session === "running";
-    $("objList").innerHTML = S.objects.map(o => {
-      const seen = o.markers.filter(id => live && S.seen[id]);
-      let state, cls = "";
-      if (!o.on) state = "Off · stays where it was left";
-      else if (!live) state = "Waiting for headset";
-      else if (seen.length) { state = `Following · marker ${seen.join(", ")}`; cls = "on"; }
-      else { state = S.values.objLost === "Hide" ? "Markers not in view · hidden" : "Markers not in view · holding last position"; cls = "miss"; }
-      return `<div class="mk ${cls}"><button class="sw" type="button" role="switch" aria-checked="${o.on}" aria-label="Follow ${esc(o.name)}" data-obj="${o.id}"></button><span class="name">${esc(o.name)} <span class="cap">markers ${o.markers.join(", ")}</span></span><span class="state">${state}</span></div>`;
-    }).join("");
-  }
-
   function renderFooter() {
     const n = changedCount();
     const c = $("customNote");
@@ -716,9 +693,9 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
   // ---------- render all ----------
   function render() {
     $("scenarios").innerHTML = SCENARIOS.map(s => `<button class="chip-btn" type="button" data-scn="${s.id}" aria-pressed="${S.scenario === s.id}">${esc(s.label)}</button>`).join("");
-    $("mk3").checked = !!S.seen[3]; $("mk7").checked = !!S.seen[7]; $("mk21").checked = !!S.seen[21];
-    $("mk3").disabled = $("mk7").disabled = $("mk21").disabled = S.session !== "running";
-    renderHeader(); renderStatus(); renderTabs(); renderMarkers(); renderActions(); renderAdjust(); renderVehicle(); renderObjects(); renderFooter(); renderAdvanced();
+    $("mk3").checked = !!S.seen[3]; $("mk7").checked = !!S.seen[7];
+    $("mk3").disabled = $("mk7").disabled = S.session !== "running";
+    renderHeader(); renderStatus(); renderTabs(); renderMarkers(); renderActions(); renderAdjust(); renderVehicle(); renderFooter(); renderAdvanced();
   }
 
   // ---------- events ----------
@@ -734,7 +711,6 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
       S.calib = "adjusted"; render(); return;
     }
     if (t.dataset.veh) { S.vehicle = t.dataset.veh; render(); return; }
-    if (t.dataset.obj) { const o = S.objects.find(x => x.id === t.dataset.obj); o.on = !o.on; render(); return; }
     if (t.dataset.advtab) { S.advTab = t.dataset.advtab; S.armed = false; render(); return; }
     if (t.dataset.action) { runAction(t.dataset.action); render(); return; }
     if (t.dataset.set && t.classList.contains("sw")) { S.values[t.dataset.set] = !S.values[t.dataset.set]; render(); return; }
@@ -768,7 +744,6 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
   document.addEventListener("pointerup", e => { if (e.target.type === "range") render(); });
   document.addEventListener("keyup", e => { if (e.target.type === "range") render(); });
 
-  $("mk21").addEventListener("change", e => { S.seen[21] = e.target.checked; render(); });
   ["mk3", "mk7"].forEach(id => $(id).addEventListener("change", e => {
     S.seen[id === "mk3" ? 3 : 7] = e.target.checked;
     S.scenario = "";
