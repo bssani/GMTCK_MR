@@ -368,15 +368,15 @@ base station 추적은 원점이 base station에 묶여 있어서, inside-out보
 
 ### 15-4. 박스에 붙인 마커를 메시가 잘 따라가는가
 
-콘솔 명령 `CXMR.FollowMarker`로 한다(명세 `Docs/Specs/marker-follower.md`). **이 명령이 머지된 빌드에서만 된다.** 시험 PC에서 git pull 후 빌드한다. Varjo 예제 맵은 쓰지 않는다.
+**CXMR Marker Follower** 클래스로 한다(명세 `Docs/Specs/marker-follower.md`). **이 클래스가 머지된 빌드에서만 된다.** 시험 PC에서 git pull 후 빌드한다. Varjo 예제 맵은 쓰지 않는다.
 
-- [ ] 박스에 붙일 마커는 **차량 보정 마커와 다른 ID**로 한다.
-- [ ] PIE(VR Preview) 중 콘솔(`~`)에서 `CXMR.FollowMarker <ID> stationary`를 친다. 박스를 보이게 들면 그 자리에 색 박스가 뜨고, 라벨이 `Stationary`인지 본다.
-- [ ] 박스를 천천히, 그다음 빠르게 움직인다. 색 박스가 얼마나 늦게 따라오는지, 멈췄을 때 떨리는지, 손이 마커를 가리면 언제 `lost`가 되는지 본다.
-- [ ] `CXMR.FollowMarker <ID> dynamic`을 친다. 라벨이 `Dynamic`으로 바뀌는지 보고 같은 동작을 반복한다.
-- [ ] 끝나면 `CXMR.FollowMarker off`.
+- [ ] `/Game/` 아래에 Blueprint Class를 만들고 부모로 **CXMR Marker Follower**를 고른다(예: `BP_Dynamic`). 루트 아래에 실물 박스 크기의 Static Mesh를 붙인다.
+- [ ] Details의 `Marker Id`에 박스 마커 번호를 넣는다. **차량 보정 마커와 다른 번호.** `Tracking Mode`는 Stationary로 시작한다. `L_Main`에 놓는다.
+- [ ] VR Preview에서 박스를 보이게 든다. 메시가 박스로 오고 라벨이 `Stationary`인지 본다.
+- [ ] 박스를 천천히, 그다음 빠르게 움직인다. 메시가 얼마나 늦게 따라오는지, 멈췄을 때 떨리는지, 손이 마커를 가리면 언제 `lost`가 되는지 본다.
+- [ ] 레벨의 `BP_Dynamic`을 고르고 Details에서 `Tracking Mode`를 Dynamic으로 바꾼다(PIE 중에도 됨). 라벨이 `Dynamic`이 되면 같은 동작을 반복한다.
+- [ ] 마커 축 표시(튜닝 창 "Show marker axes and labels")를 켜고, 빨강·초록·파랑 중 어느 축이 마커 면 바깥을 향하는지 사진 한 장을 남긴다. 메시를 실물 박스에 정확히 겹치려면 `Marker To Actor`를 맞춰야 하는데, 그때 필요하다.
 - [ ] 결과는 한두 줄이면 된다(예: "Stationary는 0.5초쯤 늦게 미끄러지듯 따라옴, Dynamic은 거의 바로 오지만 멈추면 조금 떨림").
-- [ ] 색 박스 중심은 마커 위치다. 마커 축 표시(튜닝 창 "Show marker axes and labels")를 같이 켜고, 빨강·초록·파랑 중 어느 축이 마커 면 바깥을 향하는지 사진 한 장을 남긴다. 나중에 실물 박스와 정확히 겹치게 할 때 필요하다.
 
 ### 15-5. 결과와 함께 적을 것
 
