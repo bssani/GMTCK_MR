@@ -324,6 +324,63 @@ CXMR 쪽 변환은 확인했다 — 폰·카메라에 오프셋이 없고, 손 �
 - [ ] 실제 foveated rendering은 런타임 설정으로 확인한다. 시각화 오버레이는 제거됐다.
 - [ ] 프로그램별 Blueprint의 옛 컴포넌트·입력 호출을 정리한 뒤 컴파일한다. `/CXMR/` 공통과 `/Game/` 프로그램 데이터 경계를 유지한다.
 
+## 15. XR-4 base station 판 첫 시험 (2026-10-15)
+
+XR-4 고정 초점에 SteamVR base station 추적을 붙인 판이다. 판매처는 "XR-4 Fixed Focus (2026)"로 표기하고, Varjo가 따로 발표한 새 모델은 아니다. 지금까지 시험한 2023판(HS-10, inside-out만)과 같은 프로젝트를 코드 수정 없이 그대로 쓴다. 바뀌는 것은 헤드셋 위치를 재는 방식뿐이다. 카메라로 하는 패스스루·마커·손·깊이는 같은 방식이지만, 2023판과 카메라가 같은지는 확인하지 못했다.
+
+### 15-1. 준비 (Varjo 지원 문서 "Setting up SteamVR Tracking" 기준)
+
+- [ ] SteamVR을 설치한다. base station 추적에 필요하다.
+- [ ] base station: 앉아서 하는 시험이면 2개면 된다(2.0 권장).
+  - 높이 2 m 이상에, 30–45° 아래를 향하게 둔다.
+  - 헤드셋과 1.5 m 이상, base station끼리는 5 m 이내로 둔다.
+  - 헤드셋까지 가리는 것이 없어야 한다.
+  - 채널은 서로 다르게 맞춘다.
+- [ ] 반사면을 가린다. base station 추적도 반사면에 방해받는다.
+- [ ] Varjo Base에서 헤드셋과 base station이 연결됐는지 본다. SteamVR에서 Room setup을 한다(문서 권장 "Standing Only").
+- [ ] **Room setup을 다시 하거나 base station을 옮기면 좌표 원점이 바뀐다.** 시험하는 동안에는 건드리지 않는다. 15-3이 이 전제로 잰다.
+- [ ] **Varjo 컨트롤러는 SteamVR 추적에서 쓸 수 없다**(같은 문서). 데스크톱 창과 키보드로 조작한다.
+
+### 15-2. 앱을 켜자마자 — OpenXR 런타임이 Varjo인가
+
+SteamVR을 설치하면 시스템 OpenXR 런타임이 SteamVR로 바뀔 수 있다(이 PC에서 확인하지 않았다). 그러면 Varjo 확장이 없어서 MR·마커·깊이가 전부 조용히 안 된다.
+
+- [ ] `Saved/Logs/GMTCK_MR.log`에서 `OpenXR runtime supported extensions:` 아래 목록을 본다. 다음이 있어야 한다:
+  - `XR_VARJO_marker_tracking`
+  - `XR_VARJO_composition_layer_depth_test`
+  - `XR_VARJO_environment_depth_estimation`
+  - `XR_VARJO_view_offset`
+  - `XR_EXT_hand_tracking`
+
+  없으면 Varjo Base나 SteamVR 설정에서 OpenXR 런타임을 Varjo로 되돌리고 앱을 다시 켠다.
+- [ ] 같은 목록에 **`XR_HTCX_vive_tracker_interaction`**이 있는지 적는다. 있으면 Vive Tracker로 움직이는 실물을 추적하는 길이 열린다(15-4). 없으면 이 런타임으로는 트래커를 못 쓴다.
+- [ ] 로그 파일을 통째로 붙여 준다.
+
+### 15-3. 원점이 세션 사이에 그대로인가 — 저장 위치 재사용(U-2)의 근거
+
+base station 추적은 원점이 base station에 묶여 있어서, inside-out보다 세션 사이에 원점이 그대로일 가능성이 높다. 그렇다면 "맞춘 차 위치를 그대로 저장"하는 방식이 가장 정확해진다(`Docs/Specs/oct-review-fixes.md` U-2).
+
+- [ ] 마커로 보정한다. 키로 차를 옮기지 않는다.
+- [ ] PIE 중 World Outliner에서 차량 Root 액터(`BP_VehicleRoot_TestCar`)를 골라 Details의 Location·Rotation을 적는다.
+- [ ] PIE를 끝냈다 다시 시작하고, 같은 자리에서 보정해 다시 적는다. 세 번 반복한다.
+- [ ] 2023판으로도 같은 방법을 해 볼 수 있으면 같이 적는다. 그래야 비교가 된다.
+- [ ] 세 값이 1 mm 안에서 같으면 원점이 그대로인 것이다. 몇 mm 이상 다르면 원점이 움직이거나 마커 측정이 흔들리는 것이다. 두 가지는 지금 빌드로는 구분할 수 없다. 마커 좌표 로그(oct-review-fixes R1-5) 뒤에 구분한다.
+
+### 15-4. 동적 마커 — 지금 코드로 미리 보기
+
+움직이는 실물을 따라가는 기능(DynamicObject)은 아직 없다. 하지만 보정 마커를 Dynamic으로 바꾸고 고정을 끄면, 차가 마커를 따라오는 모습으로 같은 추적 품질을 볼 수 있다(§3 "마커 추종을 보려면 freeze를 꺼야 한다").
+
+- [ ] 마커 프로필(`/Game/Vehicle/Example/DA_MarkerProfile_TestCar`)의 보정 마커 `Tracking Mode`를 `Dynamic`으로 바꾼다. 차량 Root의 Placement에서 `Freeze After Calibration`을 끈다. **시험이 끝나면 둘 다 되돌리고, 애셋은 저장하지 않는다.**
+- [ ] 마커를 손에 들고 천천히, 그다음 빠르게 움직인다. 차가 몇 박자 늦게 따라오는지, 멈췄을 때 떨리는지 본다.
+- [ ] 손가락으로 마커 일부를 가린다. 고개를 돌려 마커가 시야 가장자리에 가게 한다. 언제 놓치는지 본다.
+- [ ] 같은 동작을 `Stationary`로 해서 비교한다.
+- [ ] 결과는 말로 적어도 된다(예: "빠르게 흔들면 0.5초쯤 늦음, 손가락이 반쯤 가리면 놓침").
+
+### 15-5. 결과와 함께 적을 것
+
+- 헤드셋 정확한 모델명(Varjo Base 기기 정보), Varjo Base 버전, SteamVR 버전, base station 버전·개수
+- 15-2 로그, 15-3 숫자, 15-4 관찰
+
 ## 아무 반응이 없는 키 (제거된 매핑)
 
 `G` 시선 점, `I` foveation 오버레이, `F` 손목 클릭, `C` 전체 마커 Dynamic 전환은 매핑에서 제거했다.

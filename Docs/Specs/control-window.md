@@ -65,7 +65,6 @@
 | Change since last save | 마지막 저장·버리기·보정 뒤 누른 조정량의 합. 진행자 기준 방향(Away·Right·Up)과 회전, cm·° |
 | First-time setup의 Align to my eyes | 지금의 눈 정렬 시작(`UCXMRTuningWindowComponent::StartInitialAlignment`, `CXMRTuningWindowComponent.cpp:535`) |
 | Vehicle 목록 | Loader 카탈로그 차량. "Alignment group" 문구는 그룹이 있을 때만, 없으면 그 줄을 숨긴다 |
-| Design options | 지금 Review 페이지의 슬롯·옵션 |
 | 바뀐 고급 설정 수 문구, Advanced settings… | 고급 창 열기 |
 
 - **상태 판정**: Placement가 상태 하나를 구조체로 낸다. 담을 것: 단계(시작 대기·없음·마커 대기·정착 중·정렬됨·조정됨·저장 중), 복원 종류(world·markers·new·saved), 원점 이동 거리, 빠진 마커 ID, 진행률 0~1. 문구는 이 구조체에서 만드는 순수 함수로 하고 시험한다. 각 경우는 시안 `status()`와 1:1이다.
@@ -100,8 +99,7 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
   - 이 밖에 시안에 없는 등록 항목을 찾으면 질문한다.
 - **새로 등록할 항목** (`SETTINGS`의 `new:`):
   - `MR.StartInMR`
-  - `Diagnostics.GazePoint` — G 키와 같은 상태
-  - `Diagnostics.FoveatedArea` — I 키와 같은 상태
+  - `Diagnostics.GazePoint`, `Diagnostics.FoveatedArea` — **보류.** 시선 점(G)과 Foveated 영역 오버레이(I)는 10-08 `e1b5f77`에서 키와 기능이 이미 지워졌다(`Docs/Headset-Test-Checklist.md` "아무 반응이 없는 키"). 되살릴지 사용자 결정 전까지 이 두 행은 만들지 않는다. 되살리게 되면 `5f72692`의 구현이 출발점이다.
   - 마커 평균 시간(`CalibrationSettleSeconds`)
   - 원점 재사용 허용 오차 두 개(oct-review-fixes U-2의 프로퍼티)
   - 마커 좌표 로그 실행(oct-review-fixes R1-5의 `CXMR.DumpMarkers`)
@@ -197,3 +195,4 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
 ## 개정 이력
 
 - 2026-10-14: 처음 작성 (Claude). 시안 승인 — 사용자
+- 2026-10-14: Vehicle 탭에서 디자인 옵션 삭제(시안 3판) — 사용자 결정, main-basic에서 기능도 뺌

@@ -327,12 +327,6 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
           <div class="choices" role="radiogroup" aria-label="Vehicle" id="vehList"></div>
           <div class="cap">Both vehicles share one saved alignment, so switching keeps the car in place.</div>
         </div>
-        <div class="sec">
-          <div class="sec-h"><h3>Design options</h3></div>
-          <div class="cap">Console</div>
-          <div class="seg" role="group" aria-label="Console option" id="consoleSeg"></div>
-          <div class="cap">Options on the same mount replace each other. The car's position does not change.</div>
-        </div>
       </div>
 
       <div class="winfoot">
@@ -359,7 +353,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
     <ul>
       <li><b>Starts in MR.</b> As soon as the headset session runs, MR, the depth test and real-world depth turn on, so the reviewer sees their own hands. Before that the window says so instead of showing a mode that is not real yet.</li>
       <li><b>Mode and calibration status sit outside the tabs.</b> Whatever tab is open, the facilitator can see whether the car is aligned and what is missing.</li>
-      <li><b>Two tasks, two tabs.</b> Calibration for every session; Vehicle for swapping cars and design options. First-time rig setup is folded away.</li>
+      <li><b>Two tasks, two tabs.</b> Calibration for every session; Vehicle for switching cars. First-time rig setup is folded away.</li>
       <li><b>One next action at a time.</b> Save alignment only lights up when there is an unsaved change and every marker is in view; otherwise the reason is written under it.</li>
       <li><b>Advanced settings live in their own window</b>, split by MR, VR, calibration and diagnostics. The control window counts how many settings differ from the defaults, so a forgotten change is visible.</li>
     </ul>
@@ -371,7 +365,6 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
   // ---------- data ----------
   const MARKERS = [3, 7];
   const VEHICLES = [{ id: "A", name: "Preview vehicle A" }, { id: "B", name: "Preview vehicle B" }];
-  const CONSOLES = ["Compact console", "Open console"];
   const STEPS = [0.1, 1, 5];
 
   // reg = tunable ID in the CXMR registry ("new" = add it). readout/action rows are not settings.
@@ -432,7 +425,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
   const S = {
     session: "running", mode: "MR", seen: { 3: true, 7: true }, calib: "aligned", restore: "world",
     shift: 0.12, adj: { away: 0, right: 0, up: 0, turn: 0 }, hasSave: true, step: 1,
-    tab: "cal", advOpen: true, advTab: "MR", vehicle: "A", console: CONSOLES[0],
+    tab: "cal", advOpen: true, advTab: "MR", vehicle: "A",
     values: {}, progress: 0, scenario: "world", armed: false, done: {}, headingNote: "Yaw 12.0°, set at the first key press"
   };
   SETTINGS.filter(isSetting).forEach(s => { S.values[s.id] = s.def; });
@@ -617,7 +610,6 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
 
   function renderVehicle() {
     $("vehList").innerHTML = VEHICLES.map(v => `<button class="choice" type="button" role="radio" aria-checked="${S.vehicle === v.id}" data-veh="${v.id}"><span class="radio"></span><span>${esc(v.name)}</span></button>`).join("");
-    $("consoleSeg").innerHTML = CONSOLES.map(c => `<button type="button" aria-pressed="${S.console === c}" data-console="${esc(c)}">${esc(c)}</button>`).join("");
   }
 
   function renderFooter() {
@@ -720,7 +712,6 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
       S.calib = "adjusted"; render(); return;
     }
     if (t.dataset.veh) { S.vehicle = t.dataset.veh; render(); return; }
-    if (t.dataset.console) { S.console = t.dataset.console; render(); return; }
     if (t.dataset.advtab) { S.advTab = t.dataset.advtab; S.armed = false; render(); return; }
     if (t.dataset.action) { runAction(t.dataset.action); render(); return; }
     if (t.dataset.set && t.classList.contains("sw")) { S.values[t.dataset.set] = !S.values[t.dataset.set]; render(); return; }
