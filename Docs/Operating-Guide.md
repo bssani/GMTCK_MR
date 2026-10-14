@@ -317,6 +317,27 @@ roll/pitch는 0으로 고정한다(차는 바닥에 평평히 놓인다는 가�
 
 ---
 
+## 3-2. 마커를 따라가는 메시 만들기
+
+1. Content Browser에서 `/Game/` 아래 원하는 폴더에 Blueprint Class를 만들고, 부모로 **CXMR Marker Follower**를 고른다(예: `BP_Dynamic`).
+2. BP를 열어 루트 아래에 Static Mesh를 붙인다. 실물 박스 치수에 맞춘다(엔진 큐브는 100 cm, 30 cm 박스면 Scale 0.3).
+3. Class Defaults(또는 레벨에 놓은 뒤 Details)에서 `Marker Id`에 박스에 붙인 마커 번호를 넣는다. **차량 보정 마커와 다른 번호**를 쓴다.
+4. `Tracking Mode`를 고른다. 움직이는 물체는 Dynamic이다.
+5. 레벨에 놓는다. 위치는 상관없다. 마커가 보이면 그 자리로 간다.
+6. 메시가 실물 박스와 어긋나면 `Marker To Actor`로 맞춘다. 마커가 박스 윗면 가운데에 있다면, 박스 중심은 마커에서 박스 높이의 절반만큼 면 안쪽이다. 어느 축이 면 바깥인지는 마커 축 표시로 확인한다.
+
+값은 `CXMR → Marker Follower`에 있다. `Follow`를 끄면 현재 위치에서 멈추고, 켜면 다음 마커 이벤트부터 따라간다.
+`When Lost` 기본은 Hold(마지막 자리 유지), Hide면 숨겼다가 다시 관측되면 나타난다.
+라벨은 `waiting`(아직 관측 안 됨), `lost`(놓침), 런타임이 보고한 `Dynamic`/`Stationary`다. 모드를 읽을 수 없으면 `mode ?`다.
+`Marker Id` 0은 동작하지 않는다. 마커 추적이 꺼져 있으면 `V` 또는 컨트롤 창으로 켠다.
+키·버튼은 BP의 `Set Follow`/`Set Tracking Mode`에 연결할 수 있으며, `Is Marker Tracked`와 `On Marker Found`/`On Marker Lost`로 색 등을 바꿀 수 있다.
+같은 번호의 follower가 둘이면 둘 다 따라가며 마지막 모드 요청이 이긴다. 종료하면 보정 마커는 프로필 모드, 그 밖의 마커는 Stationary로 되돌린다.
+
+이 C++ 부모는 플러그인 코드다. 자식 BP·메시·레벨 배치는 프로젝트의 `/Game/` 데이터로 만들고 `/CXMR/` 공통 애셋은 바꾸지 않는다.
+헤드셋 시험은 [체크리스트 §15-4](Headset-Test-Checklist.md#15-4-박스에-붙인-마커를-메시가-잘-따라가는가)로 한다. 로컬 자동화는 실제 추적 지연·떨림을 확인하지 않는다.
+
+---
+
 ## 4. 차량 추가 / 교체
 
 ### 차량 프로파일 (`UCXMRVehicleProfile`)
@@ -586,7 +607,7 @@ Varjo 예제 맵(`/Game/VRTemplate/Maps/VRTemplateMap`)에 있고 CXMR에 없던
 
 **마커 라벨** — 모드는 플러그인이 **지금** 그 마커에 걸고 있는 값이다. 캘리브레이션 마커는 처음 보일 때 마커 프로파일
 항목의 `Tracking Mode`가 걸리므로, 라벨이 그 값과 다르면 설정이 안 먹은 것이다. 헤드셋이 보고한 적 없는 마커는 `mode ?`로 나온다.
-(움직이는 실물을 마커로 따라가게 하는 DynamicObject 기능은 아직 없다 — 그 역할의 마커에는 아무도 모드를 걸지 않는다.)
+(움직이는 실물에 메시를 겹칠 때는 §3-2의 **CXMR Marker Follower**를 쓴다. 프로필의 DynamicObject 역할만 지정해서는 메시가 따라가지 않는다.)
 예전 화면 글자(`DrawDebugString`)는 라벨로 바꿨다.
 
 **모니터 화면** — 두 번째 카메라가 장면을 한 번 더 그리므로(성능 비용) 기본은 꺼짐(`Headset mirror`)이다. 고른 값은 PC별로
