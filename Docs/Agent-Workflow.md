@@ -87,6 +87,7 @@
 - worktree 경로가 길면 UBT가 "action paths are longer than 260 characters"로 실패한다. `subst W: <worktree의 상위 폴더>`로 짧게 만든 뒤 `W:\...\GMTCK_MR.uproject`로 빌드하고, 끝나면 `subst W: /D`.
 - 빌드는 `-DisableAdaptiveUnity`로 한다. 성공한 뒤에만 push한다.
 - 지울 때 `git worktree remove --force`가 긴 경로 때문에 폴더 삭제에 실패할 수 있다. 그때는 폴더를 지운 뒤 `git worktree prune`.
+- **`main`에서 프로그램 전용 기능을 지운 머지는 프로젝트 브랜치에 `git merge -s ours <그 머지>`로 기록만 한다.** 그냥 merge하면 프로젝트 브랜치에서도 지워진다. 먼저 그 직전까지의 `main`을 평소처럼 받아 두어야 다른 템플릿 변경이 버려지지 않는다. 그래서 지우는 작업 브랜치에는 지우는 커밋만 담는다(첫 사례: [main-basic.md](Specs/main-basic.md)).
 
 ### 2.5 애셋·맵 확인
 

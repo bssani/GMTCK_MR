@@ -73,3 +73,4 @@
 ## 질문
 
 - **Q1 (사용자에게):** `c576309`(10-07 "Merge CXMR USB interaction…")이 `project/pqdq-usb-access`의 PQDQ 전용 커밋 10개(가상 손, USB 포트 표식 등)를 템플릿인 `main`에 넣었다. 지금 두 브랜치는 같다. 의도한 것인가? 의도라면 "USB 포트·가상 손은 템플릿 기능"으로 AGENTS.md에 적는다. 아니라면 템플릿에서 떼어 낼 범위를 별도 명세로 정한다.
+  - **답 (사용자 2026-10-14):** 의도가 아니다. `main`은 기본 템플릿만 두고 USB 포트·USB 손 접촉은 `project/pqdq-usb-access`에만 둔다. 나머지(디자인 옵션, 운전자 눈 정렬, 그룹 공용 정렬, H·G·I, 관전 카메라, 마커 디버그)는 `main`에 남긴다. → 명세 [main-basic.md](../Specs/main-basic.md)

@@ -63,6 +63,7 @@ Varjo XR-4 MR로 실물(clay 모형·의자·박스) 위에 가상 차량을 겹
 ## 브랜치
 
 - `main` = 템플릿. `project/<이름>` = 프로그램별 장기 브랜치(머지해서 지우는 대상이 아니다). 템플릿 수정은 `main`에 넣고 프로젝트 브랜치로 merge해서 받는다.
+- **`main`에는 기본 기능만 둔다(2026-10-14 사용자 결정).** 프로그램 전용 기능은 그 `project/<이름>`에만 둔다. 지금 `project/pqdq-usb-access` 전용: USB 포트 표식, USB 손 접촉. 무엇이 `main`에 남는지는 [Docs/Specs/main-basic.md](Docs/Specs/main-basic.md) "목적".
 - 짧은 작업 브랜치(`codex/*` 등)는 머지 직후 지운다.
 
 ## 빌드·환경
