@@ -11,8 +11,6 @@
 class UCXMRVehicleProfile;
 class UCXMRVehicleCatalog;
 class UCXMRSubsystem;
-class UCXMRDesignOption;
-class UCXMRPartVariantComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FCXMROnVehicleLoaded, UCXMRVehicleProfile*, Profile);
 
@@ -47,8 +45,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "CXMR|Vehicle") int32 GetVehicleIndex() const { return VehicleIndex; }
 
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle") bool SelectVehicle(int32 Index);
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Vehicle") bool SelectDesignOption(UCXMRDesignOption* Option);
-	UFUNCTION(BlueprintPure, Category = "CXMR|Vehicle") UCXMRPartVariantComponent* GetPartVariants() const { return PartVariants; }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Vehicle") FString GetLastFailureReason() const { return LastFailureReason; }
 	UPROPERTY(BlueprintAssignable, Category = "CXMR|Vehicle") FCXMROnVehicleLoaded OnVehicleLoaded;
 
@@ -71,7 +67,6 @@ private:
 	void ReportStatus();
 
 	UPROPERTY(Transient) TObjectPtr<AActor> SpawnedVehicle;
-	UPROPERTY(Transient) TObjectPtr<UCXMRPartVariantComponent> PartVariants;
 	UPROPERTY(Transient) FString LastFailureReason;
 	UPROPERTY(Transient) TObjectPtr<UCXMRSubsystem> Subsystem;
 

@@ -14,12 +14,8 @@
 #include "CXMRVehicleRoot.h"
 #include "Engine/StaticMeshActor.h"
 #include "CXMRMarkerProfile.h"
-#include "CXMRUsbPortTarget.h"
 #include "CXMRVehicleLoaderComponent.h"
 #include "CXMRVehicleProfile.h"
-#include "CXMRDesignOption.h"
-#include "CXMRPartAssembly.h"
-#include "CXMRPartSlotComponent.h"
 #include "ImageUtils.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -108,10 +104,10 @@ bool FCXMRPanelModesTest::RunTest(const FString& Parameters)
 	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>();
 	Control->SelectPage(ECXMRControlPage::Calibration);
 	TestEqual(TEXT("Calibration remains accessible in daily use"), Control->GetActivePage(), ECXMRControlPage::Calibration);
-	Control->SelectPage(ECXMRControlPage::USB);
+	Control->SelectPage(ECXMRControlPage::Diagnostics);
 	TestEqual(TEXT("Settings remain accessible during review"), Control->GetActivePage(), ECXMRControlPage::Display);
-	Control->SelectPage(ECXMRControlPage::USB);
-	TestEqual(TEXT("Historical USB navigation resolves to Settings"), Control->GetActivePage(), ECXMRControlPage::Display);
+	Control->SelectPage(ECXMRControlPage::Diagnostics);
+	TestEqual(TEXT("Historical diagnostics navigation resolves to Settings"), Control->GetActivePage(), ECXMRControlPage::Display);
 	TestEqual(TEXT("Settings navigation survives setup preference changes"), Control->GetActivePage(), ECXMRControlPage::Display);
 	return true;
 }
@@ -254,41 +250,18 @@ bool FCXMRPanelRenderTest::RunTest(const FString& Parameters)
 	UCXMRVehicleProfile* VehicleB = NewObject<UCXMRVehicleProfile>(Owner);
 	VehicleA->DisplayName = FText::FromString(TEXT("Preview vehicle A"));
 	VehicleB->DisplayName = FText::FromString(TEXT("Preview vehicle B"));
-	VehicleA->VehicleActor = ACXMRPartAssembly::StaticClass();
-	VehicleB->VehicleActor = ACXMRPartAssembly::StaticClass();
-	UCXMRDesignOption* Compact = NewObject<UCXMRDesignOption>(Owner);
-	UCXMRDesignOption* Open = NewObject<UCXMRDesignOption>(Owner);
-	Compact->OptionId = "CompactConsole"; Compact->SlotId = "Console";
-	Compact->DisplayName = FText::FromString(TEXT("Compact console"));
-	UClass* PreviewAssembly = FindObject<UClass>(nullptr, TEXT("/Script/CXMR.CXMRPartVariantTestAssembly"));
-	TestNotNull(TEXT("Geometry-bearing runtime test assembly is available"), PreviewAssembly);
-	Compact->AssemblyActor = PreviewAssembly;
-	Open->OptionId = "OpenConsole"; Open->SlotId = "Console";
-	Open->DisplayName = FText::FromString(TEXT("Open console"));
-	Open->AssemblyActor = PreviewAssembly;
-	VehicleA->DesignOptions.Add(Compact); VehicleA->DesignOptions.Add(Open);
-	VehicleB->DesignOptions = VehicleA->DesignOptions;
+	VehicleA->VehicleActor = ACXMRVehicleRoot::StaticClass();
+	VehicleB->VehicleActor = ACXMRVehicleRoot::StaticClass();
 	Catalog->Vehicles.Add(VehicleA); Catalog->Vehicles.Add(VehicleB);
 	Loader->Catalog = Catalog;
 	TestTrue(TEXT("Preview catalog vehicle is loaded through the review API"), Loader->SelectVehicle(0));
-	if (AActor* PreviewVehicle = Loader->GetSpawnedVehicle())
-	{
-		UCXMRPartSlotComponent* Slot = NewObject<UCXMRPartSlotComponent>(PreviewVehicle);
-		Slot->SlotId = "Console";
-		PreviewVehicle->AddInstanceComponent(Slot);
-		Slot->SetupAttachment(PreviewVehicle->GetRootComponent());
-		Slot->RegisterComponent();
-		TestTrue(TEXT("Preview design option is selected through the review API"), Loader->SelectDesignOption(Compact));
-	}
 
 	VehicleA->AlignmentGroup = "PreviewRig";
 	UCXMRPlacementComponent* Placement = NewObject<UCXMRPlacementComponent>(Owner);
 	Placement->RegisterComponent();
-	ACXMRUsbPortTarget* Port = World->SpawnActor<ACXMRUsbPortTarget>();
 	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Owner);
 	Control->RegisterComponent();
 	Owner->DispatchBeginPlay();
-	Port->DispatchBeginPlay();
 	Control->SelectPage(ECXMRControlPage::Display);
 	Control->OpenWindow();
 	bool bFoundWindow = false;

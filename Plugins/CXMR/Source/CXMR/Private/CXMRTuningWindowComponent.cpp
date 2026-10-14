@@ -450,7 +450,6 @@ FText UCXMRTuningWindowComponent::GetAlignmentStatus(const UCXMRVehicleLoaderCom
 	return FText::FromString(FString::Printf(TEXT("%s   |   %s%s"), *Vehicle, *State, *Detail));
 }
 
-
 bool UCXMRTuningWindowComponent::IsSharedAlignmentResetArmed() const
 {
 	const UCXMRPlacementComponent* Placement = FindPlacement();
@@ -590,7 +589,7 @@ void UCXMRTuningWindowComponent::FinishInitialAlignment()
 	const FTransform HeadWorld = FTransform(Rotation, Position) * GEngine->XRSystem->GetTrackingToWorldTransform();
 	if (FindPlacement()->AlignToDriverEyePose(HeadWorld))
 	{
-		CalibrationMessage = LOCTEXT("EyeAligned", "Initial alignment complete. Adjust against the physical USB and console, then confirm alignment.");
+		CalibrationMessage = LOCTEXT("EyeAligned", "Initial alignment complete. Adjust against the physical rig, then confirm alignment.");
 	}
 }
 

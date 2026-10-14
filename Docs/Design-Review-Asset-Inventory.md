@@ -1,5 +1,7 @@
 # 변경된 바이너리 애셋 분류 (2026-10-08)
 
+디자인 옵션은 `project/pqdq-usb-access` 브랜치에 있다.
+
 HEAD 대비 전체 변경 40개. 이번 리뷰 반영에서는 바이너리 애셋을 수정하거나 되돌리지 않았다.
 분류는 요청한 유지 대상과 기존 마이그레이션 기록에 따른 것이다. 덤 재저장의 의미적 무변경을 바이너리 diff로 증명한 것은 아니다. 되돌릴지는 사용자가 결정한다.
 
@@ -9,8 +11,8 @@ HEAD 대비 전체 변경 40개. 이번 리뷰 반영에서는 바이너리 애�
 |---|---|
 | `Content/Map/L_Main.umap` | 배치된 Loader의 옛 AttachTarget을 VehicleAnchor로 이관한 맵. |
 | `Content/Vehicle/Example/BP_VehicleRoot_TestCar.uasset` | 최소 Root 구조와 Loader 부착 기준을 반영한 차량 Root. |
-| `Content/Vehicle/Example/DA_Vehicle_TestCarA.uasset` | 옛 트림/CMF 필드 제거와 디자인 옵션·눈 기준·정렬 프로필 구조를 반영한 재저장. |
-| `Content/Vehicle/Example/DA_Vehicle_TestCarB.uasset` | 옛 트림/CMF 필드 제거와 디자인 옵션·눈 기준·정렬 프로필 구조를 반영한 재저장. |
+| `Content/Vehicle/Example/DA_Vehicle_TestCarA.uasset` | 옛 트림/CMF 필드 제거와 눈 기준·정렬 프로필 구조를 반영한 재저장. |
+| `Content/Vehicle/Example/DA_Vehicle_TestCarB.uasset` | 옛 트림/CMF 필드 제거와 눈 기준·정렬 프로필 구조를 반영한 재저장. |
 | `Plugins/CXMR/Content/Core/Input/Actions/IA_CXMR_CycleTrim.uasset` | 제거한 트림 순환 액션 삭제. |
 | `Plugins/CXMR/Content/Core/Input/Actions/IA_CXMR_PanelClick.uasset` | 제거한 손목 패널 클릭 액션 삭제. |
 | `Plugins/CXMR/Content/Core/Input/Actions/IA_CXMR_SpinLeft.uasset` | 제거한 좌회전 토글 액션 삭제. |

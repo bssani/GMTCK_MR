@@ -192,7 +192,7 @@ Local Offset은 그때 의미가 없다. 그래서 반대로 한다 — **눈으
 1. 마커를 잘 보이는 고정 부위에 붙이고, 사용할 번호를 차량 Marker Profile에 `Calibration`으로 등록한다.
 2. 차량 Data Asset의 `Driver Eye Reference`를 설정하고 §7의 `Initial Alignment`로 대략 맞춘다.
    기존 `E` 수동 배치도 사용할 수 있다. 마커 추적은 XR 세션 준비 뒤 자동으로 시작한다.
-3. 넘버패드나 Placement의 `− / +`로 실물 USB·센터콘솔과 맞춘다.
+3. 넘버패드나 Placement의 `− / +`로 실물 기준과 맞춘다.
 4. 차량과 마커를 고정한 채 등록된 보정 마커 전부를 시야에 넣는다. Marker Follower가 쓰는 ID는 보정에서 제외한다.
 5. `Confirm fit`, `Save alignment` 또는 넘버패드 `Enter`를 **한 번** 누른다. 이전 관측은 저장 표본에 쓰지 않는다.
 6. 마커당 새 표본 10개가 모이면 평균으로 자동 저장한다. 저장 중 Lost·0.5초 관측 만료·차량 이동·교체가 생기면 요청 전체를 취소한다. 10초 안에 표본을 채우지 못해도 취소한다. 빠진 ID·부족한 표본 수·실패 이유가 표시되며, 다시 누르면 새 캡처를 시작한다.
@@ -349,7 +349,6 @@ roll/pitch는 0으로 고정한다(차는 바닥에 평평히 놓인다는 가�
 | **Marker Profile** | 이 차의 캘리브 설정. **차를 바꾸면 마커 설정도 따라온다** |
 | **Vehicle Root Offset** | 모델 피벗이 마커 오프셋 기준과 어긋날 때 보정 |
 | **Ergonomics** | 선택적으로 추가한 Ergonomics 컴포넌트의 퍼센타일 착좌 데이터 |
-| **Design Options** | Review에서 선택할 부품 옵션 목록 (§7) |
 
 ### 차량 목록 (`UCXMRVehicleCatalog`)
 
@@ -429,7 +428,7 @@ Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 
 | 메뉴 | 용도 |
 |---|---|
-| Review | 차량과 작성한 디자인 옵션 선택, 선택 실패 이유 |
+| Review | 차량 선택, 선택 실패 이유 |
 | Alignment | 운전자 눈 기준 초기 정렬, 미세조정, 확인·마커 캡처·저장 |
 | Settings | MR/VR 가상 노출, MR 깊이·마스킹, 손 접촉, 마커·손·관전 화면 진단 |
 
@@ -447,7 +446,7 @@ Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 3. 실제 운전자석에 자연스럽게 앉아 정면을 보고 `Alignment → 1 Align to eyes`를 누른다.
    3초 뒤 추적된 HMD 위치와 yaw로 차량을 한 번 배치한다. 다시 누르면 취소한다.
    눈 기준점·차량·마커 설정이 없거나 HMD 위치 추적이 유효하지 않으면 초기 배치를 적용하지 않는다.
-4. 실제 USB·센터콘솔과 비교해 위치와 회전을 미세조정한다.
+4. 실물 기준과 비교해 위치와 회전을 미세조정한다.
    Turn은 차량에 지정한 눈 기준점을 중심으로 돈다. Root 위치까지 보정하므로 먼 CAD 원점 주위로 크게 돌지 않는다.
    마커가 새로 보이거나 고개를 돌려도 조정 중인 차량 위치는 유지한다.
 5. 보정 마커 전부를 시야에 유지하고 `2 Confirm fit`, `3 Save alignment` 또는 넘버패드 `Enter`를 한 번 누른다.
@@ -489,13 +488,7 @@ MR·배경·깊이 비교 등 세션용 스위치는 매 실행마다 다시 설
 Alignment의 Placement 화면에 현재 저장 범위가 표시된다. `Reset Group Alignment`는 그룹 저장을 지우며, `Reset Adjustment`는 임시 조정만 취소한다.
 차량 모델 설정을 바꾼 뒤에는 다시 로드하고 공통 앵커에 대한 차체 위치를 확인한다. 그룹은 모델 변경 자체를 이유로 공용 정렬을 거절하지 않는다.
 
-USB의 기본 입력은 생성되는 손의 접촉이다. 양손의 관절 구와 손가락 뼈 범위를 같은 추적 좌표로 계산한다.
-`USB / Hands → Hand Contact Margin`은 손 표면 밖의 접촉 여유(cm), `Hand Release Margin`은 해제 여유다.
-기본값은 0.25cm와 0.75cm다. 손이 포트 중심에 닿으면 테두리 빛과 지정한 `Near Sound`가 나오고, 떨어지면 해제된다.
-`Show USB Contact Bounds`로 포트 중심과 범위를 확인한다. 손 표시 크기와 손 좌표 보정은 접촉에도 적용된다.
-H키로 손 표시를 꺼도 접촉 판정은 계속된다. 추적 유예는 이미 켜진 반응만 잠깐 유지하며 새 접촉을 만들지 않는다.
-차량의 USB 메시·재질은 유지하며, 접촉을 케이블 삽입 완료로 표시하지 않는다.
-실물 케이블·금속 플러그의 깊이 인식은 헤드셋에서 별도로 확인해야 한다.
+USB 포트·손 접촉은 `project/pqdq-usb-access` 브랜치에 있다.
 
 **창 설정**: `BP_CXMRPawn → Desktop Panel → Open On Begin Play`가 자동 열기를 담당한다.
 같은 pawn의 `Tuning Window`가 창을 소유하며 기본 크기는 900×760, 위치는 (40, 60)이다.
@@ -503,7 +496,7 @@ H키로 손 표시를 꺼도 접촉 판정은 계속된다. 추적 유예는 이
 통합 창의 크기·제목은 `Tuning Window`에서 바꾼다.
 
 아래 기존 절차에서 말하는 “튜닝 창”은 이 통합 창의 해당 메뉴다.
-`Vehicle placement / Input`은 Alignment, `Mixed reality / Depth / Display / Monitor`와 손 접촉·진단은 Settings에 있다.
+`Vehicle placement / Input`은 Alignment, `Mixed reality / Depth / Display / Monitor`와 손 표시·진단은 Settings에 있다.
 
 ### MR/VR 노출 프리셋
 
@@ -517,34 +510,7 @@ unbound Post Process Volume의 가상 장면 노출(EV)이다. 카메라 노출�
 한 모드만 조정했다면 다른 모드로 전환할 때 레벨 기준값으로 돌아간다.
 기존 `Tuning.json`의 `Display.Exposure`만 있고 새 두 키가 모두 없으면 그 값을 MR·VR 양쪽 초기 프리셋으로 쓴다.
 
-### 디자인 옵션 작성하기 — 같은 차량의 부품 A/B
-
-```text
-VehicleRoot
-  VehicleAnchor (공용 캘리브레이션 기준)
-    Imported vehicle actor (VehicleRootOffset은 한 번만)
-      PartSlot: CenterConsole
-        Selected PartAssembly (SlotLocalOffset)
-          Part meshes / collision
-          USB target child actors
-```
-
-1. 로드되는 차량 Blueprint에 **CXMR Part Slot** scene component를 넣고 고유한 `Slot Id`를 정한다. 예: `CenterConsole`.
-   차량 로컬 좌표의 부착점은 고정한다. 같은 영역의 A/B는 **같은 SlotId**를 쓴다. 독립 교체 영역만 다른 슬롯으로 만든다.
-2. **CXMR Part Assembly**를 상속한 Blueprint를 옵션마다 만든다. 메시·collision·USB ChildActor를 한 조립체 안에 넣는다.
-   자식은 이 소유 계층에 속해야 한다. 충돌이나 표식만 있으면 부품 모델로 인정하지 않는다.
-   자식으로 또 다른 **Part Assembly**를 넣지는 않는다. 중첩 조립체는 선택 전에 거부하며 기존 옵션을 유지한다.
-   하위 모델은 일반 Actor·ChildActor 또는 메시 컴포넌트로 구성한다.
-3. **CXMR Design Option** Data Asset에 고유 `Option Id`, 영어 `Display Name`, 대응 `Slot Id`, 조립체 Blueprint,
-   `Slot Local Offset`(cm)을 넣는다. CAD 메시를 하나씩 옮겨 원점을 수리하지 말고 기존 그룹 전체를 조립체로 옮긴다.
-4. 차량 프로파일의 `Design Options`에 에셋을 넣는다. 고정 차량 모델에서는 교체할 영역을 빼야 두 콘솔이 겹치지 않는다.
-5. Review에서 선택한다. 후보를 생성·검증한 뒤 기존 부품을 퇴역시킨다. 실패하면 기존 부품·차량 정렬·눈 기준점이 유지된다.
-   퇴역 부품의 메시·collision·USB 접촉·소리·tick은 꺼져야 한다. 실제 헤드셋으로 반복 교체를 확인한다.
-
-슬롯 추가·삭제는 차량 Blueprint에서 하고 차량을 다시 로드한다. `ClearSlot`은 현재 조립체만 비운다.
-`RemoveSlot`은 이번 실행의 슬롯을 퇴역시키며 Blueprint를 삭제하지 않는다. 다시 로드하면 작성한 슬롯이 돌아온다.
-**로드 시 기본 옵션 자동 선택은 아직 보류**다. 빈 슬롯에는 진행자가 옵션을 고른다.
-옵션 선택은 세션 상태이며 정렬 저장에 포함되지 않는다. 공용 앵커와 Driver Eye Reference는 옵션마다 다시 맞추지 않는다.
+디자인 옵션은 `project/pqdq-usb-access` 브랜치에 있다.
 
 ### 마이그레이션과 범위
 
@@ -613,7 +579,7 @@ Varjo 예제 맵(`/Game/VRTemplate/Maps/VRTemplateMap`)에 있고 CXMR에 없던
 
 1. `/Game/Vehicle/[프로그램]/` 폴더 생성
 2. **마커 프로파일** 생성 → 실물 마커 ID와 실측 오프셋 입력 (§3)
-3. **차량 프로파일** 생성 → 차량 BP, 마커 프로파일, 디자인 옵션 (§4)
+3. **차량 프로파일** 생성 → 차량 BP, 마커 프로파일 (§4)
 4. 여러 대면 **카탈로그** 생성
 5. `ACXMRVehicleRoot`의 **BP 서브클래스**를 만들어 레벨에 배치 → `Loader`에 프로파일·카탈로그 지정
 6. 레벨의 배경 오브젝트에 **VROnly** 부착 (§5)

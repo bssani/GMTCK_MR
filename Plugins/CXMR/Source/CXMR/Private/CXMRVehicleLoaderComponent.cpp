@@ -6,10 +6,6 @@
 #include "CXMRPlacementComponent.h"
 #include "CXMRErgonomicsComponent.h"
 
-#include "CXMRPartVariantComponent.h"
-#include "CXMRPartAssembly.h"
-#include "CXMRDesignOption.h"
-#include "CXMRUsbPortTarget.h"
 #include "Components/SceneComponent.h"
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
@@ -65,7 +61,6 @@ namespace
 			Actor->SetActorHiddenInGame(true);
 			Actor->SetActorEnableCollision(false);
 			Actor->SetActorTickEnabled(false);
-			if (ACXMRUsbPortTarget* Port = Cast<ACXMRUsbPortTarget>(Actor)) { Port->SetContactEnabled(false); }
 		}
 		for (int32 Index = Actors.Num() - 1; Index >= 0; --Index)
 		{
@@ -79,7 +74,6 @@ namespace
 		bool bHidden;
 		bool bCollision;
 		bool bTick;
-		bool bContact;
 	};
 
 	struct FVehicleComponentActivity
@@ -90,8 +84,7 @@ namespace
 
 	FVehicleActivity CaptureActivity(AActor* Actor)
 	{
-		ACXMRUsbPortTarget* Port = Cast<ACXMRUsbPortTarget>(Actor);
-		return {Actor, Actor->IsHidden(), Actor->GetActorEnableCollision(), Actor->IsActorTickEnabled(), Port && Port->IsContactEnabled()};
+		return {Actor, Actor->IsHidden(), Actor->GetActorEnableCollision(), Actor->IsActorTickEnabled()};
 	}
 
 	void SetVehicleActivity(const FVehicleActivity& State, bool bActive)
@@ -101,7 +94,6 @@ namespace
 			Actor->SetActorHiddenInGame(!bActive || State.bHidden);
 			Actor->SetActorEnableCollision(bActive && State.bCollision);
 			Actor->SetActorTickEnabled(bActive && State.bTick);
-			if (ACXMRUsbPortTarget* Port = Cast<ACXMRUsbPortTarget>(Actor)) { Port->SetContactEnabled(bActive && State.bContact); }
 		}
 	}
 
@@ -219,8 +211,6 @@ bool UCXMRVehicleLoaderComponent::TryLoadVehicle(UCXMRVehicleProfile* NewProfile
 		return Fail(TEXT("Vehicle candidate was destroyed during construction."));
 	}
 
-	if (ACXMRPartAssembly* Assembly = Cast<ACXMRPartAssembly>(Candidate)) { Assembly->SetAssemblyActive(true); }
-
 	TArray<FVehicleActivity> Activity;
 	TArray<FVehicleComponentActivity> ComponentActivity;
 	for (AActor* Actor : GetOwnedVehicleActors(Candidate))
@@ -263,24 +253,9 @@ bool UCXMRVehicleLoaderComponent::TryLoadVehicle(UCXMRVehicleProfile* NewProfile
 		}
 	}
 
-	UCXMRPartVariantComponent* CandidateVariants = Candidate->FindComponentByClass<UCXMRPartVariantComponent>();
-	if (!CandidateVariants)
-	{
-		CandidateVariants = NewObject<UCXMRPartVariantComponent>(Candidate);
-		Candidate->AddInstanceComponent(CandidateVariants);
-		CandidateVariants->RegisterComponent();
-	}
-	if (!IsValid(CandidateVariants) || !CandidateVariants->IsRegistered())
-	{
-		DestroyOwnedVehicle(Candidate);
-		return Fail(TEXT("Vehicle part controller could not be registered."));
-	}
-	CandidateVariants->InitializeOptions(NewProfile->DesignOptions);
-
 	// 새 차량 준비 후 기존 차량과 선택 상태 교체함.
 	UnloadVehicle();
 	SpawnedVehicle = Candidate;
-	PartVariants = CandidateVariants;
 	Profile = NewProfile;
 	for (const FVehicleActivity& State : Activity) { SetVehicleActivity(State, true); }
 	for (const FVehicleComponentActivity& State : ComponentActivity)
@@ -290,7 +265,6 @@ bool UCXMRVehicleLoaderComponent::TryLoadVehicle(UCXMRVehicleProfile* NewProfile
 
 	SyncMarkerProfile();
 	SyncVehicleIndex();
-
 
 	// 차량 교체 시 착좌 프로필과 순번도 갱신함.
 
@@ -310,7 +284,6 @@ bool UCXMRVehicleLoaderComponent::TryLoadVehicle(UCXMRVehicleProfile* NewProfile
 
 void UCXMRVehicleLoaderComponent::UnloadVehicle()
 {
-	PartVariants = nullptr;
 	if (SpawnedVehicle)
 	{
 		DestroyOwnedVehicle(SpawnedVehicle);
@@ -373,20 +346,6 @@ bool UCXMRVehicleLoaderComponent::SelectVehicle(int32 Index)
 	if (!TryLoadVehicle(Selected)) { return false; }
 	VehicleIndex = Index;
 	ReportStatus();
-	return true;
-}
-
-bool UCXMRVehicleLoaderComponent::SelectDesignOption(UCXMRDesignOption* Option)
-{
-	if (!IsValid(SpawnedVehicle) || !IsValid(PartVariants))
-	{
-		return Fail(TEXT("Load a vehicle before selecting a design option."));
-	}
-	if (!PartVariants->SelectOption(Option))
-	{
-		return Fail(PartVariants->GetLastFailureReason());
-	}
-	LastFailureReason.Reset();
 	return true;
 }
 

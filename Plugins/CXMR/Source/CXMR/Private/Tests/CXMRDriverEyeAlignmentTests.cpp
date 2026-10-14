@@ -1,3 +1,4 @@
+#include "Tests/CXMRVehicleTestTypes.h"
 // Copyright GMTCK CX.
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -7,8 +8,6 @@
 #include "CXMRVehicleLoaderComponent.h"
 #include "CXMRPlacementComponent.h"
 #include "CXMRMarkerProfile.h"
-#include "CXMRUsbPortTarget.h"
-#include "CXMRDesignOption.h"
 #include "CXMRMarkerFollower.h"
 #include "CXMRMarkerDebugComponent.h"
 #include "HAL/IConsoleManager.h"
@@ -40,7 +39,7 @@ namespace
 			GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
 			Root = World->SpawnActor<ACXMRVehicleRoot>();
 			Profile = NewObject<UCXMRVehicleProfile>();
-			Profile->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+			Profile->VehicleActor = ACXMRVehicleTestActor::StaticClass();
 			Profile->VehicleRootOffset = FTransform(FRotator(0, 25, 0), FVector(900, -450, 50));
 			UCXMRMarkerProfile* Markers = NewObject<UCXMRMarkerProfile>();
 			Markers->CalibrationId = TEXT("DriverEyeTest_") + FGuid::NewGuid().ToString(EGuidFormats::Digits);
@@ -582,24 +581,6 @@ bool FCXMRGroupResetExpiryTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("An expired confirmation cannot delete the save"), IFileManager::Get().FileExists(*Path));
 	Control->ResetSharedAlignment();
 	TestFalse(TEXT("The rearmed second click deletes the save"), IFileManager::Get().FileExists(*Path));
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRFailureAlignmentStatusTest, "CXMR.ReviewFix.FailureAlignmentStatus",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FCXMRFailureAlignmentStatusTest::RunTest(const FString& Parameters)
-{
-	FEyeFixture Fixture;
-	Fixture.Profile->DisplayName = FText::FromString(TEXT("Review vehicle"));
-	Fixture.Root->Placement->bCalibrated = true;
-	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Fixture.Root);
-	Control->RegisterComponent();
-	UCXMRDesignOption* Invalid = NewObject<UCXMRDesignOption>(Fixture.Root);
-	TestFalse(TEXT("Invalid option selection fails"), Fixture.Root->Loader->SelectDesignOption(Invalid));
-	TestFalse(TEXT("Failure remains available for Review"), Fixture.Root->Loader->GetLastFailureReason().IsEmpty());
-	const FString Status = Control->GetAlignmentStatus(Fixture.Root->Loader).ToString();
-	TestTrue(TEXT("Failed option keeps the vehicle in the header"), Status.Contains(TEXT("Review vehicle")));
-	TestTrue(TEXT("Failed option keeps alignment in the header"), Status.Contains(TEXT("Aligned")));
 	return true;
 }
 

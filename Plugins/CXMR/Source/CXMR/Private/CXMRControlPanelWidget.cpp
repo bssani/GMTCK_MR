@@ -6,8 +6,6 @@
 #include "CXMRTuningSubsystem.h"
 #include "CXMRVehicleLoaderComponent.h"
 #include "CXMRVehicleProfile.h"
-#include "CXMRDesignOption.h"
-#include "CXMRPartVariantComponent.h"
 #include "EngineUtils.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Layout/SWrapBox.h"
@@ -39,26 +37,6 @@ namespace
 		UCXMRVehicleLoaderComponent* Loader = FindReviewLoader(Viewer);
 		if (Loader && Loader->Catalog && Loader->Catalog->Vehicles.IsValidIndex(Index)
 			&& Loader->Catalog->Vehicles[Index].Get() == Profile.Get()) { Loader->SelectVehicle(Index); }
-		return FReply::Handled();
-	}
-
-	bool CanSelectOption(TWeakObjectPtr<UCXMRControlPanelWidget> Viewer, TWeakObjectPtr<UCXMRVehicleProfile> Profile, TWeakObjectPtr<UCXMRDesignOption> Option)
-	{
-		const UCXMRVehicleLoaderComponent* Loader = FindReviewLoader(Viewer);
-		return Loader && Loader->Profile == Profile.Get() && Option.IsValid() && Loader->GetPartVariants();
-	}
-
-	bool IsOptionSelected(TWeakObjectPtr<UCXMRControlPanelWidget> Viewer, TWeakObjectPtr<UCXMRDesignOption> Option)
-	{
-		const UCXMRVehicleLoaderComponent* Loader = FindReviewLoader(Viewer);
-		const UCXMRPartVariantComponent* Parts = Loader ? Loader->GetPartVariants() : nullptr;
-		return Parts && Option.IsValid() && Parts->GetActiveOption(Option->SlotId) == Option.Get();
-	}
-
-	FReply SelectOption(TWeakObjectPtr<UCXMRControlPanelWidget> Viewer, TWeakObjectPtr<UCXMRVehicleProfile> Profile, TWeakObjectPtr<UCXMRDesignOption> Option)
-	{
-		UCXMRVehicleLoaderComponent* Loader = FindReviewLoader(Viewer);
-		if (Loader && Loader->Profile == Profile.Get() && Option.IsValid()) { Loader->SelectDesignOption(Option.Get()); }
 		return FReply::Handled();
 	}
 
@@ -165,7 +143,6 @@ TSharedRef<SWidget> UCXMRControlPanelWidget::BuildDisplayPage()
 	auto CXMR = [Weak]() -> UCXMRSubsystem* { return Weak.IsValid() ? Weak->GetCXMR() : nullptr; };
 	FRows Rows;
 
-
 	const FText Human = LOCTEXT("CatHuman", "Optional eye references");
 	{
 		FCXMRTunable Row = MakeRow("Panel.Manikin", Human, LOCTEXT("Manikin", "Authored eye position"), ECXMRTunableKind::Stepper);
@@ -233,50 +210,6 @@ TSharedRef<SWidget> UCXMRControlPanelWidget::BuildViewerPage()
 		Review->AddSlot().AutoHeight()[ CXMRPanelUI::MakeCaption(LOCTEXT("NoCatalog", "No vehicle catalog. Assign one to the Loader to choose vehicles here.")) ];
 	}
 
-	Review->AddSlot().AutoHeight().Padding(0.f, 28.f)[ CXMRPanelUI::MakeDivider() ];
-	Review->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)[ CXMRPanelUI::MakeHeader(LOCTEXT("Options", "Design options")) ];
-
-	// 같은 장착 위치의 옵션끼리 묶어 서로 바뀐다는 것을 보여 줌.
-	TArray<FName> SlotOrder;
-	TMap<FName, TArray<UCXMRDesignOption*>> BySlot;
-	if (Loader && Loader->Profile)
-	{
-		for (const TSoftObjectPtr<UCXMRDesignOption>& OptionAsset : Loader->Profile->DesignOptions)
-		{
-			UCXMRDesignOption* Option = OptionAsset.LoadSynchronous();
-			if (!Option) { continue; }
-			ReviewAssets.Add(Option);
-			SlotOrder.AddUnique(Option->SlotId);
-			BySlot.FindOrAdd(Option->SlotId).Add(Option);
-		}
-	}
-	if (SlotOrder.IsEmpty())
-	{
-		Review->AddSlot().AutoHeight()[ CXMRPanelUI::MakeCaption(LOCTEXT("NoOptions", "This vehicle has no design options. Add Design Option assets to its Vehicle Profile.")) ];
-		return Review;
-	}
-
-	Review->AddSlot().AutoHeight()
-	[ CXMRPanelUI::MakeCaption(LOCTEXT("OptionsHelp", "Options on the same mount replace each other. The vehicle and its alignment stay in place.")) ];
-	const TWeakObjectPtr<UCXMRVehicleProfile> ExpectedProfile(Loader->Profile);
-	for (const FName SlotId : SlotOrder)
-	{
-		Review->AddSlot().AutoHeight().Padding(0.f, 20.f, 0.f, 8.f)
-		[ CXMRPanelUI::MakeSubheader(FText::FromString(FName::NameToDisplayString(SlotId.ToString(), false))) ];
-		TSharedRef<SWrapBox> Pills = SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8.f, 8.f));
-		for (UCXMRDesignOption* Option : BySlot[SlotId])
-		{
-			const TWeakObjectPtr<UCXMRDesignOption> ExpectedOption(Option);
-			Pills->AddSlot()
-			[
-				CXMRPanelUI::MakePill(Option->DisplayName.IsEmpty() ? FText::FromName(Option->OptionId) : Option->DisplayName,
-					TAttribute<bool>::CreateLambda([Weak, ExpectedOption] { return IsOptionSelected(Weak, ExpectedOption); }),
-					[Weak, ExpectedProfile, ExpectedOption] { return SelectOption(Weak, ExpectedProfile, ExpectedOption); },
-					TAttribute<bool>::CreateLambda([Weak, ExpectedProfile, ExpectedOption] { return CanSelectOption(Weak, ExpectedProfile, ExpectedOption); }))
-			];
-		}
-		Review->AddSlot().AutoHeight()[ Pills ];
-	}
 	return Review;
 }
 

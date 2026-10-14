@@ -126,8 +126,6 @@ namespace
 		return Control.IsValid() && HasError(Control) == bError ? Control->GetCalibrationMessage() : FText::GetEmpty();
 	}
 
-
-
 	EVisibility GroupResetVisibility(FWeakControl Control)
 	{
 		const UCXMRPlacementComponent* Placement = FindPlacement(Control);
@@ -179,10 +177,6 @@ namespace
 			{TEXT("Depth.NearZ"), TEXT("Depth near"), TEXT("Distance from the camera. Must be less than Depth far.")},
 			{TEXT("Depth.FarZ"), TEXT("Depth far"), TEXT("Real-object occlusion may stop beyond this range.")},
 			{TEXT("Depth.EnvEstimation"), TEXT("Environment depth"), TEXT("Runtime environment depth estimation. Requires a headset session.")},
-			{TEXT("Port.Live"), TEXT("Hand contact status"), TEXT("Contact with the generated tracked hand. Does not measure cable insertion.")},
-			{TEXT("Port.Debug"), TEXT("Show USB contact bounds"), TEXT("Draw contact and release margins at the USB centre.")},
-			{TEXT("Port.HandContactDistance"), TEXT("Hand contact margin"), TEXT("Extra distance beyond the generated hand surface that counts as touch.")},
-			{TEXT("Port.HandReleaseDistance"), TEXT("Hand release margin"), TEXT("Release when the hand moves beyond this margin. Keep larger than the contact margin.")},
 		};
 		for (const FDescription& Description : Descriptions)
 		{
@@ -197,7 +191,6 @@ namespace
 		if (Id.StartsWith(TEXT("Vehicle."))) { Row.Category = LOCTEXT("Placement", "Placement adjustment"); }
 		else if (Id.StartsWith(TEXT("Depth."))) { Row.Category = LOCTEXT("Depth", "Real-object occlusion"); }
 		else if (Id.StartsWith(TEXT("MR."))) { Row.Category = Id == TEXT("MR.VRBackground") ? LOCTEXT("BackgroundCategory", "Visual quality") : LOCTEXT("MR", "Real-object occlusion"); }
-		else if (Id.StartsWith(TEXT("Port."))) { Row.Category = LOCTEXT("USB", "Hand contact"); }
 		else if (Id.StartsWith(TEXT("Display.")) || Id.StartsWith(TEXT("Spectator."))) { Row.Category = LOCTEXT("Picture", "Visual quality"); }
 	}
 }
@@ -212,12 +205,8 @@ TSharedRef<SWidget> SCXMRControlPanel::RegistryPage(ECXMRControlPage Page, bool 
 			const FString Id = Registered->Id.ToString();
 			const bool bPlacement = Id.StartsWith(TEXT("Vehicle.")) || Id.StartsWith(TEXT("Input."));
 			const bool bDisplay = Id.StartsWith(TEXT("MR.")) || Id.StartsWith(TEXT("Depth.")) || Id.StartsWith(TEXT("Display.")) || Id.StartsWith(TEXT("Spectator."));
-			// 설정 화면에 손 접촉과 진단을 모음.
-			const bool bUSB = Id == TEXT("Port.Live") || Id == TEXT("Port.Debug")
-				|| Id == TEXT("Port.HandContactDistance") || Id == TEXT("Port.HandReleaseDistance");
 			bool bInclude = Page == ECXMRControlPage::Display ? !bPlacement
-				: Page == ECXMRControlPage::USB ? bUSB
-				: Page == ECXMRControlPage::Diagnostics ? !bPlacement && !bDisplay && !bUSB
+				: Page == ECXMRControlPage::Diagnostics ? !bPlacement && !bDisplay
 				: Page == ECXMRControlPage::Calibration && bPlacement && (bAdvanced != IsBasicCalibration(Registered->Id));
 			if (Registered->Id == "Vehicle.PlaceInFront" || Registered->Id == "Vehicle.Recalibrate"
 				|| Registered->Id == "Vehicle.SaveOffset" || Registered->Id == "Vehicle.LearnMarkers"
