@@ -1,7 +1,7 @@
 # main에서 USB·디자인 옵션 빼기
 
 - 베이스 브랜치: `main`. 2026-10-14 사용자 요청으로 여러 작업을 한 번에 하므로, 구현은 `codex/oct-review-fixes` 끝에 쌓는다(HANDOFF). 리뷰는 그 브랜치와의 diff로 한다.
-- 상태: 구현 대기 — [oct-review-fixes.md](oct-review-fixes.md)가 `main`에 머지된 뒤 시작한다
+- 상태: 머지함 (`d6bec54`)
 
 ## 목적
 
