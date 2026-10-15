@@ -340,7 +340,7 @@ base station 추적은 원점이 base station에 묶여 있어서, inside-out보
 - 장비: XR-4 base station 판, Varjo Base **Pro 4.16**, SteamVR, base station.
 - **Varjo Base Occlusion**(4.16에서 새로 생김): 앱의 깊이 테스트·실세계 깊이 추정과 같이 켜면 화면이 이상했다. Apple Vision Pro만큼 깔끔하지 않았다. → 앱 깊이 테스트를 기본으로 끈다(`Docs/Specs/depth-default-off.md`).
 - **나이트 모드**(Varjo Base): 밝기를 낮춰 밤처럼 보인다. 야간 차량 평가 후보다(`Docs/Varjo-Capabilities.md` §15).
-- **15-4(움직이는 마커)는 시험하지 못했다.** 시험 PC에서 BP를 만드는 준비가 필요했다. → 예제 레벨 `L_DynamicMarker`를 만든다(`Docs/Specs/dynamic-marker-example.md`).
+- **15-4(움직이는 마커)는 시간 안에 시험하지 못했다.** → 바로 시험할 수 있게 예제 레벨 `L_DynamicMarker`를 만든다(`Docs/Specs/dynamic-marker-example.md`).
 - 15-2(확장 목록)·15-3(원점 재사용) 숫자는 받지 못했다. 다음 시험에서 한다.
 
 ## 아무 반응이 없는 키 (제거된 매핑)
