@@ -351,7 +351,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
   <section class="notes" aria-label="Design notes">
     <h2>What this design changes</h2>
     <ul>
-      <li><b>Starts in MR.</b> As soon as the headset session runs, MR, the depth test and real-world depth turn on, so the reviewer sees their own hands. Before that the window says so instead of showing a mode that is not real yet.</li>
+      <li><b>Starts in MR.</b> As soon as the headset session runs, MR turns on. The depth test starts off; hands show in front of the car through Occlusion in Varjo Base. Before that the window says so instead of showing a mode that is not real yet.</li>
       <li><b>Mode and calibration status sit outside the tabs.</b> Whatever tab is open, the facilitator can see whether the car is aligned and what is missing.</li>
       <li><b>Two tasks, two tabs.</b> Calibration for every session; Vehicle for switching cars. First-time rig setup is folded away.</li>
       <li><b>One next action at a time.</b> Save alignment only lights up when there is an unsaved change and every marker is in view; otherwise the reason is written under it.</li>
@@ -370,7 +370,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
   // reg = tunable ID in the CXMR registry ("new" = add it). readout/action rows are not settings.
   const SETTINGS = [
     { id: "startMR", reg: "new: MR.StartInMR", tab: "MR", group: "Startup", label: "Start in MR", help: "Switch to MR as soon as the headset session is running.", type: "toggle", def: true },
-    { id: "depthTest", reg: "Depth.Test", tab: "MR", group: "Real objects", label: "Real objects in front of the car", help: "Hands and nearby real objects cover the virtual car instead of disappearing behind it.", type: "toggle", def: true },
+    { id: "depthTest", reg: "Depth.Test", tab: "MR", group: "Real objects", label: "Real objects in front of the car", help: "Hands and nearby real objects cover the virtual car instead of disappearing behind it. Leave off when Occlusion is on in Varjo Base.", type: "toggle", def: false },
     { id: "envDepth", reg: "Depth.EnvEstimation", tab: "MR", group: "Real objects", label: "Estimate real-world depth", help: "Cleaner hand edges. Works only with the setting above.", type: "toggle", def: true, requires: "depthTest" },
     { id: "farZ", reg: "Depth.FarZ", tab: "MR", group: "Real objects", label: "Depth range, far edge", help: "Real objects closer than this cover the car; beyond it the car is always on top. A wider range can flicker where real and virtual surfaces meet, such as a physical steering wheel.", type: "number", min: 0.1, max: 5, step: 0.05, unit: "m", def: 0.75, requires: "depthTest" },
     { id: "nearZ", reg: "Depth.NearZ", tab: "MR", group: "Real objects", label: "Depth range, near edge", help: "Usually 0. Raise it only if something right in front of the headset should not cover the car.", type: "number", min: 0, max: 1, step: 0.05, unit: "m", def: 0, requires: "depthTest" },
@@ -488,7 +488,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
 
   // ---------- status ----------
   function status() {
-    if (S.session === "starting") return { tone: "brand", ico: "spin", t: "Starting the headset session", d: "MR, the depth test and real-world depth switch on as soon as the headset is ready." };
+    if (S.session === "starting") return { tone: "brand", ico: "spin", t: "Starting the headset session", d: "MR switches on as soon as the headset is ready." };
     if (S.session === "unavailable") return { tone: "danger", ico: "x", t: "Headset not running", d: "MR and markers need a running headset session. Showing VR until it starts." };
     const miss = missing();
     switch (S.calib) {
@@ -532,7 +532,7 @@ details.setup ol b { color: var(--ink); font-weight: 500; }
     let note;
     if (S.session === "unavailable") note = "VR only until the headset session starts.";
     else if (pendingMR) note = "MR is selected and will switch on by itself.";
-    else if (S.mode === "MR") note = S.values.depthTest ? `Real hands and objects within ${fmt(S.values.farZ, 2)} m show in front of the car.` : "Depth test is off: real hands appear behind the virtual car.";
+    else if (S.mode === "MR") note = S.values.depthTest ? `Real hands and objects within ${fmt(S.values.farZ, 2)} m show in front of the car.` : "Depth test is off: real hands appear behind the virtual car unless Occlusion is on in Varjo Base.";
     else note = S.values.vrBackground ? "Virtual car with the virtual room around it." : "Virtual car on an empty background.";
     $("modeNote").textContent = note;
   }

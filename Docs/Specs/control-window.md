@@ -219,3 +219,4 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
 - 2026-10-15: 1번의 새 프로퍼티는 창에 넣지 않음, "Dynamic tracking for all markers"를 끌 때 Marker Follower 마커는 그 액터의 모드로 — Codex가 멈추지 않게 미리 확정
 - 2026-10-15: Q1·Q2 답 — `Hands.Offset*`은 창에서만 뺌. "바뀐 설정"은 저장 여부와 무관하게 창에 행이 있는 설정 기준(시안 `changedCount()`와 같게)
 - 2026-10-15: Q3·Q4 답 — 행은 실제 상태가 아니라 "적용할 값"을 보임(깊이·View offset·VR 배경·마커 추적). `MR.VRBackground`·`Diagnostics.MarkerTracking` 기본값 1
+- 2026-10-15: 시안 6판 — 깊이 테스트 기본값 끔, 관련 문구 3곳(도움말·시작 상태줄·MR 설명) 변경. 헤드셋 시험 뒤 사용자 결정, 구현은 [depth-default-off.md](depth-default-off.md)

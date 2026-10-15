@@ -524,6 +524,11 @@ Settings > Mixed reality > Mixed reality effects > Occlusion. 기본 꺼짐.
 *"When this setting is enabled, mixed reality will be turned on automatically, and **the camera render position may change slightly**"*
 - **All content in range** (거리 슬라이더) / **Hands** / **People (Beta)**
 - **Depth awareness**: 앱이 공간 레이아웃 데이터를 주면 실물이 가상과의 전후 관계로 표시됨. **주지 않으면 실물이 항상 보이게 됨**(위치 무관) → §3의 depth buffer 제출 요구와 연결
+- **2026-10-15 실측(사용자, XR-4 base station 판 + Varjo Base Pro 4.16 + SteamVR).** 앱의 깊이 테스트·실세계 깊이 추정을 켠 채 Base Occlusion을 켜면 화면이 이상했다. 둘이 같은 일을 겹쳐 한다. Base Occlusion만 써도 Apple Vision Pro만큼 깔끔하지는 않았다.
+  → **CXMR은 앱 깊이 테스트를 기본으로 끈다**(`Docs/Specs/depth-default-off.md`). 손 가림은 Base Occlusion으로 한다.
+
+### Varjo Base 나이트 모드 (Pro) — 2026-10-15 실측
+패스스루 영상의 밝기(intensity)를 낮춰 밤처럼 보이게 한다. 사용자가 **야간 차량 평가**(실내 조명·계기판·외부 조명을 밤 조건에서 보기)에 쓸 만하다고 봤다. 앱 API가 아니라 Varjo Base 설정이다. 아직 명세 없음.
 
 ### Varjo Base 마스킹 (Pro, 4.15+) — **템플릿엔 부적합**
 코드 없이 마스킹 가능한 경로. `.obj`(단일 메시, 머티리얼 불요, 삼각분할 권장, **1 unit = 1 meter**, **원점 = 앵커 위치**)를 Settings > Mixed reality > Mixed reality effects > Masking > Add mask로 로드. Lab Tools 마스크도 가능(4.11+, Pro). ⚠️ *"you need to close Varjo Lab Tools when using masks through Varjo Base"*
