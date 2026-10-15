@@ -42,7 +42,7 @@ public:
 	bool IsHeadsetStarting() const { return !HasRunningSession() && SessionWaitSeconds < 20.f; }
 	bool IsMRRequested() const { return bMRRequested; }
 	bool bStartInMR = true;
-	bool bRequestedDepthTest = true;
+	bool bRequestedDepthTest = false;
 	bool bRequestedEnvironmentDepth = true;
 	bool bRequestedVRBackground = true;
 	bool bRequestedMarkerTracking = true;

@@ -10,7 +10,7 @@ FCXMRControlStatusText CXMRDescribeControlStatus(const FCXMRControlStatus& S)
 {
 	switch (S.Stage)
 	{
-	case ECXMRControlStage::Starting: return {TEXT("Starting the headset session"), TEXT("MR, the depth test and real-world depth switch on as soon as the headset is ready.")};
+	case ECXMRControlStage::Starting: return {TEXT("Starting the headset session"), TEXT("MR switches on as soon as the headset is ready.")};
 	case ECXMRControlStage::NoHeadset: return {TEXT("Headset not running"), TEXT("MR and markers need a running headset session. Showing VR until it starts.")};
 	case ECXMRControlStage::Waiting: return {FString::Printf(TEXT("Waiting for markers · %d of %d in view"), S.RequiredMarkers.Num()-S.MissingMarkers.Num(), S.RequiredMarkers.Num()), FString::Printf(TEXT("Show marker %s to the headset. The car stays where it is until every marker is in view."), *CXMRMissingMarkerNames(S))};
 	case ECXMRControlStage::Settling: return {TEXT("Reading markers"), FString::Printf(TEXT("Hold the view steady. Averaging every marker for %.1f s."), S.SettleSeconds)};

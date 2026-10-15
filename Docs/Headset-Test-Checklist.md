@@ -56,7 +56,7 @@ test가 **컴포지터 레이어**에서 처리되어 알파 합성 경로를 �
 | 키 | 기능 | 확인 |
 |---|---|---|
 | `K` | View Offset | 컨트롤 창 `Render from` 버튼이 `Cameras` ↔ `Eyes`로 바뀐다(튜닝 창 View offset 1 ↔ 0). 근거리 물체를 볼 때 정렬감 차이. 시작은 VR `Eyes` → MR 켜면 `Cameras`(헤드셋 기본). `K`로 한 번 고르면 MR 전환 뒤에도 유지되는지 본다. **0.5초에 걸쳐 부드럽게 옮겨 가는지**(툭 튀지 않는지) — 로그에 `View offset glide stopped`가 찍히면 런타임이 값을 받지 않은 것 |
-| `T` | Depth Test | 손을 눈앞에 대면 가상 물체보다 앞에 보이는지 |
+| `T` | Depth Test | 손을 눈앞에 대면 가상 물체보다 앞에 보이는지. 기본은 꺼짐이며 Varjo Base Occlusion과 함께 켜지 않는다 |
 | `U` | Env Depth | depth estimation 활성. **`T`가 먼저 켜져 있어야 한다** |
 | `Y` | Depth Test **Range** on/off | 컨트롤 창 Range가 `0.00 - 0.75 m` ↔ `unbounded` |
 | `←`/`→` | NearZ 감소/증가 | 누르고 있으면 연속 변화 |
@@ -154,7 +154,7 @@ CustomDepth에만 그려진다).
 
 이 절은 헤드셋 PC에서 확인한다. 실제 헤드셋 검증은 **not-tested**다.
 
-- [ ] 앱 시작 후 `Headset starting` → `Headset running`, MR → 깊이 테스트 → 범위 → 실세계 깊이 추정 순서가 로그·화면에 맞는다. 손이 차량 앞에 보이는지 §1·§2 순서로 확인한다.
+- [ ] 앱 시작 후 `Headset starting` → `Headset running`, MR → 깊이 테스트 → 범위 → (깊이 테스트가 켜졌을 때만) 실세계 깊이 추정 순서가 로그·화면에 맞는다. 기본은 깊이 테스트 꺼짐이다. 손 가림은 Varjo Base Occlusion → Hands로 §1·§2 순서에 따라 확인하고, 앱 깊이 테스트와 함께 켜지 않는다.
 - [ ] 세션이 없으면 20초 뒤 `Headset not running`과 VR이 표시된다. 늦게 세션을 시작하면 MR·마커 추적 요청이 적용된다. 시작 전 추적을 꺼두면 자동으로 켜지지 않는다.
 - [ ] 기본 창은 MR/VR·상태를 항상 표시하고 Calibration / Vehicle 탭을 제공한다. Advanced settings는 별도 창 하나다. 다시 열기, X로 숨기기, 같은 탭·위치 복원, 기본 창 닫기·PIE 종료 시 함께 닫기를 확인한다.
 - [ ] Starting, Waiting for markers, Reading markers, saved position reused, recalculated from markers, Adjusted · not saved, Saving alignment, Headset not running의 문구와 관측 마커가 실제 상태에 맞는다.

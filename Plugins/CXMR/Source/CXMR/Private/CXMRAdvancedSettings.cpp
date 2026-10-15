@@ -7,7 +7,7 @@ namespace
 	// 등록 메타데이터의 문구 원본. 시안 SETTINGS 순서를 유지함.
 	const FCXMRAdvancedRow CXMRAdvancedRows[] = {
 		{TEXT("MR.StartInMR"), TEXT("MR"), TEXT("Startup"), TEXT("Start in MR"), TEXT("Switch to MR as soon as the headset session is running."), TEXT(""), TEXT("toggle"), TEXT("")},
-		{TEXT("Depth.Test"), TEXT("MR"), TEXT("Real objects"), TEXT("Real objects in front of the car"), TEXT("Hands and nearby real objects cover the virtual car instead of disappearing behind it."), TEXT(""), TEXT("toggle"), TEXT("")},
+		{TEXT("Depth.Test"), TEXT("MR"), TEXT("Real objects"), TEXT("Real objects in front of the car"), TEXT("Hands and nearby real objects cover the virtual car instead of disappearing behind it. Leave off when Occlusion is on in Varjo Base."), TEXT(""), TEXT("toggle"), TEXT("")},
 		{TEXT("Depth.EnvEstimation"), TEXT("MR"), TEXT("Real objects"), TEXT("Estimate real-world depth"), TEXT("Cleaner hand edges. Works only with the setting above."), TEXT(""), TEXT("toggle"), TEXT("Depth.Test")},
 		{TEXT("Depth.FarZ"), TEXT("MR"), TEXT("Real objects"), TEXT("Depth range, far edge"), TEXT("Real objects closer than this cover the car; beyond it the car is always on top. A wider range can flicker where real and virtual surfaces meet, such as a physical steering wheel."), TEXT("m"), TEXT("number"), TEXT("Depth.Test")},
 		{TEXT("Depth.NearZ"), TEXT("MR"), TEXT("Real objects"), TEXT("Depth range, near edge"), TEXT("Usually 0. Raise it only if something right in front of the headset should not cover the car."), TEXT("m"), TEXT("number"), TEXT("Depth.Test")},
