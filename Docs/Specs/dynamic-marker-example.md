@@ -19,7 +19,8 @@
 - 부모: **CXMR Marker Follower**(`ACXMRMarkerFollower`)
 - 컴포넌트: 부모의 루트 아래에 Static Mesh `Box` 하나를 붙인다.
   - 메시: `/Engine/BasicShapes/Cube`
-  - Scale 0.3(30 cm 정육면체). **실물 박스 크기는 모른다.** 이 크기는 근사값이고, 사용자가 맞춘다.
+  - 상대 Scale **1.0**(엔진 큐브 그대로 100 cm). 크기는 레벨에 놓은 액터의 Scale로 정한다(아래 2). 그래야 "액터 Scale = 실제 길이(cm) ÷ 100"이 성립한다.
+  - 부모의 루트(`Root`) Scale은 바꾸지 않는다(1.0).
   - 머티리얼: 엔진에 이미 있는 것을 쓴다(구현자가 정함). 새 머티리얼 애셋을 만들지 않는다.
   - 충돌 없음
 - Class Defaults:
@@ -39,7 +40,8 @@
 - 차량과 관련된 액터를 지운다: `ACXMRVehicleRoot`와 그 자식 BP, 차량용 마스크 큐브(`BP_MaskCube`) 등. **지운 액터와 남긴 액터 목록을 보고 ⑤에 적는다.**
 - 반사 캡처는 구현자가 정한다(지우거나 다시 빌드). 다만 PIE 화면에 "needs to be rebuilt" 같은 문구가 뜨면 안 된다.
 - `BP_DynamicMarkerBox`를 하나 놓는다. 자리는 플레이어 시작점 앞 약 1 m, 높이 약 1 m다. 마커가 보이기 전에도 라벨 `Marker 300 · waiting`이 보이게 하려는 것이다.
-- 레벨에 놓은 인스턴스는 Class Defaults를 덮어쓰지 않는다. 사용자가 이 인스턴스의 Details에서 `Marker Id`를 바꾼다.
+- 인스턴스의 액터 Scale은 **(0.3, 0.3, 0.3)**, 즉 30 cm 정육면체다. **실물 박스 크기는 모른다.** 이 크기는 근사값이고, 사용자가 맞춘다.
+- 인스턴스는 `Marker Id` 등 Class Defaults 값을 덮어쓰지 않는다. 사용자가 이 인스턴스의 Details에서 `Marker Id`를 바꾼다. Scale은 액터 Transform이라 이 규칙과 상관없다.
 
 ### 3. 문서
 
@@ -79,11 +81,13 @@
 - 차량 없음 → 컨트롤 창과 고급 창이 오류 없이 열린다. 상태줄은 보정 전 상태를 보인다. Calibration 동작 버튼을 눌러도 크래시가 없다.
 - 인스턴스의 `Marker Id`를 0으로 바꿈 → 부모 동작대로 아무것도 하지 않고 경고를 한 번 남긴다.
 - 인스턴스의 `Marker Id`를 다른 번호(예: 301)로 바꿈 → 다음 PIE부터 그 번호를 따라간다. 라벨이 `Marker 301 · waiting`이다.
+- 액터 Scale을 바꿈(예: 0.4) → 마커를 따라가도 그 Scale이 유지된다(`CXMRMarkerFollower.cpp:142-145`). `Marker To Actor`의 위치(cm)는 Scale의 영향을 받지 않는다.
+- 콘텐츠 브라우저에서 BP를 새로 끌어다 놓음 → Scale 1.0, 즉 100 cm 큐브다. 사용법 3대로 Scale을 넣는다.
 
 ## 완료 조건
 
-1. `BP_DynamicMarkerBox`의 부모와 Class Defaults가 위 표와 같다. 에디터 MCP로 읽어 보고 ⑤에 적는다.
-2. `L_DynamicMarker`에 차량 액터가 없고, `BP_DynamicMarkerBox` 인스턴스가 하나 있으며, 그 `Marker Id`는 300이다(인스턴스 덮어쓰기 없음). 남은 액터 목록을 보고 ⑤에 적는다.
+1. `BP_DynamicMarkerBox`의 부모와 Class Defaults가 위 표와 같다. `Box`의 상대 Scale은 1.0이고 루트 Scale도 1.0이다. 에디터 MCP로 읽어 보고 ⑤에 적는다.
+2. `L_DynamicMarker`에 차량 액터가 없고, `BP_DynamicMarkerBox` 인스턴스가 하나 있으며, 그 `Marker Id`는 300이다(인스턴스 덮어쓰기 없음). 인스턴스의 액터 Scale은 0.3이고, `Box` 메시 bounds가 한 변 30 cm다. 남은 액터 목록을 보고 ⑤에 적는다.
 3. 이 PC에서 `L_DynamicMarker`를 열고 PIE(데스크톱)를 10초 돌린다. 박스와 라벨 `Marker 300 · waiting`이 보이고, 로그에 CXMR 오류가 없다. 스크린샷을 남긴다. MCP로 PIE를 돌릴 수 없으면 그 이유와 대신 확인한 방법을 보고 ③에 적는다.
 4. 같은 PIE에서 컨트롤 창과 고급 창이 열리고 오류가 없다.
 5. `-DisableAdaptiveUnity` 빌드에서 경고·오류가 0이고, `CXMR.` 전체가 통과한다(C++ 변경이 없다는 확인).
@@ -94,7 +98,7 @@
 
 1. `/Game/Map/L_DynamicMarker`를 연다.
 2. 실물 박스에 붙인 마커 번호가 300이 아니면, World Outliner에서 `BP_DynamicMarkerBox`를 고르고 Details의 `Marker Id`를 바꾼다. **PIE를 멈춘 상태에서** 바꾼다. PIE 중에 바꾼 번호는 반영되지 않는다.
-3. 박스 크기가 30 cm가 아니면 같은 액터의 Scale을 바꾼다(1.0 = 100 cm).
+3. 박스 크기가 30 cm가 아니면 같은 액터의 Scale을 바꾼다. **Scale = 실제 길이(cm) ÷ 100**이다. 예를 들어 30 cm는 0.3, 40 cm는 0.4다. 가로·세로·높이가 다르면 X·Y·Z에 따로 넣는다.
 4. VR Preview를 누른다. 마커가 보이면 메시가 박스로 간다.
 5. 메시가 박스와 어긋나면 `Marker To Actor`로 맞춘다. 마커가 윗면 가운데에 붙어 있으면, 박스 중심은 마커에서 박스 높이의 절반만큼 안쪽에 있다. 어느 축이 면 바깥인지는 고급 창 Diagnostics → `Marker axes and labels`로 본다.
 
@@ -119,3 +123,4 @@
 ## 개정 이력
 
 - 2026-10-15: 처음 작성 (Claude). 10-15 헤드셋 시험에서 동적 마커를 시험하지 못한 뒤 사용자가 요청함
+- 2026-10-15: Q1 답 — 크기 단위를 하나로 정함. `Box` 상대 Scale 1.0, 레벨 인스턴스 액터 Scale 0.3, 안내는 "Scale = 실제 길이(cm) ÷ 100"
