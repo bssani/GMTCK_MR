@@ -1,10 +1,43 @@
-# dynamic-marker-example — 구현 전 질문
+# dynamic-marker-example 리뷰
+
+## 1회차 — 2026-10-15, `2003aba`
+
+재현(Claude):
+- `-DisableAdaptiveUnity` 빌드 성공(C++ 변경 없음, 갱신할 것 없음). `CXMR.` 80/80 통과, `TEST COMPLETE. EXIT CODE: 0`. 로그 `Saved/ClaudeReview1015f_Build.log`, `Saved/ClaudeReview1015f_Tests.log`.
+- `main`(4번 머지 포함)과의 병합을 `git merge-tree`로 미리 봤다. 충돌 없음.
+
+**통과. 열린 항목 없음.**
+
+에디터 MCP로 직접 읽은 것(로그 `Saved/ClaudeReview1015f_Editor.log`):
+
+- `BP_DynamicMarkerBox`
+  - `ACXMRMarkerFollower`의 자식이다.
+  - CDO 값: `MarkerId` 300, `TrackingMode` Dynamic, `Follow` true, `MarkerToActor` 항등, `WhenLost` Hold, `ShowLabel` true.
+  - `Box`: `/Engine/BasicShapes/Cube`, `BasicShapeMaterial`, 상대 Scale 1.0, 충돌 없음.
+- `L_DynamicMarker`
+  - 액터 10개: 조명·하늘·안개·구름, PlayerStart, 하늘 구, 바닥, PPV, 박스. 차량 관련 액터는 없다.
+  - PPV는 Unbound이고 블렌더블은 `/CXMR/Core/Materials/PP_MR`(가중치 1)다.
+  - 하늘·안개·구름·하늘 구·바닥 다섯 개에 `CXMRSceneObjectComponent` VR Only가 붙어 있다.
+  - 박스 인스턴스: 위치 (100, 0, 100), 액터 Scale 0.3, 인스턴스 값이 CDO와 같다.
+  - `.umap` 이름표에 `MarkerId`가 없다. 인스턴스가 번호를 덮어쓰지 않았고, BP 기본값 300을 그대로 쓴다.
+- 데스크톱 PIE에서 박스가 (100, 0, 100)에 Scale 0.3으로 있고, 라벨은 `Marker 300 · waiting`이다. 화면에 재빌드 문구가 없다. CXMR 경고·오류도 없다.
+
+기록(조치 필요 없음):
+
+- **`L_DynamicMarker_BuiltData.uasset`을 `.gitignore:65`(`*_BuiltData.uasset`)의 예외로 커밋한 것은 맞다.**
+  - git으로 새로 받은 PC와 같게 이 파일을 치우고 레벨을 열어 봤다. `LoadErrors: Warning: ... a dependent package /Game/Map/L_DynamicMarker_BuiltData was not available`가 났다. 헤드셋 PC가 바로 이 상태다.
+  - PIE는 BuiltData가 없어도 정상이었다.
+  - 이 파일은 `L_Main_BuiltData`를 복사한 것이다(1.73 MB, 크기가 거의 같다). 지운 반사 캡처의 데이터가 남아 있을 수 있지만 쓰이지 않는다.
+- **`L_Main`에도 같은 문제가 있다(이번 작업 전부터).** `L_Main_BuiltData`가 git에 없다. git으로 받은 헤드셋 PC에서 `L_Main`을 열면 같은 경고가 나고, 차 주변 반사 캡처(`Docs/Operating-Guide.md` §5 "L_Main 조명")에 빌드 데이터가 없다. 고칠지는 사용자가 정한다.
+- 차량이 없을 때 컨트롤 창 Vehicle 탭은 비어 있다. Codex 스크린샷(`CodexDynamicMarkerExample_NoVehicle.png`)에서는 선택한 탭 버튼이 흰 상자로 보인다. 누른 직후 마우스가 위에 있던 상태로 보이며, 이 명세 범위 밖이다. 다음에 컨트롤 창을 볼 때 확인한다.
+- Codex는 창 캡처에 로컬 도구 MCP(포트 3000)도 썼다. 설정·플러그인은 바꾸지 않았고, 커밋에도 들어가지 않았다.
+- 헤드셋 시험 상태는 **not-tested**다(체크리스트 §15-4).
 
 ## 질문
 
 ### Q1. Box 컴포넌트 Scale과 사용법의 액터 Scale 단위가 다름
 
-- 상태: **반영함 (feat: add dynamic marker example)** (2026-10-15, Codex) — Claude 답대로 구현·검증함
+- 상태: **반영함 (`2003aba`)** (2026-10-15, Codex) — Claude 답대로 구현·검증함
 - **문제:** `Docs/Specs/dynamic-marker-example.md:22`는 100 cm 엔진 큐브의 Box 컴포넌트 Scale을 0.3으로 지정한다. 반면 `:97`은 같은 액터의 Scale을 바꾸며 `1.0 = 100 cm`라고 안내하고, 이 사용법을 그대로 문서에 옮기도록 요구한다. Box 상대 Scale이 0.3이면 액터 Scale 1.0은 30 cm이고, 0.3은 9 cm다. 안내대로 크기를 맞추면 실제 박스와 크기가 어긋난다.
 - **근거:** 부모는 `Plugins/CXMR/Source/CXMR/Private/CXMRMarkerFollower.cpp:20`에서 별도 SceneComponent 루트를 만든다. `:142-145`는 추적 중 액터 Scale을 보존한다. UE 5.7 `C:/Program Files/Epic Games/UE_5.7/Engine/Source/Runtime/Engine/Classes/Components/SceneComponent.h:1194`는 자식 상대 Transform과 부모 Transform을 곱한다. 따라서 자식 Box 0.3과 액터 Scale이 함께 적용된다.
 - **제안:** Box 컴포넌트 0.3을 유지하고 사용법 3을 `액터 Scale 1.0 = 30 cm, 원하는 한 변 길이(cm) / 30`으로 명세에서 고치는 편이 가장 작다. 또는 Box를 1.0으로 두고 루트/액터 기본 Scale을 0.3으로 지정해 `1.0 = 100 cm`를 유지할지 Claude가 명세를 확정한다. 구현자가 정할 것에는 이 선택이 없다.
