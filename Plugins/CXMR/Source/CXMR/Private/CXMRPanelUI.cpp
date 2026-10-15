@@ -1,8 +1,12 @@
 // Copyright GMTCK CX.
 
 #include "CXMRPanelUI.h"
+#include "Fonts/CompositeFont.h"
 
 #include "Styling/CoreStyle.h"
+#include "Interfaces/IPluginManager.h"
+#include "Misc/Paths.h"
+#include "HAL/FileManager.h"
 #include "Styling/SlateTypes.h"
 #include "Brushes/SlateNoResource.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
@@ -31,7 +35,7 @@ namespace
 
 	FLinearColor Hex(uint8 R, uint8 G, uint8 B) { return FLinearColor::FromSRGBColor(FColor(R, G, B)); }
 
-	FLinearColor RimColor() { return Hex(184, 193, 204); }
+	FLinearColor RimColor() { return Hex(102, 116, 138); }
 	FLinearColor RailRaisedColor() { return Hex(40, 51, 64); }
 
 	FLinearColor ToneTint(CXMRPanelUI::ETone Tone)
@@ -159,35 +163,51 @@ namespace
 
 // 색
 
-FLinearColor CXMRPanelUI::BackgroundColor() { return Hex(236, 239, 243); }
-FLinearColor CXMRPanelUI::SurfaceColor()    { return FLinearColor::White; }
-FLinearColor CXMRPanelUI::InkColor()        { return Hex(22, 32, 43); }
+FLinearColor CXMRPanelUI::BackgroundColor() { return Hex(19, 26, 38); }
+FLinearColor CXMRPanelUI::SurfaceColor() { return Hex(19, 26, 38); }
+FLinearColor CXMRPanelUI::InkColor() { return Hex(238, 242, 247); }
 FLinearColor CXMRPanelUI::HeaderColor()     { return InkColor(); }
-FLinearColor CXMRPanelUI::ReadoutColor()    { return Hex(88, 101, 116); }
-FLinearColor CXMRPanelUI::FaintColor()      { return Hex(139, 149, 161); }
-FLinearColor CXMRPanelUI::HairlineColor()   { return Hex(222, 227, 233); }
-FLinearColor CXMRPanelUI::SelectionColor()  { return Hex(31, 91, 208); }
-FLinearColor CXMRPanelUI::SelectionTint()   { return Hex(232, 239, 251); }
-FLinearColor CXMRPanelUI::RailColor()       { return Hex(24, 33, 43); }
-FLinearColor CXMRPanelUI::RailInkColor()    { return Hex(242, 245, 248); }
-FLinearColor CXMRPanelUI::RailMutedColor()  { return Hex(160, 172, 186); }
+FLinearColor CXMRPanelUI::ReadoutColor() { return Hex(154, 166, 184); }
+FLinearColor CXMRPanelUI::FaintColor() { return Hex(154, 166, 184); }
+FLinearColor CXMRPanelUI::HairlineColor() { return Hex(46, 58, 78); }
+FLinearColor CXMRPanelUI::SelectionColor() { return Hex(91, 140, 255); }
+FLinearColor CXMRPanelUI::SelectionTint() { return Hex(28, 37, 52); }
+FLinearColor CXMRPanelUI::RailColor() { return Hex(13, 42, 102); }
+FLinearColor CXMRPanelUI::RailInkColor() { return Hex(238, 242, 247); }
+FLinearColor CXMRPanelUI::RailMutedColor() { return Hex(185, 198, 228); }
 
 FLinearColor CXMRPanelUI::ToneColor(ETone Tone)
 {
 	switch (Tone)
 	{
-	case ETone::Positive:  return Hex(31, 157, 97);
-	case ETone::Attention: return Hex(214, 140, 18);
-	case ETone::Negative:  return Hex(204, 64, 52);
+	case ETone::Positive:  return Hex(60, 194, 133);
+	case ETone::Attention: return Hex(242, 181, 68);
+	case ETone::Negative:  return Hex(255, 122, 114);
 	default:               return FaintColor();
 	}
 }
 
 // 글꼴
 
-FSlateFontInfo CXMRPanelUI::BodyFont(int32 Size)    { return FCoreStyle::GetDefaultFontStyle("Regular", Size); }
-FSlateFontInfo CXMRPanelUI::StrongFont(int32 Size)  { return FCoreStyle::GetDefaultFontStyle("Medium", Size); }
-FSlateFontInfo CXMRPanelUI::HeadingFont(int32 Size) { return FCoreStyle::GetDefaultFontStyle("BoldCondensed", Size); }
+namespace
+{
+	FSlateFontInfo CXMRFileFont(const TCHAR* Weight, float Size)
+	{
+		const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("CXMR"));
+		const FString Path = Plugin ? Plugin->GetBaseDir() / TEXT("Resources/Fonts") / (FString(TEXT("PretendardStd-")) + Weight + TEXT(".ttf")) : FString();
+		if (!Path.IsEmpty() && IFileManager::Get().FileExists(*Path)) { static TMap<FString,TSharedPtr<const FCompositeFont>> Fonts;
+			TSharedPtr<const FCompositeFont>& Font=Fonts.FindOrAdd(Path);
+			if (!Font.IsValid()) { Font=MakeShared<FCompositeFont>(FName("Regular"),Path,EFontHinting::Default,EFontLoadingPolicy::LazyLoad); }
+			return FSlateFontInfo(Font,Size); }
+		static TSet<FString> Warned;
+		if (!Warned.Contains(Path)) { Warned.Add(Path); UE_LOG(LogTemp, Warning, TEXT("CXMR font missing: %s; using the engine font."), *Path); }
+		return FCoreStyle::GetDefaultFontStyle("Regular", Size);
+	}
+}
+FSlateFontInfo CXMRPanelUI::BodyFont(int32 Size) { return CXMRFileFont(TEXT("Regular"), Size); }
+FSlateFontInfo CXMRPanelUI::StrongFont(int32 Size) { return CXMRFileFont(TEXT("Medium"), Size); }
+FSlateFontInfo CXMRPanelUI::HeadingFont(int32 Size) { return CXMRFileFont(TEXT("SemiBold"), Size); }
+FSlateFontInfo CXMRPanelUI::CSSFont(float Pixels, int32 Weight) { return CXMRFileFont(Weight >= 600 ? TEXT("SemiBold") : Weight >= 500 ? TEXT("Medium") : TEXT("Regular"), Pixels * 0.75f); }
 
 // 스타일
 
@@ -252,7 +272,7 @@ const FButtonStyle* CXMRPanelUI::FlatButtonStyle()
 const FSpinBoxStyle* CXMRPanelUI::SpinStyle()
 {
 	static const FSpinBoxStyle Style = FSpinBoxStyle(FCoreStyle::Get().GetWidgetStyle<FSpinBoxStyle>("SpinBox"))
-		.SetBackgroundBrush(FSlateRoundedBoxBrush(Hex(245, 247, 250), 5.f, HairlineColor(), 1.f))
+		.SetBackgroundBrush(FSlateRoundedBoxBrush(Hex(28, 37, 52), 5.f, HairlineColor(), 1.f))
 		.SetHoveredBackgroundBrush(FSlateRoundedBoxBrush(SurfaceColor(), 5.f, RimColor(), 1.f))
 		.SetActiveBackgroundBrush(FSlateRoundedBoxBrush(SurfaceColor(), 5.f, SelectionColor(), 1.f))
 		.SetInactiveFillBrush(FSlateNoResource())

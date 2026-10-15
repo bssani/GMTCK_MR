@@ -71,3 +71,121 @@
 
 - 제품 C++·TTF·라이선스·애셋·Config 변경 0. 시안·명세 변경 0. 이번 3번 빌드·시험·미리보기 생성·에디터 MCP 미실행. 이전 1·2번 빌드·시험을 3번 결과로 주장하지 않음.
 - 완료 조건 1~8은 아직 미충족. Q1·Q2 답은 유지하며 Q3·Q4와 시안 확인 가능 경로가 정해지면 재개함. HEAD에 질문 기록만 새 커밋함. push·베이스 머지 없음.
+
+
+## Codex 구현 결과 — 2026-10-15
+
+상태: 로컬 구현·검증 완료, Claude 리뷰 대기. 브랜치 `codex/control-window`, 구현 커밋 제목 `feat(cxmr): rebuild control and advanced windows`. Q1~Q4에 새 질문 없음. push·머지하지 않음.
+
+### ① 바뀐 파일
+
+- `Docs/Headset-Test-Checklist.md`
+- `Docs/Operating-Guide.md`
+- `Docs/Reviews/control-window.md`
+- `Plugins/CXMR/Resources/Fonts/OFL-LICENSE.txt`
+- `Plugins/CXMR/Resources/Fonts/PretendardStd-Medium.ttf`
+- `Plugins/CXMR/Resources/Fonts/PretendardStd-Regular.ttf`
+- `Plugins/CXMR/Resources/Fonts/PretendardStd-SemiBold.ttf`
+- `Plugins/CXMR/Source/CXMR/CXMR.Build.cs`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRAdvancedSettings.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRControlStatus.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRHandDebugComponent.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRMarkerDebugComponent.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRPanelUI.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRPanelUI.h`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRPlacementAlignment.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRPlacementComponent.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRShowroomUI.h`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRSpectatorComponent.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRSubsystem.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRTuningSubsystem.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRTuningWindowComponent.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/SCXMRAdvancedPanel.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/SCXMRAdvancedPanel.h`
+- `Plugins/CXMR/Source/CXMR/Private/SCXMRControlPanel.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/SCXMRControlPanel.h`
+- `Plugins/CXMR/Source/CXMR/Private/Tests/CXMRControlWindowTests.cpp`
+- `Plugins/CXMR/Source/CXMR/Public/CXMRAdvancedSettings.h`
+- `Plugins/CXMR/Source/CXMR/Public/CXMRControlStatus.h`
+- `Plugins/CXMR/Source/CXMR/Public/CXMRHandDebugComponent.h`
+- `Plugins/CXMR/Source/CXMR/Public/CXMRMarkerDebugComponent.h`
+- `Plugins/CXMR/Source/CXMR/Public/CXMRPlacementComponent.h`
+- `Plugins/CXMR/Source/CXMR/Public/CXMRSubsystem.h`
+- `Plugins/CXMR/Source/CXMR/Public/CXMRTuningWindowComponent.h`
+- `Plugins/CXMR/Source/CXMREditor/Private/CXMREditorModule.cpp`
+- `Plugins/CXMR/Source/CXMREditor/Private/Tests/CXMRPanelEditorTests.cpp`
+
+핵심 변경: CXMR Control은 Calibration/Vehicle 두 탭과 항상 보이는 모드·상태, Advanced는 네 탭의 별도 단일 창임. 행 문구·순서는 레지스트리 등록 시 CXMRAdvancedSettings에서 제공하며 패널의 DescribeRow/옛 페이지 값은 제거함. 세션 준비 뒤 MR→깊이→범위→실세계 깊이를 적용하고, 모드별 선호값과 실제 상태를 구분함. 넘버패드/버튼 조정량은 Placement에서 함께 누적함. 기존 한 번 요청→새 표본→자동 저장 경로는 유지함. 글꼴 3개와 OFL 라이선스만 리소스로 추가함.
+
+### ② 완료 조건별 상태
+
+1. **충족(합성 Slate 렌더).** 여섯 상황과 Advanced 네 탭의 위·중간·끝, Vehicle/First-time setup, 125%/150% DPI 모사 PNG 총 25개 생성. 목록은 ⑤. 실제 헤드셋·네이티브 모니터 배율의 GUI 시험은 아님.
+2. **충족.** `CXMR.Panels.ControlStatusText`: status()의 Starting/No headset/Waiting/Settling/Saving/Adjusted(누락 유무)/Aligned(world·markers·saved·new)/idle 문구와 여러 누락 ID를 대조함.
+3. **충족(합성 세션).** `CXMR.Panels.ControlStartup`: 세션 전 호출 0, 20초 대기, 늦은 세션, MR→Depth.Test→Depth.Range→Depth.EnvEstimation 순서, 깊이 꺼짐 때 환경 깊이 호출 없음, StartInMR 꺼짐, 추적 요청 꺼짐, VR 배경의 선호/실제 상태를 확인함. 테스트 훅이 Varjo 호출을 대신 기록하므로 헤드셋 동작 증거가 아님.
+4. **충족(자동화).** RenderPreview에서 Advanced 중복 열기 1개, X 숨김, 재열기 탭·위치, 기본 창 닫기 동반 종료를 확인함. AdvancedChangedAndReset에서 저장/비저장/숨긴 손 결과/읽기·실행 제외와 탭 reset을 확인함. AdvancedPrototypeWording에서 기본값을 적용한 헤드셋 없음·MR·VR의 변경 수 0을 확인함.
+5. **충족.** `CXMR.Panels.AdvancedPrototypeWording`: 시안 SETTINGS를 독립 기대값으로 옮겨 실제 등록 행마다 Label·Help를 대조함. 그룹명만 실제 데이터로 치환하는 형식 문자열임.
+6. **충족.** 최종 `-DisableAdaptiveUnity` 빌드 `Result: Succeeded`, 경고·오류 0. 최종 전체 `CXMR.` 발견/완료/성공 **79/79**, 실패 0, `TEST COMPLETE. EXIT CODE: 0`, 프로세스 0. 별도 최종 Panels도 **11/11**, 종료 0. 로그: `Saved/ControlWindow_Build_Final.log`, `Saved/ControlWindow_Tests_Final.log`, `Saved/ControlWindow_Panels_Final.log`.
+7. **충족.** `.uasset`·`.umap` 변경 0. `/CXMR/`·`/Game/` 콘텐츠, Config, 로컬 도구 플러그인 변경 0. TTF 3개는 명세가 허용한 새 리소스임.
+8. **충족.** Operating-Guide §7과 관련 창 경로, Headset-Test-Checklist §5를 새 창·저장 흐름에 맞춤.
+
+### ③ 명세·절차와 다른 점, 이유
+
+- 기능 범위와 애셋 정책의 차이 없음. 새 설정 ID는 기존 프로퍼티에 `Vehicle.CalibrationSettleSeconds`, `Vehicle.OriginReuseTolerance`, `Vehicle.OriginReuseYawTolerance`로 연결함. 새 실행 ID는 `Diagnostics.DumpMarkers`, `Vehicle.ResetGroupAlignment`임. 기존 ID·저장 키는 유지함.
+- 문구 원본은 `CXMRAdvancedSettings`에 두고 Register에서 메타데이터를 채움. 렌더러에서 라벨·도움말을 덮어쓰지 않음. 파일 나누기는 명세의 구현자 재량임.
+- Pretendard에 없는 Turn ⟲/⟳는 새 바이너리 없이 Slate 선으로 그렸음. OS 제목 표시줄은 네이티브 장식, 폰트 크기는 CSS px × 0.75임. 실제 수치·장치 없음 진단은 기존 기능의 실제 값을 표시함.
+- **'빌드·전체 시험은 끝에 한 번' 절차는 지키지 못함.** 첫 빌드의 Windows RGB 매크로 충돌·Slate 인자 타입·폐기 API 경고를 고쳐 빌드를 재실행했음. 최초 전체 78/78 뒤 PNG에서 글리프·칩 줄바꿈·설정 펼침 배경을 확인해 수정하고 Panels만 재실행했음. 조정 취소 상태 시험 1개와 관련 표시 수정까지 추가돼 마지막에 전체를 79/79로 다시 확인했음. 불필요한 red/스트레스 실행·하위 에이전트·리뷰 에이전트는 사용하지 않음.
+- 초기 빌드의 로컬 도구 StructUtils 폐기 안내는 수정하지 않았음. 자동화 실행 시작 시 이 PC OpenXR loader가 API 1.1/최대 1.0 메시지를 stderr에 냈지만, 시험 발견·결과·종료는 위와 같이 성공했음. 이를 헤드셋 호환성 확인으로 해석하지 않음.
+
+### Q1~Q4 반영 상태
+
+- Q1: **반영함 (feat(cxmr): rebuild control and advanced windows)** — Hands.Offset* 등록·범위·저장·Snap 경로 유지, Advanced 행·변경 수·탭 reset에서 제외. 기존 손 보정 시험도 전체에 포함됨.
+- Q2: **반영함 (feat(cxmr): rebuild control and advanced windows)** — 비저장 Dynamic/오버레이/마커 추적도 Default와 다르면 집계·reset, 읽기·실행·숨긴 행은 제외.
+- Q3: **반영함 (feat(cxmr): rebuild control and advanced windows)** — MR.VRBackground/Diagnostics.MarkerTracking Default=1. Depth 두 행 기본 켬·저장으로 변경. 세션 전 마커 런타임 호출 없음.
+- Q4: **반영함 (feat(cxmr): rebuild control and advanced windows)** — 깊이·MR 렌더 위치·VR 배경·마커 추적의 적용할 값을 별도 유지. MR 중 배경 설정은 실제 가시성을 바꾸지 않고 VR 복귀 때 적용. B의 MR 임시 토글은 선호값을 바꾸지 않음. Placement 자동 시작도 추적 요청 꺼짐을 존중함.
+
+### ④ API 근거 — 소스로 확인함
+
+엔진 루트: `C:/Program Files/Epic Games/UE_5.7/`.
+
+- 세션 실행 판정: `Engine/Plugins/Runtime/OpenXR/Source/OpenXRHMD/Public/IOpenXRHMD.h:35`의 IsRunning. 제품 가드는 `CXMRSubsystem.cpp:200` HasRunningSession, 적용은 :241 ApplyRequestedMode.
+- MR CVar/blend 동작: `Plugins/VarjoPlugin/Source/VarjoOpenXR/Private/MixedRealityPlugin.cpp:80-100`. View offset은 같은 파일 :100-112. 세션 핸들을 사용하는 경로임을 확인함.
+- 깊이 테스트/범위/실세계 깊이: `Plugins/VarjoPlugin/Source/VarjoOpenXR/Private/DepthPlugin.cpp:63`, :78, :92. 마지막 것은 세션 핸들로 xrSetEnvironmentDepthEstimationVARJO를 호출함. 세션 전 실제 호출을 하지 않도록 제품 가드에서 막음.
+- 마커 추적/모드: `Plugins/VarjoPlugin/Source/VarjoOpenXR/Private/VarjoMarkersPlugin.cpp:123`, :161. Dynamic override를 끄면 Follower의 TrackingMode, 보정 프로필, 나머지 Stationary 순으로 소유 원래 값에 복귀함.
+- Advanced X 숨김: `Engine/Source/Runtime/SlateCore/Public/Widgets/SWindow.h:721` SetRequestDestroyWindowOverride, :736 HideWindow. DPI 모사는 :593 SetDPIScaleFactor.
+- TTF: `Engine/Source/Runtime/SlateCore/Public/Fonts/SlateFontInfo.h:227`의 composite font 생성자, `Fonts/CompositeFont.h:442`의 파일 기반 FCompositeFont. 구형 FString 생성자의 폐기 경고를 피함. 플러그인 위치는 IPluginManager로 찾아 프로젝트 경로에 의존하지 않음.
+- 헤드셋에서 API가 실제로 성공하는지, 마커 지터·모드 복귀의 체감 품질은 **추정/미검증**이며 위 소스·합성 시험으로 확인했다고 쓰지 않음.
+
+### ⑤ 로컬에서 확인할 것과 남긴 파일
+
+- 빌드: 최종 로그와 성공 상태는 ②-6. 에디터·MCP 쓰기·Blueprint/레벨 수정 없음. 에디터는 시작과 종료에 닫혀 있음.
+- 에디터 PIE: 실제 레벨 데이터로 두 창과 버튼·탭·차량 전환, 게임/창 포커스, 저장 취소 이유를 확인할 것. 네이티브 모니터 배율 125%/150%는 **not-tested**이며 아래는 Slate DPI 모사임. 글꼴 누락 시 엔진 폰트 경고/대체와 패키지 NonUFS 포함은 사용자 패키지 시험에 남김.
+- 헤드셋: Headset-Test-Checklist **§1·§2·§5**(MR·손 가림·시작/전환·마커 상태·한 번 저장·Advanced Far), **§3·§13**(복원·공용 정렬), **§15-2·15-4**(실제 런타임 확장·Follower 모드와 Dynamic 복귀)를 사용자 헤드셋 PC에서 확인. 전부 **not-tested**.
+- 미리보기는 합성 세션·마커/차량 데이터이며 실차나 헤드셋 시험 증거가 아님. `Saved/ControlWindowPreview_*.png`:
+
+- `Saved/ControlWindowPreview_Adjusted.png`
+- `Saved/ControlWindowPreview_Adjusted_End.png`
+- `Saved/ControlWindowPreview_Advanced_125.png`
+- `Saved/ControlWindowPreview_Advanced_150.png`
+- `Saved/ControlWindowPreview_Advanced_Calibration.png`
+- `Saved/ControlWindowPreview_Advanced_Calibration_End.png`
+- `Saved/ControlWindowPreview_Advanced_Calibration_Middle.png`
+- `Saved/ControlWindowPreview_Advanced_Diagnostics.png`
+- `Saved/ControlWindowPreview_Advanced_Diagnostics_End.png`
+- `Saved/ControlWindowPreview_Advanced_Diagnostics_Middle.png`
+- `Saved/ControlWindowPreview_Advanced_MR.png`
+- `Saved/ControlWindowPreview_Advanced_MR_End.png`
+- `Saved/ControlWindowPreview_Advanced_MR_Middle.png`
+- `Saved/ControlWindowPreview_Advanced_VR.png`
+- `Saved/ControlWindowPreview_Advanced_VR_End.png`
+- `Saved/ControlWindowPreview_Advanced_VR_Middle.png`
+- `Saved/ControlWindowPreview_Main_125.png`
+- `Saved/ControlWindowPreview_Main_150.png`
+- `Saved/ControlWindowPreview_Markers.png`
+- `Saved/ControlWindowPreview_NoHeadset.png`
+- `Saved/ControlWindowPreview_Setup.png`
+- `Saved/ControlWindowPreview_Starting.png`
+- `Saved/ControlWindowPreview_Vehicle.png`
+- `Saved/ControlWindowPreview_Waiting.png`
+- `Saved/ControlWindowPreview_World.png`
+
+- 비교용 묶음: `Saved/ControlWindowQA_AdvancedTop.png`, `ControlWindowQA_AdvancedLowerA.png`, `ControlWindowQA_AdvancedLowerB.png`, `ControlWindowQA_Extras.png`.

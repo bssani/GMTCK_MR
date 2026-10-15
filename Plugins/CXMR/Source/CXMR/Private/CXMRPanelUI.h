@@ -66,7 +66,8 @@ namespace CXMRPanelUI
 	FLinearColor RailMutedColor();
 	FLinearColor ToneColor(ETone Tone);
 
-	// 글꼴. 엔진 기본 Roboto만 사용함.
+	// 글꼴 파일이 없으면 엔진 기본값을 사용함.
+	FSlateFontInfo CSSFont(float Pixels, int32 Weight = 400);
 	FSlateFontInfo BodyFont(int32 Size = 12);
 	FSlateFontInfo StrongFont(int32 Size = 12);
 	FSlateFontInfo HeadingFont(int32 Size = 16);

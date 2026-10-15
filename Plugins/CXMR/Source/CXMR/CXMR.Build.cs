@@ -7,6 +7,10 @@ public class CXMR : ModuleRules
 	public CXMR(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
+		foreach (string Font in new string[] { "PretendardStd-Regular.ttf", "PretendardStd-Medium.ttf", "PretendardStd-SemiBold.ttf", "OFL-LICENSE.txt" })
+		{
+			RuntimeDependencies.Add("$(PluginDir)/Resources/Fonts/" + Font, StagedFileType.NonUFS);
+		}
 
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
@@ -32,6 +36,7 @@ public class CXMR : ModuleRules
 			// IOpenXRHMD::IsRunning. The Varjo plugin hands its cached session handle to the runtime without checking that a
 			// session exists, so CXMR only calls through while one is running (CXMRSubsystem.cpp IsXRSessionRunning).
 			"OpenXRHMD",
+			"Projects",
 		});
 	}
 }

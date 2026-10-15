@@ -21,6 +21,8 @@
 #include "Misc/SecureHash.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
+#include "CXMRMarkerDebugComponent.h"
+#include "UObject/UObjectIterator.h"
 #include "UObject/UObjectIterator.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCXMRPlacement, Log, All);
@@ -494,7 +496,7 @@ void UCXMRPlacementComponent::FinishCalibration()
 
 void UCXMRPlacementComponent::TryStartMarkerTracking()
 {
-	if (!Subsystem || Subsystem->IsMarkerTrackingOn())
+	if (!Subsystem || !Subsystem->bRequestedMarkerTracking || Subsystem->IsMarkerTrackingOn())
 	{
 		return;
 	}
@@ -542,7 +544,9 @@ bool UCXMRPlacementComponent::ComputeMultiMarkerTransform(FTransform& Out, float
 
 void UCXMRPlacementComponent::Recalibrate()
 {
+	AdjustmentSinceSave = FVector::ZeroVector; TurnSinceSave = 0.f;
 	CancelAlignmentCapture();
+	AlignmentSaveMessage = FText::GetEmpty();
 	bManualAlignment = false;
 	bAlignmentPoseLocked = false;
 	bCalibrated = false;
@@ -563,8 +567,9 @@ void UCXMRPlacementComponent::Recalibrate()
 	// 추적을 껐다 켜서 플러그인의 감지 이력을 초기화함.
 	if (Subsystem)
 	{
+		const bool bWanted = Subsystem->bRequestedMarkerTracking;
 		Subsystem->SetMarkerTracking(false);
-		Subsystem->SetMarkerTracking(true);
+		Subsystem->SetMarkerTracking(bWanted);
 	}
 }
 
@@ -612,6 +617,7 @@ void UCXMRPlacementComponent::PlaceInFrontOfPawn()
 	CancelAlignmentCapture();
 	bAlignmentPoseLocked = true;
 	bManualAlignment = true;
+	bControlChangesDiscarded = false;
 	bHaveBasePose = true;
 	TempMarkerLocationOffset = FVector::ZeroVector;
 	TempMarkerRotationOffset = FRotator::ZeroRotator;
@@ -661,6 +667,7 @@ void UCXMRPlacementComponent::SetMarkerProfile(UCXMRMarkerProfile* NewProfile, b
 		}
 	}
 	CancelAlignmentCapture();
+	AdjustmentSinceSave = FVector::ZeroVector; TurnSinceSave = 0.f;
 	bManualAlignment = false;
 	bAlignmentPoseLocked = false;
 	SavedAlignmentMarkers.Reset();
@@ -995,7 +1002,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 	};
 
 	{
-		FCXMRTunable T = Make("Vehicle.Pose", NSLOCTEXT("CXMRPlacement", "Pose", "Vehicle (world)"), ECXMRTunableKind::Readout);
+		FCXMRTunable T = Make("Vehicle.Pose", FText::GetEmpty(), ECXMRTunableKind::Readout);
 		T.Text = [this]
 		{
 			const AActor* Root = ResolveVehicleRoot();
@@ -1005,7 +1012,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 			}
 			const FVector L = Root->GetActorLocation();
 			const FRotator R = Root->GetActorRotation();
-			FString Text = FString::Printf(TEXT("X %.1f  Y %.1f  Z %.1f  Yaw %.1f"), L.X, L.Y, L.Z, R.Yaw);
+			FString Text = FString::Printf(TEXT("X %.2f  Y %.2f  Z %.2f cm · yaw %.1f°"), L.X, L.Y, L.Z, R.Yaw);
 			if (FMath::Abs(R.Pitch) > 0.5f || FMath::Abs(R.Roll) > 0.5f)
 			{
 				// yaw뿐 아니라 전체 회전을 표시함.
@@ -1016,17 +1023,15 @@ void UCXMRPlacementComponent::RegisterTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Vehicle.Markers", NSLOCTEXT("CXMRPlacement", "Markers", "Calibration markers"), ECXMRTunableKind::Readout);
+		FCXMRTunable T = Make("Vehicle.Markers", FText::GetEmpty(), ECXMRTunableKind::Readout);
 		T.Text = [this]
 		{
-			const bool bSettling = GetWorld() && GetWorld()->GetTimerManager().IsTimerActive(SettleTimer);
-			return FText::FromString(FString::Printf(TEXT("%d in view, %d used - %s"), CurrentMarkerCount(), DetectedCalib.Num(),
-				bCalibrated ? TEXT("calibrated") : (bSettling ? TEXT("settling") : TEXT("not calibrated"))));
+			return FText::FromString(FString::Printf(TEXT("%d of %d in view"), GetControlStatus().RequiredMarkers.Num()-GetControlStatus().MissingMarkers.Num(), GetRequiredAlignmentMarkerCount()));
 		};
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Vehicle.Steadiness", NSLOCTEXT("CXMRPlacement", "Steadiness", "Marker steadiness"), ECXMRTunableKind::Readout);
+		FCXMRTunable T = Make("Vehicle.Steadiness", FText::GetEmpty(), ECXMRTunableKind::Readout);
 		T.Text = [this]
 		{
 			if (MarkerSamples.Num() == 0)
@@ -1038,12 +1043,12 @@ void UCXMRPlacementComponent::RegisterTunables()
 			{
 				Samples = FMath::Max(Samples, Pair.Value.Count);
 			}
-			return FText::FromString(FString::Printf(TEXT("%.1f mm wobble, %d samples averaged"), WorstScatter() * 10.0f, Samples));
+			return FText::FromString(FString::Printf(TEXT("%.1f mm over %d samples"), WorstScatter() * 10.0f, Samples));
 		};
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Vehicle.LayoutFit", NSLOCTEXT("CXMRPlacement", "LayoutFit", "Fit to saved layout"), ECXMRTunableKind::Readout);
+		FCXMRTunable T = Make("Vehicle.LayoutFit", FText::GetEmpty(), ECXMRTunableKind::Readout);
 		T.Text = [this]
 		{
 			if (bManualAlignment) { return NSLOCTEXT("CXMRPlacement", "ManualFit", "Manual alignment - check against the physical vehicle"); }
@@ -1052,7 +1057,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 				return DetectedCalib.IsEmpty() ? NSLOCTEXT("CXMRPlacement", "NoObservations", "Waiting for marker observations")
 					: NSLOCTEXT("CXMRPlacement", "NoFit", "One marker - cross-check unavailable");
 			}
-			return FText::FromString(FString::Printf(TEXT("%.2f cm off the saved layout"), LayoutFitError));
+			return FText::FromString(FString::Printf(TEXT("%.2f cm"), LayoutFitError));
 		};
 		Tuning->Register(MoveTemp(T));
 	}
@@ -1064,8 +1069,8 @@ void UCXMRPlacementComponent::RegisterTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Vehicle.YawStep", NSLOCTEXT("CXMRPlacement", "YawStep", "Turn per press"), ECXMRTunableKind::Float);
-		T.Unit = NSLOCTEXT("CXMRPlacement", "deg", "deg"); T.Min = 0.1f; T.Max = 45.0f; T.Delta = 0.1f; T.Default = 1.0f; T.bPersist = true;
+		FCXMRTunable T = Make("Vehicle.YawStep", FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = 0.1f; T.Max = 45.0f; T.Delta = 0.1f; T.Default = 1.0f; T.bPersist = true;
 		T.Get = [this] { return NudgeYawStep; };
 		T.Set = [this](float V) { NudgeYawStep = V; };
 		Tuning->Register(MoveTemp(T));
@@ -1092,7 +1097,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Vehicle.NudgeFrame", NSLOCTEXT("CXMRPlacement", "NudgeFrame", "Keys move along"), ECXMRTunableKind::Choice);
+		FCXMRTunable T = Make("Vehicle.NudgeFrame", FText::GetEmpty(), ECXMRTunableKind::Choice);
 		T.Options = {
 			NSLOCTEXT("CXMRPlacement", "FrameLatched", "Where I first faced"),
 			NSLOCTEXT("CXMRPlacement", "FrameLive", "Where I look now"),
@@ -1107,7 +1112,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Vehicle.NudgeHeading", NSLOCTEXT("CXMRPlacement", "NudgeHeading", "\"Away from me\" is"), ECXMRTunableKind::Readout);
+		FCXMRTunable T = Make("Vehicle.NudgeHeading", FText::GetEmpty(), ECXMRTunableKind::Readout);
 		T.Text = [this]
 		{
 			const APlayerCameraManager* CamMgr = UGameplayStatics::GetPlayerCameraManager(GetWorld(), 0);
@@ -1133,13 +1138,13 @@ void UCXMRPlacementComponent::RegisterTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Vehicle.RetakeHeading", NSLOCTEXT("CXMRPlacement", "RetakeHeading", "Use the way I face now"), ECXMRTunableKind::Action);
+		FCXMRTunable T = Make("Vehicle.RetakeHeading", FText::GetEmpty(), ECXMRTunableKind::Action);
 		T.Invoke = [this] { RetakeNudgeHeading(); };
 		T.IsEnabled = [this] { return NudgeFrame == ECXMRNudgeFrame::ViewerLatched; };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Vehicle.Pivot", NSLOCTEXT("CXMRPlacement", "Pivot", "Turn around"), ECXMRTunableKind::Choice);
+		FCXMRTunable T = Make("Vehicle.Pivot", FText::GetEmpty(), ECXMRTunableKind::Choice);
 		T.Options = {
 			NSLOCTEXT("CXMRPlacement", "PivotMarkers", "Markers"),
 			NSLOCTEXT("CXMRPlacement", "PivotViewer", "Viewer"),
@@ -1150,7 +1155,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Vehicle.KeepLevel", NSLOCTEXT("CXMRPlacement", "KeepLevel", "Keep level"), ECXMRTunableKind::Bool);
+		FCXMRTunable T = Make("Vehicle.KeepLevel", FText::GetEmpty(), ECXMRTunableKind::Bool);
 		T.Default = 1.0f;
 		T.Get = [this] { return bKeepLevel ? 1.0f : 0.0f; };
 		T.Set = [this](float V) { bKeepLevel = V > 0.5f; RecomputeCalibration(); };
@@ -1162,7 +1167,7 @@ void UCXMRPlacementComponent::RegisterTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Vehicle.LearnMarkers", NSLOCTEXT("CXMRPlacement", "LearnMarkers", "Learn marker layout from this pose (and save)"), ECXMRTunableKind::Action);
+		FCXMRTunable T = Make("Vehicle.LearnMarkers", FText::GetEmpty(), ECXMRTunableKind::Action);
 		T.Invoke = [this] { LearnMarkerLayout(); };
 		Tuning->Register(MoveTemp(T));
 	}
@@ -1174,6 +1179,30 @@ void UCXMRPlacementComponent::RegisterTunables()
 	{
 		FCXMRTunable T = Make("Vehicle.ResetOffset", NSLOCTEXT("CXMRPlacement", "ResetOffset", "Discard unsaved adjustment"), ECXMRTunableKind::Action);
 		T.Invoke = [this] { ResetMarkerOffset(); };
+		Tuning->Register(MoveTemp(T));
+	}
+	struct FPlacementSetting { const TCHAR* Id; float* Value; float Min; float Max; float Delta; float Default; };
+	for (const FPlacementSetting& Setting : {
+		FPlacementSetting{TEXT("Vehicle.CalibrationSettleSeconds"), &CalibrationSettleSeconds, 0.5f, 5.f, 0.5f, 1.5f},
+		FPlacementSetting{TEXT("Vehicle.OriginReuseTolerance"), &OriginReuseTolerance, 0.05f, 2.f, 0.05f, 0.3f},
+		FPlacementSetting{TEXT("Vehicle.OriginReuseYawTolerance"), &OriginReuseYawTolerance, 0.05f, 5.f, 0.05f, 0.3f}})
+	{
+		FCXMRTunable T = Make(Setting.Id, FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = Setting.Min; T.Max = Setting.Max; T.Delta = Setting.Delta; T.Default = Setting.Default; T.bPersist = true;
+		T.Get = [Value = Setting.Value] { return *Value; };
+		T.Set = [Value = Setting.Value](float V) { *Value = V; };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Diagnostics.DumpMarkers", FText::GetEmpty(), ECXMRTunableKind::Action);
+		T.Invoke = [this] { IConsoleManager::Get().ProcessUserConsoleInput(TEXT("CXMR.DumpMarkers"), *GLog, GetWorld()); };
+		T.Text = [this]
+		{
+			TArray<FString> Names;
+			for (TObjectIterator<UCXMRMarkerDebugComponent> It; It; ++It)
+			{ if (It->GetWorld()==GetWorld() && It->IsRegistered()) { for (int32 Id:It->GetVisibleMarkerIds()) { Names.AddUnique(FString::Printf(TEXT("marker %d"),Id)); } } }
+			return FText::FromString(TEXT("Written: ")+(Names.IsEmpty()?FString(TEXT("no markers in view")):FString::Join(Names,TEXT(", "))));
+		};
 		Tuning->Register(MoveTemp(T));
 	}
 }
@@ -1256,6 +1285,8 @@ void UCXMRPlacementComponent::NudgeVehicleInFrame(FVector ViewerDelta, float Yaw
 	// 현재 위치에서 T(-P) * R * T(P + delta) 순서로 회전 후 이동함.
 	const FTransform Nudge = FTransform(-Pivot) * FTransform(FRotator(0.0f, YawDelta, 0.0f)) * FTransform(Pivot + WorldDelta);
 	MoveVehicleTo(Current * Nudge);
+	AdjustmentSinceSave += ViewerDelta;
+	TurnSinceSave += YawDelta;
 }
 
 void UCXMRPlacementComponent::MoveVehicleTo(FTransform VehicleWorld)
@@ -1273,6 +1304,7 @@ void UCXMRPlacementComponent::MoveVehicleTo(FTransform VehicleWorld)
 	VehicleWorld.SetScale3D(FVector::OneVector);
 	CancelAlignmentCapture();
 	bManualAlignment = true;
+	bControlChangesDiscarded = false;
 	bAlignmentPoseLocked = true;
 	if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
 
@@ -1322,6 +1354,7 @@ void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator
 	{
 		CancelAlignmentCapture();
 		bManualAlignment = true;
+	bControlChangesDiscarded = false;
 		bAlignmentPoseLocked = true;
 		if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
 	}
@@ -1359,6 +1392,8 @@ void UCXMRPlacementComponent::SaveMarkerOffsetToProfile()
 
 void UCXMRPlacementComponent::ResetMarkerOffset()
 {
+	AdjustmentSinceSave = FVector::ZeroVector; TurnSinceSave = 0.f;
+	bControlChangesDiscarded = true; AlignmentSaveMessage = FText::GetEmpty();
 	CancelAlignmentCapture();
 	TempMarkerLocationOffset = FVector::ZeroVector;
 	TempMarkerRotationOffset = FRotator::ZeroRotator;
@@ -1368,4 +1403,34 @@ void UCXMRPlacementComponent::ResetMarkerOffset()
 	// 오프셋만 비우고 현재 기준으로 되돌림.
 	PublishOffset();
 	ApplyPlacement();
+}
+
+FCXMRControlStatus UCXMRPlacementComponent::GetControlStatus() const
+{
+#if WITH_DEV_AUTOMATION_TESTS
+	if (ControlStatusForTest.IsSet()) { return ControlStatusForTest.GetValue(); }
+#endif
+	FCXMRControlStatus S;
+	S.RequiredMarkers = RequiredAlignmentMarkerIds().Array(); S.RequiredMarkers.Sort();
+	for (int32 Id : S.RequiredMarkers) { if (!IsMarkerObservationCurrent(Id)) { S.MissingMarkers.Add(Id); } }
+	S.SettleSeconds = CalibrationSettleSeconds;
+	S.OriginMovement = FMath::Max(0.f, OriginMovement);
+	S.Restore = WasLastCalibrationSaveSuccessful() ? ECXMRControlRestore::Saved : HasSavedAlignment() ? (bUsedSavedWorldPose ? ECXMRControlRestore::World : ECXMRControlRestore::Markers) : ECXMRControlRestore::New;
+	if (Subsystem && !Subsystem->HasRunningSession()) { S.Stage = Subsystem->IsHeadsetStarting() ? ECXMRControlStage::Starting : ECXMRControlStage::NoHeadset; }
+	else if (bCapturingAlignment)
+	{
+		S.Stage = ECXMRControlStage::Saving;
+		int32 Count = 0;
+		for (int32 Id : CaptureMarkerIds) { const FMarkerSamples* Samples = CaptureSamples.Find(Id); Count += Samples ? FMath::Min(Samples->Count, FMath::Max(1, AlignmentCaptureMinSamples)) : 0; }
+		S.Progress = static_cast<float>(Count) / FMath::Max(1, CaptureMarkerIds.Num() * FMath::Max(1, AlignmentCaptureMinSamples));
+	}
+	else if ((bManualAlignment && !bControlChangesDiscarded) || (!AlignmentSaveMessage.IsEmpty() && !bLastCalibrationSaveSucceeded)) { S.Stage = ECXMRControlStage::Adjusted; }
+	else if (bCalibrated || bManualAlignment) { S.Stage = ECXMRControlStage::Aligned; }
+	else if (IsAlignmentSettling())
+	{
+		S.Stage = ECXMRControlStage::Settling;
+		S.Progress = FMath::Clamp(GetWorld()->GetTimerManager().GetTimerElapsed(SettleTimer) / FMath::Max(0.01f, CalibrationSettleSeconds), 0.f, 1.f);
+	}
+	else { S.Stage = ECXMRControlStage::Waiting; }
+	return S;
 }

@@ -43,6 +43,7 @@ bool UCXMRPlacementComponent::AlignToDriverEyePose(FTransform HeadWorld)
 	TempMarkerRotationOffset = FRotator::ZeroRotator;
 	CancelAlignmentCapture();
 	bManualAlignment = true;
+	bControlChangesDiscarded = false;
 	bAlignmentPoseLocked = true;
 	bCalibrated = false;
 	DetectedCalib.Reset();
@@ -294,6 +295,7 @@ bool UCXMRPlacementComponent::SaveAlignment()
 	bManualAlignment = false;
 	bAlignmentPoseLocked = true;
 	bCalibrated = true;
+	AdjustmentSinceSave = FVector::ZeroVector; TurnSinceSave = 0.f;
 	AlignmentSaveMessage = LOCTEXT("Saved", "Alignment saved.");
 	return true;
 }

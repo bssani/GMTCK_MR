@@ -36,6 +36,26 @@ public:
 	virtual void Deinitialize() override;
 	//~ End USubsystem
 
+	// 세션 준비 전에는 원하는 값만 보관함. 명세 control-window A/D.
+	void StartHeadsetSessionWait();
+	bool HasRunningSession() const;
+	bool IsHeadsetStarting() const { return !HasRunningSession() && SessionWaitSeconds < 20.f; }
+	bool IsMRRequested() const { return bMRRequested; }
+	bool bStartInMR = true;
+	bool bRequestedDepthTest = true;
+	bool bRequestedEnvironmentDepth = true;
+	bool bRequestedVRBackground = true;
+	bool bRequestedMarkerTracking = true;
+	float RequestedViewOffset = 1.f;
+	void SetRequestedVRBackground(bool bVisible);
+	void SetDynamicMarkers(bool bEnable);
+	bool IsDynamicMarkersOn() const { return bDynamicMarkers; }
+#if WITH_DEV_AUTOMATION_TESTS
+	TOptional<bool> SessionRunningForTest;
+	TFunction<void(FName)> RuntimeCallForTest;
+	void AdvanceSessionForTest(float Seconds) { TickHeadsetSession(Seconds); }
+#endif
+
 	// ---------- Diagnostics ----------
 	//
 	// Console: CXMR.DumpMRState
@@ -282,6 +302,15 @@ private:
 
 	FTSTicker::FDelegateHandle PendingViewOffsetTicker;
 	float PendingViewOffset = 0.0f;
+	FTSTicker::FDelegateHandle SessionTicker;
+	float SessionWaitSeconds = 0.f;
+	bool bMRRequested = false;
+	bool bSessionWasRunning = false;
+	bool bDynamicMarkers = false;
+	bool TickHeadsetSession(float DeltaTime);
+	void ApplyRequestedMode();
+	void ApplyDynamicMarkerModes();
+	void ApplyRuntimeCall(FName Call, TFunction<void()> Invoke);
 
 	/** Pushes the cached range to the plugin. Called on change AND whenever the depth test is enabled,
 	 *  because the plugin resets its whole state struct on session creation (DepthPlugin.cpp

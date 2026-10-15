@@ -3,6 +3,7 @@
 #include "CXMRTuningWindowComponent.h"
 #include "CXMRPanelUI.h"
 #include "SCXMRControlPanel.h"
+#include "SCXMRAdvancedPanel.h"
 #include "CXMRControlPanelWidget.h"
 #include "CXMRPlacementComponent.h"
 #include "CXMRMarkerProfile.h"
@@ -95,6 +96,7 @@ void UCXMRTuningWindowComponent::BeginPlay()
 		TunablesChangedHandle = Tuning->OnTunablesChanged.AddUObject(this, &UCXMRTuningWindowComponent::RebuildContent);
 	}
 	RegisterCoreTunables();
+	if (UGameInstance* GI = GetWorld()->GetGameInstance()) { if (UCXMRSubsystem* CXMR = GI->GetSubsystem<UCXMRSubsystem>()) { CXMR->StartHeadsetSessionWait(); } }
 	RebuildContent(); // 창이 먼저 열렸어도 등록한 설정 반영함.
 
 	if (bOpenOnBeginPlay)
@@ -144,6 +146,26 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		return Tunable;
 	};
 
+	{
+		FCXMRTunable T = Make("MR.StartInMR", FText::GetEmpty(), FText::GetEmpty(), ECXMRTunableKind::Bool);
+		T.Default = 1.f; T.bPersist = true;
+		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->bStartInMR) : 1.f; };
+		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->bStartInMR = V > 0.5f; } };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Diagnostics.DynamicMarkers", FText::GetEmpty(), FText::GetEmpty(), ECXMRTunableKind::Bool);
+		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsDynamicMarkersOn()) : 0.f; };
+		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetDynamicMarkers(V > 0.5f); } };
+		Tuning->Register(MoveTemp(T));
+	}
+	{
+		FCXMRTunable T = Make("Vehicle.ResetGroupAlignment", FText::GetEmpty(), FText::GetEmpty(), ECXMRTunableKind::Action);
+		T.Invoke = [this] { ResetSharedAlignment(); };
+		T.IsEnabled = [this] { const UCXMRPlacementComponent* P = FindPlacement(); return P && !P->GetAlignmentGroup().IsNone(); };
+		Tuning->Register(MoveTemp(T));
+	}
+
 	// 실물 화면
 	const FText MR = LOCTEXT("CatMR", "Mixed reality");
 	{
@@ -154,42 +176,51 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("MR.VRBackground", MR, LOCTEXT("VRBackground", "VR background (sky, floor)"), ECXMRTunableKind::Bool);
-		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsVRBackgroundVisible()) : 0.0f; };
-		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetVRBackgroundVisible(V > 0.5f); } };
+		FCXMRTunable T = Make("MR.VRBackground", MR, FText::GetEmpty(), ECXMRTunableKind::Bool);
+		T.Default = 1.f;
+		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->bRequestedVRBackground) : 0.0f; };
+		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetRequestedVRBackground(V > 0.5f); } };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("MR.Masking", MR, LOCTEXT("Masking", "Masking (mask meshes cut through)"), ECXMRTunableKind::Bool);
+		FCXMRTunable T = Make("MR.Masking", MR, FText::GetEmpty(), ECXMRTunableKind::Bool);
 		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsMaskingOn()) : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetMasking(V > 0.5f); } };
-		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
+
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("MR.ViewOffset", MR, LOCTEXT("ViewOffset", "View offset 0 eye / 1 cam"), ECXMRTunableKind::Float);
+		FCXMRTunable T = Make("MR.ViewOffset", MR, FText::GetEmpty(), ECXMRTunableKind::Float);
 		T.Min = 0.0f; T.Max = 1.0f; T.Delta = 0.05f; T.Default = 1.0f; T.bPersist = true;
-		T.Get = [Weak] { return Weak.IsValid() ? Weak->GetViewOffset() : 0.0f; };
-		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetViewOffset(V); } };
-		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
+		T.Get = [Weak] { return Weak.IsValid() ? Weak->RequestedViewOffset : 0.0f; };
+		T.Set = [Weak](float V)
+		{
+			if (Weak.IsValid())
+			{
+				Weak->RequestedViewOffset=V;
+				if (Weak->IsMixedRealityOn()) { Weak->TransitionViewOffset(V,Weak->ViewOffsetTransitionSeconds); }
+			}
+		};
+
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("MR.ViewOffsetGlide", MR, LOCTEXT("ViewOffsetGlide", "View offset glide (K)"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("Seconds", "s"); T.Min = 0.0f; T.Max = 2.0f; T.Delta = 0.05f; T.Default = 0.5f; T.bPersist = true;
+		FCXMRTunable T = Make("MR.ViewOffsetGlide", MR, FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = 0.0f; T.Max = 2.0f; T.Delta = 0.05f; T.Default = 0.5f; T.bPersist = true;
 		T.Get = [Weak] { return Weak.IsValid() ? Weak->ViewOffsetTransitionSeconds : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->ViewOffsetTransitionSeconds = V; } };
-		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
+
 		Tuning->Register(MoveTemp(T));
 	}
 
 	// 깊이
 	const FText Depth = LOCTEXT("CatDepth", "Depth");
 	{
-		FCXMRTunable T = Make("Depth.Test", Depth, LOCTEXT("DepthTest", "Depth test (real in front of virtual)"), ECXMRTunableKind::Bool);
-		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsDepthTestOn()) : 0.0f; };
+		FCXMRTunable T = Make("Depth.Test", Depth, FText::GetEmpty(), ECXMRTunableKind::Bool);
+		T.Default = 1.f; T.bPersist = true;
+		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->bRequestedDepthTest) : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetDepthTest(V > 0.5f); } };
-		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
+
 		Tuning->Register(MoveTemp(T));
 	}
 	{
@@ -200,45 +231,45 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 		{
 			if (Weak.IsValid()) { Weak->SetDepthTestRange(V > 0.5f, Weak->GetDepthTestRangeNearZ(), Weak->GetDepthTestRangeFarZ()); }
 		};
-		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
+
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Depth.NearZ", Depth, LOCTEXT("NearZ", "Range near"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("Metres", "m"); T.Min = 0.0f; T.Max = 2.0f; T.Delta = 0.01f; T.Default = 0.0f; T.bPersist = true;
+		FCXMRTunable T = Make("Depth.NearZ", Depth, FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = 0.0f; T.Max = 2.0f; T.Delta = 0.01f; T.Default = 0.0f; T.bPersist = true;
 		T.Get = [Weak] { return Weak.IsValid() ? Weak->GetDepthTestRangeNearZ() : 0.0f; };
 		T.Set = [Weak](float V)
 		{
-			if (Weak.IsValid()) { Weak->SetDepthTestRange(Weak->IsDepthTestRangeOn(), V, Weak->GetDepthTestRangeFarZ()); }
+			if (Weak.IsValid()) { Weak->SetDepthTestRange(true, V, Weak->GetDepthTestRangeFarZ()); }
 		};
-		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
+
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Depth.FarZ", Depth, LOCTEXT("FarZ", "Range far"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("Metres", "m"); T.Min = 0.05f; T.Max = 10.0f; T.Delta = 0.05f; T.Default = 0.75f; T.bPersist = true;
+		FCXMRTunable T = Make("Depth.FarZ", Depth, FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = 0.05f; T.Max = 10.0f; T.Delta = 0.05f; T.Default = 0.75f; T.bPersist = true;
 		T.Get = [Weak] { return Weak.IsValid() ? Weak->GetDepthTestRangeFarZ() : 0.0f; };
 		T.Set = [Weak](float V)
 		{
-			if (Weak.IsValid()) { Weak->SetDepthTestRange(Weak->IsDepthTestRangeOn(), Weak->GetDepthTestRangeNearZ(), V); }
+			if (Weak.IsValid()) { Weak->SetDepthTestRange(true, Weak->GetDepthTestRangeNearZ(), V); }
 		};
-		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn(); };
+
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Depth.EnvEstimation", Depth, LOCTEXT("EnvDepth", "Environment depth estimation"), ECXMRTunableKind::Bool);
-		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsEnvironmentDepthEstimationOn()) : 0.0f; };
+		FCXMRTunable T = Make("Depth.EnvEstimation", Depth, FText::GetEmpty(), ECXMRTunableKind::Bool);
+		T.Default = 1.f; T.bPersist = true;
+		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->bRequestedEnvironmentDepth) : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetEnvironmentDepthEstimation(V > 0.5f); } };
-		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMixedRealityOn() && Weak->IsEnvironmentDepthEstimationSupported(); };
+
 		Tuning->Register(MoveTemp(T));
 	}
 
 	// 모드별 가상 노출을 저장함. 렌더러 구성은 유지함.
 	for (bool bMR : { true, false })
 	{
-		FCXMRTunable T = Make(bMR ? FName("Display.MRExposure") : FName("Display.VRExposure"), LOCTEXT("CatDisplay", "Visual quality"), bMR ? LOCTEXT("MRExposure", "MR virtual exposure") : LOCTEXT("VRExposure", "VR virtual exposure"), ECXMRTunableKind::Float);
-		T.Help = LOCTEXT("ExposureHelp", "Separate virtual-scene preset for each environment. Camera exposure is controlled in Varjo Base. Requires an unbound Post Process Volume.");
-		T.Unit = LOCTEXT("EV", "EV"); T.Min = -6.f; T.Max = 6.f; T.Delta = 0.1f; T.bPersist = true;
+		FCXMRTunable T = Make(bMR ? FName("Display.MRExposure") : FName("Display.VRExposure"), LOCTEXT("CatDisplay", "Visual quality"), FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = -6.f; T.Max = 6.f; T.Delta = 0.1f; T.bPersist = true;
 		T.Get = [this, bMR] { return GetExposurePreset(bMR); };
 		T.Set = [this, bMR](float V) { SetExposurePreset(bMR, V); };
 		T.IsEnabled = [this] { return FindUnboundVolume(GetWorld()) != nullptr; };
@@ -248,32 +279,33 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 
 	// 배치 메뉴와 콘솔에서 같은 기능 사용함.
 	{
-		FCXMRTunable T = Make("Vehicle.PlaceInFront", LOCTEXT("CatPlacement", "Vehicle placement"), LOCTEXT("PlaceInFront", "Place vehicle in front of me"), ECXMRTunableKind::Action);
+		FCXMRTunable T = Make("Vehicle.PlaceInFront", FText::GetEmpty(), FText::GetEmpty(), ECXMRTunableKind::Action);
 		T.Invoke = [Weak] { if (Weak.IsValid()) { Weak->RequestPlaceInFront(); } };
 		Tuning->Register(MoveTemp(T));
 	}
 	const FText Diagnostics = LOCTEXT("CatDiagnostics", "Tracking diagnostics");
 	{
-		FCXMRTunable T = Make("Diagnostics.MarkerTracking", Diagnostics, LOCTEXT("MarkerTracking", "Marker tracking"), ECXMRTunableKind::Bool);
-		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsMarkerTrackingOn()) : 0.f; };
+		FCXMRTunable T = Make("Diagnostics.MarkerTracking", Diagnostics, FText::GetEmpty(), ECXMRTunableKind::Bool);
+		T.Default = 1.f;
+		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->bRequestedMarkerTracking) : 0.f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetMarkerTracking(V > 0.5f); } };
-		T.IsEnabled = [Weak] { return Weak.IsValid() && Weak->IsMarkerTrackingSupported(); };
+
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Diagnostics.HandSkeleton", Diagnostics, LOCTEXT("HandSkeleton", "Show hand skeleton"), ECXMRTunableKind::Bool);
+		FCXMRTunable T = Make("Diagnostics.HandSkeleton", Diagnostics, FText::GetEmpty(), ECXMRTunableKind::Bool);
 		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->IsHandVisualizationOn()) : 0.f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetHandVisualization(V > 0.5f); } };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Diagnostics.MarkerLabels", Diagnostics, LOCTEXT("MarkerLabels", "Show marker axes and labels"), ECXMRTunableKind::Bool);
+		FCXMRTunable T = Make("Diagnostics.MarkerLabels", Diagnostics, FText::GetEmpty(), ECXMRTunableKind::Bool);
 		T.Get = [] { return AsValue(UCXMRMarkerDebugComponent::IsMarkerDrawingOn()); };
 		T.Set = [](float V) { UCXMRMarkerDebugComponent::SetMarkerDrawing(V > 0.5f); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Diagnostics.MRState", Diagnostics, LOCTEXT("MRState", "Log MR state"), ECXMRTunableKind::Action);
+		FCXMRTunable T = Make("Diagnostics.MRState", Diagnostics, FText::GetEmpty(), ECXMRTunableKind::Action);
 		T.Invoke = [Weak] { if (Weak.IsValid()) { Weak->DumpMRState(); } };
 		Tuning->Register(MoveTemp(T));
 	}
@@ -282,8 +314,8 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 	if (UCXMRVarjoInputComponent* Input = GetOwner() ? GetOwner()->FindComponentByClass<UCXMRVarjoInputComponent>() : nullptr)
 	{
 		const TWeakObjectPtr<UCXMRVarjoInputComponent> WeakInput(Input);
-		FCXMRTunable T = Make("Input.OffsetAdjustSpeed", LOCTEXT("CatInput", "Input"), LOCTEXT("AdjustSpeed", "NumPad speed (cm, deg)"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("PerSecond", "per s"); T.Min = 0.5f; T.Max = 200.0f; T.Delta = 1.0f; T.Default = 10.0f; T.bPersist = true;
+		FCXMRTunable T = Make("Input.OffsetAdjustSpeed", FText::GetEmpty(), FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = 0.5f; T.Max = 200.0f; T.Delta = 1.0f; T.Default = 10.0f; T.bPersist = true;
 		T.Get = [WeakInput] { return WeakInput.IsValid() ? WeakInput->OffsetAdjustSpeed : 0.0f; };
 		T.Set = [WeakInput](float V) { if (WeakInput.IsValid()) { WeakInput->OffsetAdjustSpeed = V; } };
 		Tuning->Register(MoveTemp(T));
@@ -342,9 +374,9 @@ TSharedRef<SWidget> UCXMRTuningWindowComponent::BuildPanel()
 
 void UCXMRTuningWindowComponent::SelectPage(ECXMRControlPage Page)
 {
-	if (Page > ECXMRControlPage::Diagnostics) { return; }
+	if (Page > ECXMRControlPage::Calibration) { return; }
 	ResetDeadline = 0.0;
-	ActivePage = Page == ECXMRControlPage::Vehicle || Page == ECXMRControlPage::Calibration ? Page : ECXMRControlPage::Display;
+	ActivePage = Page;
 }
 
 UCXMRPlacementComponent* UCXMRTuningWindowComponent::FindPlacement() const
@@ -643,10 +675,8 @@ bool UCXMRTuningWindowComponent::SaveCalibration()
 
 void UCXMRTuningWindowComponent::RebuildContent()
 {
-	if (Window.IsValid())
-	{
-		Window->SetContent(BuildPanel());
-	}
+	if (Window.IsValid()) { Window->SetContent(BuildPanel()); }
+	if (AdvancedWindow.IsValid()) { AdvancedWindow->SetContent(SNew(SCXMRAdvancedPanel).Control(this).Tuning(GetTuning())); }
 }
 
 void UCXMRTuningWindowComponent::OpenWindow()
@@ -675,7 +705,7 @@ void UCXMRTuningWindowComponent::OpenWindow()
 	Window->SetContent(BuildPanel());
 
 	// X로 닫으면 창 참조도 비움.
-	Window->SetOnWindowClosed(FOnWindowClosed::CreateWeakLambda(this, [this](const TSharedRef<SWindow>&) { Window.Reset(); ControlWidget = nullptr; }));
+	Window->SetOnWindowClosed(FOnWindowClosed::CreateWeakLambda(this, [this](const TSharedRef<SWindow>&) { Window.Reset(); CloseWindow(); }));
 
 	FSlateApplication::Get().AddWindow(Window.ToSharedRef(), /*bShowImmediately*/ true);
 
@@ -686,6 +716,11 @@ void UCXMRTuningWindowComponent::OpenWindow()
 void UCXMRTuningWindowComponent::CloseWindow()
 {
 	ResetDeadline = 0.0;
+	if (AdvancedWindow.IsValid())
+	{
+		AdvancedWindow->SetRequestDestroyWindowOverride(FRequestDestroyWindowOverride());
+		AdvancedWindow->RequestDestroyWindow(); AdvancedWindow.Reset(); bAdvancedVisible = false;
+	}
 	if (Window.IsValid())
 	{
 		Window->SetOnWindowClosed(FOnWindowClosed());   // 종료 중 콜백 재진입 방지함.
@@ -693,6 +728,26 @@ void UCXMRTuningWindowComponent::CloseWindow()
 		Window.Reset();
 	}
 	ControlWidget = nullptr;
+}
+
+void UCXMRTuningWindowComponent::OpenAdvancedWindow()
+{
+	if (!FApp::CanEverRender() || !FSlateApplication::IsInitialized()) { return; }
+	if (!Window.IsValid()) { OpenWindow(); }
+	if (!AdvancedWindow.IsValid())
+	{
+		AdvancedWindow = SNew(SWindow).Title(FText::FromString(TEXT("CXMR Advanced settings")))
+			.ClientSize(FVector2D(560,760)).ScreenPosition(WindowPosition + FVector2D(504,0)).AutoCenter(EAutoCenter::None);
+		AdvancedWindow->SetContent(SNew(SCXMRAdvancedPanel).Control(this).Tuning(GetTuning()));
+		AdvancedWindow->SetRequestDestroyWindowOverride(FRequestDestroyWindowOverride::CreateWeakLambda(this, [this](const TSharedRef<SWindow>&) { HideAdvancedWindow(); }));
+		FSlateApplication::Get().AddWindow(AdvancedWindow.ToSharedRef(), false);
+	}
+	bAdvancedVisible = true; AdvancedWindow->ShowWindow(); AdvancedWindow->BringToFront();
+}
+void UCXMRTuningWindowComponent::HideAdvancedWindow()
+{
+	bAdvancedVisible = false;
+	if (AdvancedWindow.IsValid()) { AdvancedWindow->HideWindow(); }
 }
 
 void UCXMRTuningWindowComponent::ToggleWindow()

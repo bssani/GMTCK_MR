@@ -150,24 +150,30 @@ CustomDepth에만 그려진다).
 
 실물 스티어링 휠 테스트는 이 큐브를 휠 위치·크기로 옮기면 된다.
 
-## 5. Review / Alignment / Settings 통합 창
+## 5. CXMR Control / Advanced settings
 
-- [ ] 진행자용 CXMR Control 창은 하나만 열린다. 닫고 다시 열기·PIE 재시작에도 중복되지 않는다.
-- [ ] Review는 차량 선택, Alignment는 초기 맞추기·미세조정·확인·저장, Settings는 화면·손 표시·진단이다.
-- [ ] Alignment 안내가 중복되지 않고 카드 안쪽 패딩이 과하지 않다.
-- [ ] `Advanced Placement` 안의 `Reset Group Alignment`를 한 번만 눌러도 저장·현재 정렬은 유지된다.
-- [ ] 그룹 이름이 있는 확인 라벨이 나오며 5초 안에 다시 눌러야 삭제된다. 시간 초과 뒤에는 다시 무장된다.
+이 절은 헤드셋 PC에서 확인한다. 실제 헤드셋 검증은 **not-tested**다.
 
-- [ ] 저장 요청 중 필요 마커를 가리거나 0.5초 넘게 관측을 끊으면 전체 요청이 취소되고 빠진 ID가 표시된다. 다시 요청해야 저장된다.
-- [ ] 10초 안에 마커당 10표본을 채우지 못하면 시간 초과와 부족한 ID·표본 수가 표시된다.
-- [ ] 원본 초기화는 마커가 안 보여도 동작하고, 다음 실행에 옛 공용 파일이 다시 적용되지 않는다.
+- [ ] 앱 시작 후 `Headset starting` → `Headset running`, MR → 깊이 테스트 → 범위 → 실세계 깊이 추정 순서가 로그·화면에 맞는다. 손이 차량 앞에 보이는지 §1·§2 순서로 확인한다.
+- [ ] 세션이 없으면 20초 뒤 `Headset not running`과 VR이 표시된다. 늦게 세션을 시작하면 MR·마커 추적 요청이 적용된다. 시작 전 추적을 꺼두면 자동으로 켜지지 않는다.
+- [ ] 기본 창은 MR/VR·상태를 항상 표시하고 Calibration / Vehicle 탭을 제공한다. Advanced settings는 별도 창 하나다. 다시 열기, X로 숨기기, 같은 탭·위치 복원, 기본 창 닫기·PIE 종료 시 함께 닫기를 확인한다.
+- [ ] Starting, Waiting for markers, Reading markers, saved position reused, recalculated from markers, Adjusted · not saved, Saving alignment, Headset not running의 문구와 관측 마커가 실제 상태에 맞는다.
+- [ ] 필요 마커를 모두 유지하고 Save alignment 또는 Enter를 한 번만 누른다. 새 평균의 진행률 뒤 자동 저장된다. 저장 중 하나를 가리거나 관측이 만료되면 취소되며 빠진 ID를 표시한다. 다시 요청해야 한다.
+- [ ] 10초 안에 마커당 최소 표본을 채우지 못하면 시간 초과가 표시되고 이전 파일이 유지된다.
+- [ ] 버튼·넘버패드 조정이 같은 방향이며 Change since last save에 누적된다. 저장·Discard changes·Recalibrate 뒤 누적량이 초기화된다. 0.1 / 1 / 5 cm 선택과 Turn per press를 확인한다.
+- [ ] First-time setup for a new rig의 Align to my eyes는 유효한 HMD 위치로만 배치한다. Vehicle 탭은 실제 카탈로그를 선택하고 그룹 없는 차량은 Alignment group 줄이 없다.
+- [ ] 고급 MR의 Depth range, far edge를 바꾸면 가림 거리가 변한다. VR에서 바꾼 MR 깊이·Render from 값은 MR 복귀 때 적용된다. VR background는 MR 실제 가시성과 별도로 유지된다. B 키의 MR 임시 토글과 VR 설정 변경을 구분한다.
+- [ ] 정상 기본 시작·VR 전환·헤드셋 없음에서 Advanced settings at defaults다. H·Dynamic을 켜면 변경 수·탭 ●·Changed가 따라가며 탭 초기화가 세션 설정도 되돌린다.
+- [ ] Diagnostics의 Dynamic tracking for all markers는 새 감지 마커에도 적용되고, 끄면 보정 프로필·Marker Follower의 원래 모드 또는 Stationary로 복귀한다. 라벨로 확인한다. 앱 재시작에는 꺼짐이다.
+- [ ] Calibration의 Delete saved alignment for <group>은 첫 클릭만으로 삭제하지 않는다. 5초 안에 두 번째 클릭해야 삭제된다. Discard changes는 저장 파일을 지우지 않는다.
+- [ ] 모니터 배율 125%·150%, 두 창 크기 변경, 모든 탭의 아래쪽 조작·문구를 확인한다. 패키지를 만들 때 Pretendard 포함·표시도 확인한다.
 
 ## 6. 차량 선택
 
 | 조작 | 기대 |
 |---|---|
 | 오른쪽 스틱 상하 | 차량 순환 (Test Car A ↔ B) |
-| Review 차량 버튼 | 지정한 차량 로드 |
+| Vehicle 탭 차량 버튼 | 지정한 차량 로드 |
 | `E` | 차량을 내 앞에 배치 |
 
 디자인 옵션은 `project/pqdq-usb-access` 브랜치에 있다.
@@ -230,7 +236,7 @@ CXMR 쪽 변환은 확인했다 — 폰·카메라에 오프셋이 없고, 손 �
 
 ## 11. 모니터 화면 — 관전 카메라 (2026-09-15 추가)
 
-컨트롤 창 **Monitor → Monitor shows**:
+고급 창 **Diagnostics → Monitor → Monitor shows**:
 1. `Smoothed view` → 모니터가 착용자 시점을 따라가되 흔들림이 줄고 수평이 유지되는가. 헤드셋 화면은 그대로여야 한다
 2. `Orbit vehicle` → 모니터가 차 주위를 천천히 도는가(튜닝 창 Monitor에서 거리·속도)
 3. `Headset mirror` → 원래 미러로 돌아오는가

@@ -84,7 +84,7 @@ GameMode(`BP_CXMRGameMode`)가 `BP_CXMRPawn`을 자동 스폰한다. 레벨에 p
 **회전 중심**은 `VehicleRoot → Placement → Nudge Pivot`이다. MarkerAnchor에서 Driver Eye Reference가 유효하면 그 눈 기준을 우선한다. 눈 기준이 없을 때 기본 `Markers`는 보이는 캘리브레이션 마커들의 중심이라,
 마커 옆에서 먼저 맞춰 둔 부분이 돌려도 제자리에 남는다. `Viewer`(내 머리), `VehicleOrigin`(차 원점)도 고를 수 있다.
 
-컨트롤 창 Alignment 페이지과 튜닝 창은 **차의 월드 위치**를 보여 준다(예전 패널의 X/Y/Z/Yaw는 차 기준 내부값이라 키 방향과 부호가 맞지 않았다).
+고급 창 Calibration 탭은 **차의 월드 위치**를 보여 준다(예전 패널의 X/Y/Z/Yaw는 차 기준 내부값이라 키 방향과 부호가 맞지 않았다).
 
 ⚠️ **NumLock이 꺼져 있으면 하나도 안 먹는다.** 꺼진 상태에서는 NumPad 7이 Home, 9가 PageUp으로
 전달되어 매핑이 통째로 빗나간다. 아무 반응이 없으면 NumLock부터 확인한다.
@@ -302,7 +302,7 @@ clay 표면 보호도 감안한다. 직접 붙이면 자국이 남으므로 저�
 | **Stop Marker Tracking When Calibrated** | ⚠️ **기본 off로 둘 것.** 켜면 헤드셋의 마커 추적이 **전역으로** 꺼져서 DynamicObject 마커까지 죽는다 |
 | **Start Marker Tracking On Begin Play** | 기본 on. 시작할 때 마커 추적을 켠다(세션이 올라올 때까지 20초 재시도) |
 | **Calibration Settle Seconds** | 기본 1.5. 마커가 충분히 보인 뒤 이 시간 동안 갱신을 받고 고정한다 — 첫 샘플의 노이즈를 굳히지 않게 |
-| **Average Marker Samples** | 기본 on. 정착 시간 동안 받은 마커 표본을 평균낸다. 흔들림(mm)과 표본 수는 Settings/Alignment의 Marker steadiness에서 확인 |
+| **Average Marker Samples** | 기본 on. 정착 시간 동안 받은 마커 표본을 평균낸다. 흔들림(mm)과 표본 수는 고급 창 Calibration의 Marker steadiness에서 확인 |
 
 **단일 마커는 각도 노이즈가 증폭된다**(레버암). 마커 하나의 방향이 1° 틀어지면 3m 떨어진 차 뒤쪽은
 5cm 밀린다. **마커 2개 이상을 쓰면** 시스템이 마커 *위치*들 사이의 기준선으로 yaw를 계산하고
@@ -404,7 +404,7 @@ Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 **조작**: `VarjoInput → Cycle Manikin Action`에 Axis1D IA를 지정하면 스틱 flick으로 순환한다
 (차량 순환과 같은 히스테리시스).
 
-컨트롤 창 **Settings → Optional eye references → Authored eye position `[-][+]`**으로도 순환한다(2026-09-15부터. 예전 WBP 패널에는 이 행이 없었다).
+컨트롤 창 **Ergonomics 컴포넌트의 RequestErgonomicsStep**으로도 순환한다(2026-09-15부터. 예전 WBP 패널에는 이 행이 없었다).
 
 ⚠️ **차량 프로파일에 ergonomics 애셋이 연결돼 있어야 동작한다.** 안 걸려 있으면
 `ResolveProfile()`이 null을 반환해 눌러도 조용히 아무 일도 일어나지 않는다.
@@ -421,82 +421,42 @@ Eye Point는 **차량 로컬 좌표**다(차와 함께 움직인다).
 
 ## 7. 컨트롤 패널 조정
 
-### CXMR Control 통합 창
+### CXMR Control과 Advanced settings
 
-**데스크톱 창은 하나다.** 진행자가 왼쪽 **Review / Alignment / Settings**에서 작업을 고른다.
-착용자는 같은 정렬·좌석·자세에서 차량과 부품을 비교한다. 평가 점수나 삽입 성공을 자동으로 만들지 않는다.
+기본 창 **CXMR Control**(480×820)은 MR/VR, 헤드셋과 정렬 상태를 항상 위에 표시한다. 탭은 **Calibration / Vehicle**이다. 내용이 길면 탭 안만 스크롤한다. 두 창 모두 크기를 바꿀 수 있다.
 
-| 메뉴 | 용도 |
+앱은 기본적으로 MR을 요청하고, OpenXR 세션이 실행되면 **MR → 깊이 테스트 → 깊이 범위 → 실세계 깊이 추정** 순서로 적용한다. 세션 전에는 Varjo 런타임을 호출하지 않는다. 20초 동안은 시작 대기, 이후에는 `Headset not running`이다. 늦게 세션이 시작돼도 요청을 적용한다. `Advanced settings… → MR → Start in MR`을 끄면 다음 실행은 VR로 시작한다.
+
+**Calibration**의 Markers는 프로필의 필요 마커와 관측 여부다. 저장 없이 처음 맞췄거나 조정한 상태에서 모든 마커가 보이면 **Save alignment**를 한 번 누른다. 새 표본을 평균내 자동 저장한다. Enter도 같은 저장 요청이다. 저장 중 마커가 빠지면 취소하고 다시 요청해야 한다. 파일 교체 성공 뒤에만 저장 완료다. 표본 수·시간 제한은 §3-1과 같다.
+
+**Fine-adjust position**은 이동 간격 0.1 / 1 / 5 cm와 Away / Toward / Left / Right / Up / Down / Turn 버튼을 제공한다. 넘버패드와 같은 조정 경로이며 `Change since last save`는 저장·Discard changes·Recalibrate 뒤의 누적 조정량(cm, °)이다. **Discard changes**는 임시 조정만 버린다. **Recalibrate**는 마커를 다시 읽는다.
+
+**처음 목업을 맞출 때**:
+1. 차량 Data Asset에서 `Has Driver Eye Reference`를 켜고, 원본 차량 액터 로컬 좌표로 눈 위치와 정면(+X)을 넣는다. `VehicleRootOffset`은 별도로 유지한다.
+2. `/Game/`의 Marker Profile에 고정 보정 마커 ID와 `Calibration` 역할을 설정한다. Marker Follower가 쓰는 ID는 제외한다.
+3. 운전자석에 자연스럽게 앉아 정면을 보고 **First-time setup for a new rig → Align to my eyes**를 누른다. 3초 뒤 유효한 HMD 위치·yaw로 한 번 배치한다. 다시 누르면 취소한다.
+4. 실물과 비교해 미세조정하고 모든 마커가 보이는 동안 **Save alignment**를 한 번 누른다.
+
+다음 실행에는 모든 필요 마커의 정착 평균 뒤 자동 복원한다. 원점이 유지됐으면 저장 월드 포즈, 움직였거나 구 파일이면 마커로 재계산한다. 이미 완료한 정렬은 가림·재관측으로 움직이지 않는다. 실물 마커·모델 오프셋·좌석이 달라지면 다시 맞춰 저장한다.
+
+**Vehicle**은 Loader 카탈로그의 실제 차량을 선택한다. `Alignment group`은 그룹이 있는 경우만 보인다. 같은 목업의 차량은 같은 그룹과 같은 마커 구성을 쓰고 모델 원점 차이는 `VehicleRootOffset`으로 맞춘다. 그룹 이름을 바꾼 뒤에는 차량을 다시 로드한다. 그룹 저장은 `Saved/CXMR/AlignmentGroup_*.json`, 그룹이 `None`이면 차량별 `MarkerCalib_*.json`이다. 다른 마커 구성은 그룹 저장을 적용·덮어쓰지 않는다.
+
+**Advanced settings…**는 별도 창(560×760)을 연다. 다시 누르면 기존 창이 앞으로 온다. X로 숨긴 뒤 다시 열면 같은 위치·탭이며, 기본 창을 닫거나 PIE를 끝내면 둘 다 닫힌다. 에디터 `CXMR Settings` 버튼도 이 창을 연다. `CXMR Control` 버튼과 콘솔 `CXMR.Tuning`은 기본 창을 연다.
+
+| 고급 탭 | 내용 |
 |---|---|
-| Review | 차량 선택, 선택 실패 이유 |
-| Alignment | 운전자 눈 기준 초기 정렬, 미세조정, 확인·마커 캡처·저장 |
-| Settings | MR/VR 가상 노출, MR 깊이·마스킹, 손 접촉, 마커·손·관전 화면 진단 |
+| MR | 시작 모드, 깊이·범위, MR 가상 노출, Render from, Scene masks |
+| VR | VR 가상 노출, Virtual background |
+| Calibration | 관측 수치, 마커 평균·원점 허용 오차, 조정 방향·회전 중심, 레이아웃 학습·공용 저장 삭제 |
+| Diagnostics | 손·마커 오버레이, 손 정렬, 모니터 카메라, 마커 추적·Dynamic·로그 |
 
-상단에는 차량과 정렬 상태가 함께 나온다. 옵션 선택 실패는 Review 하단에 남으며 정렬 상태를 가리지 않는다.
-`Advanced Placement`는 기본으로 접혀 있다. 그 안의 `Reset Group Alignment`는 첫 클릭으로만 무장된다.
-5초 안에 같은 그룹에서 다시 클릭해야 공용 저장을 지운다. 시간이 지나거나 대상 그룹이 바뀌면 다시 확인해야 한다.
+행의 문구·도움말은 창에 보인다. MR/VR 행은 **그 모드에서 적용할 값**이며 다른 모드에서도 바꿀 수 있다. MR의 깊이 값과 VR의 배경 값은 모드 전환으로 바뀌지 않는다. `B`는 VR에서는 배경 설정을 바꾸고, MR에서는 실제 배경만 임시로 토글한다. 마커 추적을 끄면 자동 시작도 하지 않는다.
 
-**보정 순서**:
-1. 차량 Data Asset의 `Alignment`에서 `Has Driver Eye Reference`를 켠다.
-   `Driver Eye Reference`는 **로드되는 원본 차량 액터의 로컬 좌표**다. 눈 기준 위치와 운전자 정면 방향(+X)을 넣는다.
-   CAD 원점이 차체에서 멀어도 메시를 재배치하지 않는다. `VehicleRootOffset`은 별도로 한 번만 적용된다.
-   기존 HF용 Ergonomics `EyePoint`와 초기 정렬용 `Driver Eye Reference`는 목적이 다르다.
-2. 연결한 Marker Profile에 사용할 마커 ID를 모두 등록하고 Role을 `Calibration`으로 지정한다.
-   동적 소품 마커는 정렬 저장에 포함하지 않는다.
-3. 실제 운전자석에 자연스럽게 앉아 정면을 보고 `Alignment → 1 Align to eyes`를 누른다.
-   3초 뒤 추적된 HMD 위치와 yaw로 차량을 한 번 배치한다. 다시 누르면 취소한다.
-   눈 기준점·차량·마커 설정이 없거나 HMD 위치 추적이 유효하지 않으면 초기 배치를 적용하지 않는다.
-4. 실물 기준과 비교해 위치와 회전을 미세조정한다.
-   Turn은 차량에 지정한 눈 기준점을 중심으로 돈다. Root 위치까지 보정하므로 먼 CAD 원점 주위로 크게 돌지 않는다.
-   마커가 새로 보이거나 고개를 돌려도 조정 중인 차량 위치는 유지한다.
-5. 보정 마커 전부를 시야에 유지하고 `2 Confirm fit`, `3 Save alignment` 또는 넘버패드 `Enter`를 한 번 누른다.
-   새 표본을 평균내 자동 저장한다. 표본 수·시간 제한·누락 취소는 §3-1과 같다. 파일 교체 성공 후에만 완료로 표시한다.
-6. 실패하면 기존 프로필과 파일은 유지된다. 이유를 해결하고 다시 요청해 새 표본으로 저장한다.
+아래 변경 수, 탭의 `●`, 행의 `Changed · default …`는 **고급 창에 행이 있는 설정 중 Default와 다른 값**이다. 저장 여부와 무관하다. H 키로 켠 손 표시나 세션용 Dynamic도 센다. 탭의 `Reset … to defaults`는 그 탭 설정만 되돌린다. Snap으로 저장하는 손 보정 결과는 창에 행이 없으므로 세지도 초기화하지도 않는다.
 
-**다음 실행**: 모든 필요 마커가 관측되고 정착 평균이 끝나면 자동 복원한다. 원점이 유지됐으면 차량 월드 포즈를 그대로 재사용하고, 움직였거나 구 파일이면 마커 기준으로 계산한다(§3-1).
-마커 일부만 보이면 차를 움직이지 않는다. 이미 완료한 정렬은 가림·재관측으로 움직이지 않는다.
-실물 마커·모델 오프셋·좌석·목업이 달라졌으면 새로 맞추고 저장한다.
-Alignment의 `Advanced Placement → Restore from Markers Again`은 저장값으로 복원을 다시 시도한다.
+영속화 대상은 조작을 마칠 때 `Saved/CXMR/Tuning.json`에 저장한다. 깊이 테스트·실세계 깊이 추정은 저장된다. 마커 추적·Dynamic·오버레이·배경은 세션 설정이다. `Calibration → Delete saved alignment for <group>`은 **Delete → Click again to delete**를 5초 안에 눌러야 삭제된다. 손 보정은 `Diagnostics → Snap hand to marker`를 다시 실행한다.
 
-**조작**: 수치는 슬라이더 또는 직접 입력, 선택 항목은 목록, 위치 조정은 `− / +` 버튼을 쓴다.
-항목에 마우스를 올리면 설명이 나온다. `Default`는 해당 설정과 저장값을 초기화한다.
-키보드 조작도 같은 기능의 상태를 읽고 쓴다.
-
-**다시 열기**: Play 중 에디터의 `CXMR Control` 버튼으로 창을 열거나 앞으로 가져온다.
-`CXMR Settings`는 같은 창의 Settings 메뉴를 연다. 콘솔 `CXMR.Tuning`도 같은 창을 열고 닫는다.
-X로 닫아도 재열기 가능하며 PIE 종료 시 닫힌다. 키보드 단축키는 창 포커스를 따르므로
-게임 단축키를 쓰려면 게임 화면을 클릭한다.
-
-**저장**: 영속화 대상 일반 설정은 조작을 마칠 때 `Saved/CXMR/Tuning.json`에 자동 저장한다.
-MR·배경·깊이 비교 등 세션용 스위치는 매 실행마다 다시 설정한다.
-차량 Data Asset의 `Alignment → Alignment Group`이 `None`이면 보정은 `Saved/CXMR/MarkerCalib_*.json`에 차량별로 저장한다.
-파일은 마커 프로필 ID와 차량 Data Asset 경로로 구분한다. 이 모드에서는 모델 클래스나 오프셋 변경 시 이전 저장을 적용하지 않는다.
-
-**차량 여러 대가 같은 위치를 사용할 때**:
-
-1. 차량 1·2·3의 Data Asset에 같은 `Alignment Group` 이름을 넣는다. 예: `DriverRig_A`. 그룹 이름을 바꾼 뒤에는 차량을 다시 로드한다.
-2. 각 모델의 원점 차이는 `Vehicle Root Offset`으로 공통 앵커에 맞춘다. `Driver Eye Reference`도 각 모델 로컬 좌표로 유지한다. 같은 그룹이라고 이 값을 복사하지 않는다.
-3. 그룹 멤버는 같은 실물 기준과 동일한 **보정용 마커 ID 집합**을 사용한다. 마커 프로필 파일 이름·추적 설정·동적 소품 마커는 달라도 된다.
-4. 한 차량에서 초기 맞추기 → 미세조정 → 모든 마커를 유지한 채 한 번 저장 요청 → 평균·자동 저장을 진행한다. 이미 마커로 자동 배치된 경우에도 그룹 최초 저장에는 새 캡처가 필요하다.
-5. 정렬을 확인한 뒤 같은 그룹의 차량으로 교체하면 앵커는 유지된다. 새 실행에서는 필요 마커 전부와 정착 평균으로 공용 정렬을 복원한다. 원점 비교와 월드 포즈 재사용도 동일하다. 차량 교체 때문에 HMD 위치에 다시 맞추지 않는다.
-
-그룹 저장은 `Saved/CXMR/AlignmentGroup_*.json` 하나를 사용한다. 어느 멤버에서 저장해도 그룹 전체가 다음 복원에 같은 정렬을 사용한다.
-공유하는 것은 보정용 마커의 앵커 기준 좌표와 복원 정보다. 차량 모델·오프셋·눈 기준점·동적 소품 마커는 공유하지 않는다.
-서로 다른 마커 구성은 로드와 덮어쓰기를 거절한다. 구성을 바꾸려면 먼저 해당 그룹 정렬을 초기화하고 새로 확인·저장한다.
-기존 차량별 파일은 유지한다. 그룹을 지정했다고 기존 파일을 자동 복사하지 않으며, `None`으로 되돌리면 차량별 저장을 다시 사용한다.
-공용 정렬은 개별 마커 `Learn` 대신 확인·캡처·저장 절차를 사용한다.
-Alignment의 Placement 화면에 현재 저장 범위가 표시된다. `Reset Group Alignment`는 그룹 저장을 지우며, `Reset Adjustment`는 임시 조정만 취소한다.
-차량 모델 설정을 바꾼 뒤에는 다시 로드하고 공통 앵커에 대한 차체 위치를 확인한다. 그룹은 모델 변경 자체를 이유로 공용 정렬을 거절하지 않는다.
-
-USB 포트·손 접촉은 `project/pqdq-usb-access` 브랜치에 있다.
-
-**창 설정**: `BP_CXMRPawn → Desktop Panel → Open On Begin Play`가 자동 열기를 담당한다.
-같은 pawn의 `Tuning Window`가 창을 소유하며 기본 크기는 900×760, 위치는 (40, 60)이다.
-`Tuning Window → Open On Begin Play` 기본값은 false다. 기존 BP가 true로 덮어써도 같은 창을 재사용한다.
-통합 창의 크기·제목은 `Tuning Window`에서 바꾼다.
-
-아래 기존 절차에서 말하는 “튜닝 창”은 이 통합 창의 해당 메뉴다.
-`Vehicle placement / Input`은 Alignment, `Mixed reality / Depth / Display / Monitor`와 손 표시·진단은 Settings에 있다.
+헤드셋·패키지 검증은 별도다. 이 PC의 합성 Slate 미리보기는 실제 패스스루·마커·손 추적 검증이 아니다. 게임 단축키는 게임 화면에 포커스를 둔다. 기본 창에 포커스가 있어도 Enter는 저장 요청이다.
 
 ### MR/VR 노출 프리셋
 
@@ -554,8 +514,8 @@ Varjo 예제 맵(`/Game/VRTemplate/Maps/VRTemplateMap`)에 있고 CXMR에 없던
 | 기능 | 켜는 법 | 보여 주는 것 |
 |---|---|---|
 | **View Offset 부드러운 전환** | `K`, 컨트롤 창 `Render from` | 눈 ↔ 카메라 위치를 0.5초에 걸쳐 옮긴다. 한 번에 바꾸면 가상 장면 전체가 툭 튄다 |
-| **마커 라벨** | 컨트롤 창 Settings → `Marker axes and labels`, 또는 `CXMR.DebugMarkers 1` | 마커마다 `ID 12  Stationary` 글자(놓치면 빨강 `LOST`)와 반투명 판. 레벨 안 물체라 **헤드셋에서도** 마커 위에 보인다 |
-| **모니터 화면** | 컨트롤 창 Settings의 Monitor, 튜닝 창 Monitor | 헤드셋 미러 대신 ① 착용자 시점을 흔들림 줄이고 수평 유지 ② 차 주위를 천천히 도는 화면 |
+| **마커 라벨** | 고급 창 Diagnostics → `Marker axes and labels`, 또는 `CXMR.DebugMarkers 1` | 마커마다 `ID 12  Stationary` 글자(놓치면 빨강 `LOST`)와 반투명 판. 레벨 안 물체라 **헤드셋에서도** 마커 위에 보인다 |
+| **모니터 화면** | 고급 창 Diagnostics의 Monitor | 헤드셋 미러 대신 ① 착용자 시점을 흔들림 줄이고 수평 유지 ② 차 주위를 천천히 도는 화면 |
 
 **View Offset 전환** — `K`와 컨트롤 창 버튼은 전환, 튜닝 창 `View offset` 숫자는 즉시 바뀐다. 전환 시간은 튜닝 창
 `View offset glide`(기본 0.5초, 0 = 즉시, 저장됨). 도중에 런타임이 값을 받지 않으면 그 자리에서 멈추고 로그에
@@ -617,7 +577,7 @@ Varjo 예제 맵(`/Game/VRTemplate/Maps/VRTemplateMap`)에 있고 CXMR에 없던
 `LogCXMRErgo`(착좌) `LogCXMRPawn`(패널) `LogCXMRPlacement`(배치·캘리브) `LogCXMRMask`(마스킹)
 `LogCXMRVehicle`(차량 로더) `LogCXMRInput`(입력) `LogCXMRSpectator`(모니터 화면)
 
-**마커 계측기**: 콘솔에 `CXMR.DebugMarkers 1`, 또는 컨트롤 창 Settings → `Marker axes and labels` — 플러그인이 보고하는 마커 pose를 **가공 없이** 그린다.
+**마커 계측기**: 콘솔에 `CXMR.DebugMarkers 1`, 또는 고급 창 Diagnostics → `Marker axes and labels` — 플러그인이 보고하는 마커 pose를 **가공 없이** 그린다.
 캘리브가 이상할 때 "마커를 못 보는 것"인지 "오프셋이 틀린 것"인지 가른다.
 
 ---

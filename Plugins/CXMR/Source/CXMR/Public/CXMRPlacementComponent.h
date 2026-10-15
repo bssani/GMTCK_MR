@@ -10,6 +10,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "CXMRControlStatus.h"
 #include "Components/ActorComponent.h"
 #include "CXMRTypes.h"
 #include "Engine/TimerHandle.h"
@@ -79,6 +80,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") int32 GetCapturedAlignmentMarkerCount() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") int32 GetRequiredAlignmentMarkerCount() const;
 	void CancelAlignmentCapture();
+	FCXMRControlStatus GetControlStatus() const;
+	FVector AdjustmentSinceSave = FVector::ZeroVector;
+	float TurnSinceSave = 0.f;
+	bool bControlChangesDiscarded = false;
+#if WITH_DEV_AUTOMATION_TESTS
+	TOptional<FCXMRControlStatus> ControlStatusForTest;
+#endif
 
 	/** 보정 기준 액터. 지정하지 않으면 소유자 사용함. */
 	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category = "CXMR|Placement", meta=(ToolTip="Calibrated anchor actor. Defaults to the component owner.")) TObjectPtr<AActor> VehicleRoot;

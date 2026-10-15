@@ -11,6 +11,10 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "IOpenXRHMD.h"
+#include "EngineUtils.h"
+#include "CXMRPlacementComponent.h"
+#include "CXMRMarkerProfile.h"
+#include "CXMRMarkerFollower.h"
 #include "IXRTrackingSystem.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCXMR, Log, All);
@@ -88,6 +92,7 @@ void UCXMRSubsystem::Deinitialize()
 
 	StopViewOffsetTransition();
 	StopPendingViewOffset();
+	if (SessionTicker.IsValid()) { FTSTicker::RemoveTicker(SessionTicker); SessionTicker.Reset(); }
 
 	Super::Deinitialize();
 }
@@ -192,51 +197,87 @@ bool UCXMRSubsystem::IsFoveatedRenderingEnabled() const
 
 // ---------- Mixed Reality ----------
 
+bool UCXMRSubsystem::HasRunningSession() const
+{
+#if WITH_DEV_AUTOMATION_TESTS
+	if (SessionRunningForTest.IsSet()) { return SessionRunningForTest.GetValue(); }
+#endif
+	return IsXRSessionRunning();
+}
+
+void UCXMRSubsystem::StartHeadsetSessionWait()
+{
+	SessionWaitSeconds = 0.f;
+	bMRRequested = bStartInMR;
+	bSessionWasRunning = false;
+	if (!SessionTicker.IsValid())
+	{
+		SessionTicker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UCXMRSubsystem::TickHeadsetSession));
+	}
+	TickHeadsetSession(0.f);
+}
+
+bool UCXMRSubsystem::TickHeadsetSession(float DeltaTime)
+{
+	const bool bRunning = HasRunningSession();
+	if (!bRunning) { SessionWaitSeconds += DeltaTime; }
+	if (bRunning && !bSessionWasRunning)
+	{
+		ApplyRequestedMode();
+		if (bRequestedMarkerTracking) { SetMarkerTracking(true); }
+	}
+	bSessionWasRunning = bRunning;
+	return true; // 20초 뒤 시작하는 세션도 적용함.
+}
+
+void UCXMRSubsystem::ApplyRuntimeCall(FName Call, TFunction<void()> Invoke)
+{
+#if WITH_DEV_AUTOMATION_TESTS
+	if (SessionRunningForTest.IsSet()) { if (RuntimeCallForTest) { RuntimeCallForTest(Call); } return; }
+#endif
+	Invoke();
+}
+
+void UCXMRSubsystem::ApplyRequestedMode()
+{
+	if (!HasRunningSession()) { return; }
+	const bool bEnable = bMRRequested;
+	ApplyRuntimeCall("MR", [bEnable]
+	{
+		if (IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("xr.OpenXREnvironmentBlendMode"))) { CVar->Set(bEnable ? 3 : 1); }
+	});
+	const bool bChanged = bMixedRealityOn != bEnable;
+	bMixedRealityOn = bEnable;
+	if (bChanged) { OnMixedRealityChanged.Broadcast(bEnable); }
+	if (bCoupleVRBackgroundToMR) { SetVRBackgroundVisible(bEnable ? false : bRequestedVRBackground); }
+	if (bEnable)
+	{
+		ApplyRuntimeCall("Depth.Test", [this] { UVarjoOpenXRFunctionLibrary::SetDepthTestEnabled(bRequestedDepthTest); });
+		bDepthTestOn = bRequestedDepthTest;
+		OnDepthTestChanged.Broadcast(bDepthTestOn);
+		bDepthRangeOn = true;
+		ApplyRuntimeCall("Depth.Range", [this] { ApplyDepthTestRange(); });
+		if (bRequestedDepthTest)
+		{
+			ApplyRuntimeCall("Depth.EnvEstimation", [this] { UVarjoOpenXRFunctionLibrary::SetEnvironmentDepthEstimationEnabled(bRequestedEnvironmentDepth); });
+			bEnvDepthOn = bRequestedEnvironmentDepth;
+		}
+		else { bEnvDepthOn = false; }
+		OnEnvironmentDepthEstimationChanged.Broadcast(bEnvDepthOn);
+		SetViewOffset(RequestedViewOffset);
+	}
+	else { SyncViewOffsetWithMode(); }
+}
+
 void UCXMRSubsystem::SetMixedReality(bool bEnable)
 {
-	if (bMixedRealityOn == bEnable)
-	{
-		return;
-	}
-
-	// 3 = Alpha Blend (MR / passthrough), 1 = Opaque (VR). The plugin reads this same CVar.
-	IConsoleVariable* CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("xr.OpenXREnvironmentBlendMode"));
-	if (!CVar)
-	{
-		// Report honestly, like every other toggle here: if the switch could not be thrown, the state
-		// does not change and the panel keeps saying OFF. Claiming MR is on while the headset still
-		// renders VR is the most expensive lie this class could tell.
-		UE_LOG(LogCXMR, Warning,
-			TEXT("Mixed reality toggle ignored: console variable xr.OpenXREnvironmentBlendMode not found."));
-		return;
-	}
-
-	CVar->Set(bEnable ? 3 : 1);
-
-	bMixedRealityOn = bEnable;
-	OnMixedRealityChanged.Broadcast(bMixedRealityOn);
-
-	SyncViewOffsetWithMode();
-
-	// The virtual room follows the blend mode.
-	//
-	// These were independent toggles until the first XR-4 session, on the reasoning that hiding the
-	// room should stay a deliberate act. The session showed why that was wrong: alpha is only used for
-	// compositing in ALPHA_BLEND (MR). In OPAQUE (VR) the runtime ignores it, so "VR + background
-	// hidden" renders black and means nothing — yet it is one keypress away and looks like a failure.
-	// The tester hit exactly that state and logged it as a black screen.
-	//
-	// So MR now brings the room with it. B still overrides afterwards, which is the case that actually
-	// wanted an explicit act: putting the virtual room back while passthrough is available.
-	if (bCoupleVRBackgroundToMR)
-	{
-		SetVRBackgroundVisible(!bEnable);
-	}
+	bMRRequested = bEnable;
+	ApplyRequestedMode();
 }
 
 void UCXMRSubsystem::ToggleMixedReality()
 {
-	SetMixedReality(!bMixedRealityOn);
+	SetMixedReality(!bMRRequested);
 }
 
 // ---------- VR background ----------
@@ -254,24 +295,26 @@ void UCXMRSubsystem::SetVRBackgroundVisible(bool bVisible)
 
 void UCXMRSubsystem::ToggleVRBackground()
 {
-	SetVRBackgroundVisible(!bVRBackgroundVisible);
+	if (bMixedRealityOn) { SetVRBackgroundVisible(!bVRBackgroundVisible); }
+	else { SetRequestedVRBackground(!bRequestedVRBackground); }
+}
+
+void UCXMRSubsystem::SetRequestedVRBackground(bool bVisible)
+{
+	bRequestedVRBackground = bVisible;
+	if (!bMixedRealityOn) { SetVRBackgroundVisible(bVisible); }
 }
 
 void UCXMRSubsystem::SetViewOffset(float Offset)
 {
-	// A value set directly wins over a glide still under way.
+	RequestedViewOffset = FMath::Clamp(Offset, 0.f, 1.f);
+	if (!bMixedRealityOn) { return; }
 	StopViewOffsetTransition();
-
-	Offset = FMath::Clamp(Offset, 0.0f, 1.0f);
-	if (!IsXRSessionRunning())
-	{
-		DeferViewOffset(Offset);
-		return;
-	}
+	if (!IsXRSessionRunning()) { return; }
 	StopPendingViewOffset();
-	if (UVarjoOpenXRFunctionLibrary::SetViewOffset(Offset))
+	if (UVarjoOpenXRFunctionLibrary::SetViewOffset(RequestedViewOffset))
 	{
-		ViewOffset = Offset;
+		ViewOffset = RequestedViewOffset;
 		bViewOffsetChosen = true;
 		OnViewOffsetChanged.Broadcast(ViewOffset);
 	}
@@ -308,9 +351,9 @@ void UCXMRSubsystem::ToggleViewOffset()
 {
 	// 1.0 = passthrough camera position (stable in environment) <-> 0.0 = eye position (close inspection).
 	// Pressed again mid-glide, it turns back from where the glide was heading.
-	const float Heading = IsViewOffsetTransitioning() ? ViewOffsetTo
-		: (PendingViewOffsetTicker.IsValid() ? PendingViewOffset : ViewOffset);
-	TransitionViewOffset(Heading > 0.5f ? 0.0f : 1.0f, ViewOffsetTransitionSeconds);
+	const float Target = RequestedViewOffset > 0.5f ? 0.f : 1.f;
+	RequestedViewOffset = Target;
+	if (bMixedRealityOn) { TransitionViewOffset(Target, ViewOffsetTransitionSeconds); }
 }
 
 void UCXMRSubsystem::TransitionViewOffset(float Target, float Seconds)
@@ -406,33 +449,20 @@ void UCXMRSubsystem::StopPendingViewOffset()
 
 void UCXMRSubsystem::SetDepthTest(bool bEnable)
 {
-	if (bDepthTestOn == bEnable)
-	{
-		return;
-	}
-	UVarjoOpenXRFunctionLibrary::SetDepthTestEnabled(bEnable);
-	bDepthTestOn = bEnable;
-
-	// Re-assert the range every time the test comes on. The plugin wipes its state struct on session
-	// creation, and a depth test running with the unbounded default is the flicker we are fixing.
-	if (bDepthTestOn)
-	{
-		ApplyDepthTestRange();
-	}
-
-	OnDepthTestChanged.Broadcast(bDepthTestOn);
+	bRequestedDepthTest = bEnable;
+	if (bMixedRealityOn) { ApplyRequestedMode(); }
 }
 
 void UCXMRSubsystem::ToggleDepthTest()
 {
-	SetDepthTest(!bDepthTestOn);
+	SetDepthTest(!bRequestedDepthTest);
 }
 
 // ---------- Depth test range ----------
 
 void UCXMRSubsystem::ApplyDepthTestRange()
 {
-	UVarjoOpenXRFunctionLibrary::SetDepthTestRange(bDepthRangeOn, DepthRangeNearZ, DepthRangeFarZ);
+	if (IsXRSessionRunning()) { UVarjoOpenXRFunctionLibrary::SetDepthTestRange(bDepthRangeOn, DepthRangeNearZ, DepthRangeFarZ); }
 }
 
 void UCXMRSubsystem::SetDepthTestRange(bool bEnable, float NearZ, float FarZ)
@@ -478,26 +508,13 @@ void UCXMRSubsystem::AdjustDepthTestRange(float NearDelta, float FarDelta)
 
 void UCXMRSubsystem::SetEnvironmentDepthEstimation(bool bEnable)
 {
-	if (bEnvDepthOn == bEnable)
-	{
-		return;
-	}
-	if (IsXRSessionRunning())
-	{
-		UVarjoOpenXRFunctionLibrary::SetEnvironmentDepthEstimationEnabled(bEnable);
-	}
-	else if (bEnable)
-	{
-		UE_LOG(LogCXMR, Warning, TEXT("Environment depth estimation needs a running headset session; left off."));
-		return;
-	}
-	bEnvDepthOn = bEnable;
-	OnEnvironmentDepthEstimationChanged.Broadcast(bEnvDepthOn);
+	bRequestedEnvironmentDepth = bEnable;
+	if (bMixedRealityOn) { ApplyRequestedMode(); }
 }
 
 void UCXMRSubsystem::ToggleEnvironmentDepthEstimation()
 {
-	SetEnvironmentDepthEstimation(!bEnvDepthOn);
+	SetEnvironmentDepthEstimation(!bRequestedEnvironmentDepth);
 }
 
 // ---------- Masking ----------
@@ -540,11 +557,17 @@ void UCXMRSubsystem::ToggleHandVisualization()
 
 bool UCXMRSubsystem::SetMarkerTracking(bool bEnable)
 {
+	bRequestedMarkerTracking = bEnable;
+	if (!HasRunningSession()) { return false; }
 	// The plugin returns "is tracking now on", not "did the call succeed" — it computes
 	// XR_ENSURE(...) && Enabled (VarjoMarkersPlugin.cpp:123-136). So a false here after asking for
 	// true means the headset refused, and the only honest thing to do is say so rather than let the
 	// panel sit at OFF with no explanation. Same posture as SetMixedReality below.
-	const bool bResult = IsXRSessionRunning() && UVarjoOpenXRFunctionLibrary::SetVarjoMarkersEnabled(bEnable);
+	bool bResult = false;
+	ApplyRuntimeCall("Diagnostics.MarkerTracking", [&bResult, bEnable] { bResult = UVarjoOpenXRFunctionLibrary::SetVarjoMarkersEnabled(bEnable); });
+#if WITH_DEV_AUTOMATION_TESTS
+	if (SessionRunningForTest.IsSet()) { bResult = bEnable; }
+#endif
 
 	if (bEnable && !bResult)
 	{
@@ -572,7 +595,7 @@ bool UCXMRSubsystem::SetMarkerTracking(bool bEnable)
 
 void UCXMRSubsystem::ToggleMarkerTracking()
 {
-	SetMarkerTracking(!bMarkerTrackingOn);
+	SetMarkerTracking(!bRequestedMarkerTracking);
 }
 
 bool UCXMRSubsystem::SetMarkerTimeout(int32 MarkerId, float Seconds)
@@ -583,7 +606,7 @@ bool UCXMRSubsystem::SetMarkerTimeout(int32 MarkerId, float Seconds)
 bool UCXMRSubsystem::SetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMode Mode)
 {
 	const EMarkerTrackingMode VarjoMode =
-		(Mode == ECXMRMarkerTrackingMode::Dynamic) ? EMarkerTrackingMode::Dynamic : EMarkerTrackingMode::Stationary;
+		((bDynamicMarkers ? ECXMRMarkerTrackingMode::Dynamic : Mode) == ECXMRMarkerTrackingMode::Dynamic) ? EMarkerTrackingMode::Dynamic : EMarkerTrackingMode::Stationary;
 	return IsXRSessionRunning() && UVarjoOpenXRFunctionLibrary::SetMarkerTrackingMode(MarkerId, VarjoMode);
 }
 
@@ -606,12 +629,14 @@ bool UCXMRSubsystem::GetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMo
 void UCXMRSubsystem::HandleMarkerDetected(int32 MarkerId, const FVector& Position, const FRotator& Rotation, const FVector2D& Size)
 {
 	PluginMarkerIds.Add(MarkerId);
+	if (bDynamicMarkers) { SetMarkerTrackingMode(MarkerId, ECXMRMarkerTrackingMode::Dynamic); }
 	OnMarkerDetected.Broadcast(MarkerId, Position, Rotation, Size);
 }
 
 void UCXMRSubsystem::HandleMarkerMoved(int32 MarkerId, const FVector& Position, const FRotator& Rotation, const FVector2D& Size)
 {
 	PluginMarkerIds.Add(MarkerId);
+	if (bDynamicMarkers) { SetMarkerTrackingMode(MarkerId, ECXMRMarkerTrackingMode::Dynamic); }
 	OnMarkerMoved.Broadcast(MarkerId, Position, Rotation, Size);
 }
 
@@ -681,4 +706,35 @@ void UCXMRSubsystem::ReportManikin(FText Name, int32 Index, int32 Count)
 	ManikinIndex = Index;
 	ManikinCount = Count;
 	OnManikinChanged.Broadcast();
+}
+
+void UCXMRSubsystem::SetDynamicMarkers(bool bEnable)
+{
+	bDynamicMarkers = bEnable;
+	ApplyDynamicMarkerModes();
+}
+
+void UCXMRSubsystem::ApplyDynamicMarkerModes()
+{
+	for (int32 Id : PluginMarkerIds)
+	{
+		ECXMRMarkerTrackingMode Mode = ECXMRMarkerTrackingMode::Stationary;
+		bool bConfigured = false;
+		if (GetWorld())
+		{
+			for (TActorIterator<ACXMRMarkerFollower> It(GetWorld()); It; ++It)
+			{ if (!It->IsActorBeingDestroyed() && It->MarkerId == Id) { Mode=It->TrackingMode; bConfigured=true; break; } }
+			if (!bConfigured)
+			{
+				for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+				{
+					const UCXMRPlacementComponent* Placement = It->FindComponentByClass<UCXMRPlacementComponent>();
+					FCXMRMarkerEntry Entry;
+					if (Placement && Placement->MarkerProfile && Placement->MarkerProfile->FindEntry(Id, Entry) && Entry.Role == ECXMRMarkerRole::Calibration)
+					{ Mode=Entry.TrackingMode; break; }
+				}
+			}
+		}
+		SetMarkerTrackingMode(Id, Mode);
+	}
 }

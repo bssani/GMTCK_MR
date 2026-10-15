@@ -1,493 +1,239 @@
 // Copyright GMTCK CX.
-
 #include "SCXMRControlPanel.h"
-#include "CXMRControlPanelWidget.h"
-#include "CXMRPanelUI.h"
+#include "CXMRShowroomUI.h"
+#include "CXMRTuningWindowComponent.h"
+#include "CXMRTuningSubsystem.h"
+#include "CXMRSubsystem.h"
 #include "CXMRPlacementComponent.h"
 #include "CXMRVehicleLoaderComponent.h"
 #include "CXMRVehicleProfile.h"
-#include "CXMRSubsystem.h"
-#include "CXMRTuningSubsystem.h"
-#include "CXMRTuningWindowComponent.h"
+#include "CXMRAdvancedSettings.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
-#include "Styling/CoreStyle.h"
-#include "Widgets/Images/SImage.h"
-#include "Widgets/Input/SButton.h"
-#include "Widgets/Layout/SBorder.h"
-#include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SExpandableArea.h"
-#include "Widgets/Layout/SWidgetSwitcher.h"
-#include "Widgets/Layout/SWrapBox.h"
-#include "Widgets/SBoxPanel.h"
-#include "Widgets/Text/STextBlock.h"
-
-#define LOCTEXT_NAMESPACE "CXMRControl"
-
+#include "Widgets/Notifications/SProgressBar.h"
+#include "Widgets/SLeafWidget.h"
+#include "Rendering/DrawElements.h"
+#include "InputCoreTypes.h"
+using namespace CXMRShowroomUI;
 namespace
 {
-	using FWeakControl = TWeakObjectPtr<UCXMRTuningWindowComponent>;
-
-	UCXMRSubsystem* FindCXMR(FWeakControl Control)
+	UCXMRSubsystem* CXMRControlSubsystem(UCXMRTuningWindowComponent* C)
+	{ return C && C->GetWorld() && C->GetWorld()->GetGameInstance() ? C->GetWorld()->GetGameInstance()->GetSubsystem<UCXMRSubsystem>() : nullptr; }
+	UCXMRVehicleLoaderComponent* CXMRControlLoader(UCXMRTuningWindowComponent* C)
+	{ const UCXMRPlacementComponent* P=C ? C->FindPlacement() : nullptr; return P && P->GetOwner() ? P->GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr; }
+	class SCXMRStatusIcon : public SLeafWidget
 	{
-		UGameInstance* GI = Control.IsValid() && Control->GetWorld() ? Control->GetWorld()->GetGameInstance() : nullptr;
-		return GI ? GI->GetSubsystem<UCXMRSubsystem>() : nullptr;
-	}
-
-	bool CanSwitchMode(FWeakControl Control)
-	{
-		const UCXMRSubsystem* CXMR = FindCXMR(Control);
-		return CXMR && CXMR->IsMixedRealitySupported();
-	}
-
-	bool IsModeActive(FWeakControl Control, bool bMR)
-	{
-		const UCXMRSubsystem* CXMR = FindCXMR(Control);
-		return CXMR ? CXMR->IsMixedRealityOn() == bMR : !bMR;
-	}
-
-	FReply SwitchMode(FWeakControl Control, bool bMR)
-	{
-		if (UCXMRSubsystem* CXMR = FindCXMR(Control)) { CXMR->SetMixedReality(bMR); }
-		return FReply::Handled();
-	}
-
-	int32 RowRank(const FCXMRTunable& Row)
-	{
-		const FString Id = Row.Id.ToString();
-		if (Id.StartsWith(TEXT("Display."))) { return 0; }
-		if (Id.StartsWith(TEXT("Spectator.")) || Id == TEXT("MR.VRBackground")) { return 1; }
-		if (Id.StartsWith(TEXT("MR.")) || Id.StartsWith(TEXT("Depth."))) { return 2; }
-		return Id.StartsWith(TEXT("Port.")) ? 3 : 4;
-	}
-
-	bool CompareRows(const CXMRPanelUI::FRowSpec& A, const CXMRPanelUI::FRowSpec& B)
-	{
-		return RowRank(A.Tunable) < RowRank(B.Tunable);
-	}
-
-	FReply RunAlignmentStep(FWeakControl Control, int32 Index)
-	{
-		if (Control.IsValid())
+	public:
+		SLATE_BEGIN_ARGS(SCXMRStatusIcon) {} SLATE_ATTRIBUTE(ECXMRControlStage, Stage) SLATE_END_ARGS()
+		void Construct(const FArguments& A) { Stage=A._Stage; }
+		FVector2D ComputeDesiredSize(float) const override { return FVector2D(22); }
+		int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& L,int32 Layer,const FWidgetStyle&,bool) const override
 		{
-			if (Index == 0) { Control->StartInitialAlignment(); }
-			else if (Index == 1) { Control->ConfirmCalibration(); }
-			else { Control->SaveCalibration(); }
+			const auto S=Stage.Get(); const bool Busy=S==ECXMRControlStage::Starting || S==ECXMRControlStage::Settling || S==ECXMRControlStage::Saving;
+			const FLinearColor Color=S==ECXMRControlStage::Aligned ? ShowroomColor(60,194,133) : S==ECXMRControlStage::NoHeadset ? ShowroomColor(255,122,114) : Busy ? ShowroomColor(91,140,255) : ShowroomColor(242,181,68);
+			const FSlateRoundedBoxBrush Circle(Color,11.f);
+			if (!Busy) { FSlateDrawElement::MakeBox(L,Layer,G.ToPaintGeometry(),&Circle,ESlateDrawEffect::None,Color); }
+			TArray<FVector2f> Lines;
+			if (S==ECXMRControlStage::Aligned) { Lines={FVector2f(6.5,11.5),FVector2f(9.5,14.5),FVector2f(15.5,8)}; }
+			else if (S==ECXMRControlStage::NoHeadset) { Lines={FVector2f(7.5,7.5),FVector2f(14.5,14.5)}; }
+			else if (Busy) { for (int I=0;I<=20;++I) { const float A=I*1.5f*PI/20; Lines.Add(FVector2f(11+8*FMath::Cos(A),11+8*FMath::Sin(A))); } }
+			else { Lines={FVector2f(11,6),FVector2f(11,11.5),FVector2f(14.5,13.5)}; }
+			FSlateDrawElement::MakeLines(L,Layer+1,G.ToPaintGeometry(),Lines,ESlateDrawEffect::None,Busy ? Color : ShowroomColor(11,15,23),true,2.f);
+			if (S==ECXMRControlStage::NoHeadset) { Lines={FVector2f(14.5,7.5),FVector2f(7.5,14.5)}; FSlateDrawElement::MakeLines(L,Layer+1,G.ToPaintGeometry(),Lines,ESlateDrawEffect::None,ShowroomColor(11,15,23),true,2.f); }
+			return Layer+1;
 		}
-		return FReply::Handled();
-	}
-
-	bool CanRunAlignmentStep(FWeakControl Control, int32 Index)
+	private: TAttribute<ECXMRControlStage> Stage;
+	};
+	class SCXMRRotateIcon : public SLeafWidget
 	{
-		if (!Control.IsValid()) { return false; }
-		if (Index == 0) { return Control->CanStartInitialAlignment() || Control->IsInitialAlignmentPending(); }
-		return Index == 1 ? Control->CanConfirmCalibration() : Control->CanSaveCalibration();
-	}
-
-	/** 0 잠김, 1 진행 가능, 2 완료. 단계 i는 진행 단계가 i보다 크면 완료임. */
-	int32 AlignmentStepState(FWeakControl Control, int32 Index)
-	{
-		if (Control.IsValid() && Control->GetCalibrationPhase() > Index) { return 2; }
-		return CanRunAlignmentStep(Control, Index) ? 1 : 0;
-	}
-
-	UCXMRPlacementComponent* FindPlacement(FWeakControl Control)
-	{
-		return Control.IsValid() ? Control->FindPlacement() : nullptr;
-	}
-
-	FText AlignmentScope(FWeakControl Control)
-	{
-		const UCXMRPlacementComponent* Placement = FindPlacement(Control);
-		const FName Group = Placement ? Placement->GetAlignmentGroup() : NAME_None;
-		return Group.IsNone() ? LOCTEXT("VehicleAlignmentScope", "This vehicle keeps its own alignment.")
-			: FText::Format(LOCTEXT("GroupAlignmentScope", "Shared rig alignment: {0}. Saving or resetting affects every vehicle in this group."), FText::FromName(Group));
-	}
-
-	FText AlignmentStorage(FWeakControl Control)
-	{
-		const UCXMRPlacementComponent* Placement = FindPlacement(Control);
-		return Placement ? Placement->GetAlignmentStorageMessage() : FText::GetEmpty();
-	}
-
-	FText EyeReferenceHelp(FWeakControl Control)
-	{
-		FTransform Eye;
-		const UCXMRPlacementComponent* Placement = FindPlacement(Control);
-		return Placement && Placement->GetDriverEyeWorld(Eye)
-			? LOCTEXT("EyeReady", "Driver eye reference is set. Turns pivot around it.")
-			: LOCTEXT("EyeNotConfigured", "Set Driver Eye Reference in the vehicle Data Asset, in imported vehicle-local coordinates with +X forward.");
-	}
-
-	bool HasError(FWeakControl Control) { return Control.IsValid() && Control->HasCalibrationError(); }
-
-	FText CalibrationMessage(FWeakControl Control, bool bError)
-	{
-		return Control.IsValid() && HasError(Control) == bError ? Control->GetCalibrationMessage() : FText::GetEmpty();
-	}
-
-	EVisibility GroupResetVisibility(FWeakControl Control)
-	{
-		const UCXMRPlacementComponent* Placement = FindPlacement(Control);
-		return Placement && !Placement->GetAlignmentGroup().IsNone() ? EVisibility::Visible : EVisibility::Collapsed;
-	}
-
-	FSlateColor ToneLamp(ECXMRAlignmentTone Tone)
-	{
-		using CXMRPanelUI::ETone;
-		switch (Tone)
+	public:
+		SLATE_BEGIN_ARGS(SCXMRRotateIcon) {} SLATE_ARGUMENT(bool, Clockwise) SLATE_END_ARGS()
+		void Construct(const FArguments& A){bClockwise=A._Clockwise;}
+		FVector2D ComputeDesiredSize(float) const override{return FVector2D(16);}
+		int32 OnPaint(const FPaintArgs&,const FGeometry& G,const FSlateRect&,FSlateWindowElementList& L,int32 Layer,const FWidgetStyle& Style,bool Enabled) const override
 		{
-		case ECXMRAlignmentTone::Aligned:   return CXMRPanelUI::ToneColor(ETone::Positive);
-		case ECXMRAlignmentTone::Attention: return CXMRPanelUI::ToneColor(ETone::Attention);
-		case ECXMRAlignmentTone::Error:     return CXMRPanelUI::ToneColor(ETone::Negative);
-		default:                            return CXMRPanelUI::RailMutedColor();
+			TArray<FVector2f> Points;const float Sign=bClockwise?1.f:-1.f;
+			for(int I=0;I<=24;++I){const float A=-PI*0.8f+Sign*I*PI*1.65f/24;Points.Add(FVector2f(8+6*FMath::Cos(A),8+6*FMath::Sin(A)));}
+			FSlateDrawElement::MakeLines(L,Layer,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,CXMRPanelUI::InkColor(),true,1.4f);
+			const FVector2f Tip=Points.Last(),Tangent=(Tip-Points[23]).GetSafeNormal(),Side(-Tangent.Y,Tangent.X);
+			Points={Tip-Tangent*4+Side*3,Tip,Tip-Tangent*4-Side*3};
+			FSlateDrawElement::MakeLines(L,Layer,G.ToPaintGeometry(),Points,ESlateDrawEffect::None,CXMRPanelUI::InkColor(),true,1.4f);return Layer;
 		}
-	}
+	private:bool bClockwise=false;
+	};
 
-	bool IsBasicCalibration(FName Id)
-	{
-		return Id == "Vehicle.Markers" || Id == "Vehicle.LayoutFit" || Id == "Vehicle.MoveStep" || Id == "Vehicle.YawStep"
-			|| Id == "Vehicle.Away" || Id == "Vehicle.Right" || Id == "Vehicle.Up" || Id == "Vehicle.Turn" || Id == "Vehicle.ResetOffset";
-	}
-
-	void DescribeRow(FCXMRTunable& Row)
-	{
-		// 저장 ID와 동작은 유지하고 표시 문구만 바꿈.
-		struct FDescription { const TCHAR* Id; const TCHAR* Label; const TCHAR* Help; };
-		static const FDescription Descriptions[] = {
-			{TEXT("Vehicle.Markers"), TEXT("Marker status"), TEXT("Current marker observations and calibration status.")},
-			{TEXT("Vehicle.LayoutFit"), TEXT("Alignment error"), TEXT("Difference between the saved marker layout and observations. Lower is better.")},
-			{TEXT("Vehicle.MoveStep"), TEXT("Move step"), TEXT("Distance per adjustment step.")},
-			{TEXT("Vehicle.YawStep"), TEXT("Rotation step"), TEXT("Angle per rotation step.")},
-			{TEXT("Vehicle.Away"), TEXT("Distance: away (+) / closer (-)"), TEXT("Move the vehicle along the current adjustment heading.")},
-			{TEXT("Vehicle.Right"), TEXT("Lateral: right (+) / left (-)"), TEXT("Move sideways along the current adjustment heading.")},
-			{TEXT("Vehicle.Up"), TEXT("Height: up (+) / down (-)"), TEXT("Adjust vehicle height.")},
-			{TEXT("Vehicle.Turn"), TEXT("Yaw: clockwise (+) / counterclockwise (-)"), TEXT("Rotate around the selected pivot.")},
-			{TEXT("Vehicle.ResetOffset"), TEXT("Reset adjustment"), TEXT("Discard unsaved adjustments and return to the current base pose.")},
-			{TEXT("Vehicle.LearnMarkers"), TEXT("Learn markers from this pose (saves immediately)"), TEXT("Learn and save recently observed markers relative to the current vehicle pose.")},
-			{TEXT("Vehicle.SaveOffset"), TEXT("Save adjustment now"), TEXT("Apply the adjustment to the marker layout. Prefer the guided save above.")},
-			{TEXT("Vehicle.Recalibrate"), TEXT("Re-read markers"), TEXT("Clear calibration and solve again from markers.")},
-			{TEXT("MR.MixedReality"), TEXT("Passthrough"), TEXT("Show the camera view with the virtual vehicle.")},
-			{TEXT("MR.VRBackground"), TEXT("Virtual background"), TEXT("Show the virtual sky and floor.")},
-			{TEXT("MR.Masking"), TEXT("Scene masks"), TEXT("Show passthrough through masks placed in the level.")},
-			{TEXT("MR.ViewOffsetGlide"), TEXT("View transition time"), TEXT("Transition duration between eye and camera origins.")},
-			{TEXT("MR.ViewOffset"), TEXT("View origin: eye 0 / camera 1"), TEXT("Affects real and virtual alignment. Adjust while checking in the headset.")},
-			{TEXT("Depth.Test"), TEXT("Depth test"), TEXT("Use depth to show real objects in front of virtual objects.")},
-			{TEXT("Depth.Range"), TEXT("Limit depth range"), TEXT("Apply depth testing only within this range. Cable depth accuracy depends on the headset.")},
-			{TEXT("Depth.NearZ"), TEXT("Depth near"), TEXT("Distance from the camera. Must be less than Depth far.")},
-			{TEXT("Depth.FarZ"), TEXT("Depth far"), TEXT("Real-object occlusion may stop beyond this range.")},
-			{TEXT("Depth.EnvEstimation"), TEXT("Environment depth"), TEXT("Runtime environment depth estimation. Requires a headset session.")},
-		};
-		for (const FDescription& Description : Descriptions)
-		{
-			if (Row.Id == Description.Id)
-			{
-				Row.Label = FText::FromString(Description.Label);
-				Row.Help = FText::FromString(Description.Help);
-				break;
-			}
-		}
-		const FString Id = Row.Id.ToString();
-		if (Id.StartsWith(TEXT("Vehicle."))) { Row.Category = LOCTEXT("Placement", "Placement adjustment"); }
-		else if (Id.StartsWith(TEXT("Depth."))) { Row.Category = LOCTEXT("Depth", "Real-object occlusion"); }
-		else if (Id.StartsWith(TEXT("MR."))) { Row.Category = Id == TEXT("MR.VRBackground") ? LOCTEXT("BackgroundCategory", "Visual quality") : LOCTEXT("MR", "Real-object occlusion"); }
-		else if (Id.StartsWith(TEXT("Display.")) || Id.StartsWith(TEXT("Spectator."))) { Row.Category = LOCTEXT("Picture", "Visual quality"); }
-	}
 }
-
-TSharedRef<SWidget> SCXMRControlPanel::RegistryPage(ECXMRControlPage Page, bool bAdvanced)
+FCXMRControlStatus SCXMRControlPanel::State() const
 {
-	TArray<CXMRPanelUI::FRowSpec> Rows;
-	if (Tuning.IsValid())
-	{
-		for (const FCXMRTunable* Registered : Tuning->GetTunables())
-		{
-			const FString Id = Registered->Id.ToString();
-			const bool bPlacement = Id.StartsWith(TEXT("Vehicle.")) || Id.StartsWith(TEXT("Input."));
-			const bool bDisplay = Id.StartsWith(TEXT("MR.")) || Id.StartsWith(TEXT("Depth.")) || Id.StartsWith(TEXT("Display.")) || Id.StartsWith(TEXT("Spectator."));
-			bool bInclude = Page == ECXMRControlPage::Display ? !bPlacement
-				: Page == ECXMRControlPage::Diagnostics ? !bPlacement && !bDisplay
-				: Page == ECXMRControlPage::Calibration && bPlacement && (bAdvanced != IsBasicCalibration(Registered->Id));
-			if (Registered->Id == "Vehicle.PlaceInFront" || Registered->Id == "Vehicle.Recalibrate"
-				|| Registered->Id == "Vehicle.SaveOffset" || Registered->Id == "Vehicle.LearnMarkers"
-				|| Registered->Id == "Vehicle.Pivot" || Registered->Id == "MR.MixedReality" || Id.StartsWith(TEXT("PlugTip."))
-				|| Id.StartsWith(TEXT("Box."))) { bInclude = false; }
-			if (bInclude)
-			{
-				FCXMRTunable Row = *Registered;
-				DescribeRow(Row);
-				Rows.Add({ Row, CXMRPanelUI::BindToRegistry(Tuning.Get(), Row) });
-			}
-		}
-	}
-	if (Rows.IsEmpty())
-	{
-		return CXMRPanelUI::MakeCaption(LOCTEXT("NoFeature", "Not available in this session."));
-	}
-	Rows.StableSort(CompareRows);
-	// 고급 영역은 펼침 제목이 이미 있어 분류 제목을 생략함.
-	return CXMRPanelUI::MakeRowList(Rows, !bAdvanced);
+	if (Control.IsValid()) { if (const auto* P=Control->FindPlacement()) { return P->GetControlStatus(); } }
+	FCXMRControlStatus S; const auto* X=CXMRControlSubsystem(Control.Get());
+	if (X && !X->HasRunningSession()) { S.Stage=X->IsHeadsetStarting() ? ECXMRControlStage::Starting : ECXMRControlStage::NoHeadset; }
+	return S;
 }
-
-FText SCXMRControlPanel::Status() const
+bool SCXMRControlPanel::ModeSelected(bool bMR) const
 {
-	return Control.IsValid() ? Control->GetAlignmentStatus(Viewer.IsValid() ? Viewer->FindLoader() : nullptr) : FText::GetEmpty();
+	const auto* X=CXMRControlSubsystem(Control.Get());
+	if(State().Stage==ECXMRControlStage::Starting && X && X->IsMRRequested()){return false;}
+	return X && X->IsMixedRealityOn()==bMR;
 }
 
-TSharedRef<SWidget> SCXMRControlPanel::Navigation(ECXMRControlPage Page, const FText& Label)
+void SCXMRControlPanel::Construct(const FArguments& A)
 {
-	const FWeakControl Weak = Control;
-	return CXMRPanelUI::MakeNavItem(Label,
-		TAttribute<bool>::CreateLambda([Weak, Page] { return Weak.IsValid() && Weak->GetActivePage() == Page; }),
-		[Weak, Page] { if (Weak.IsValid()) { Weak->SelectPage(Page); } return FReply::Handled(); });
+	Control=A._Control; Tuning=A._Tuning;
+	ChildSlot[ CXMRPanelUI::MakeBackground(SNew(SVerticalBox)
+		+ SVerticalBox::Slot().AutoHeight()[ Header() ]
+		+ SVerticalBox::Slot().AutoHeight()[ Status() ]
+		+ SVerticalBox::Slot().AutoHeight()[CXMRPanelUI::MakeDivider()]
+		+ SVerticalBox::Slot().AutoHeight()[ Tabs({TEXT("Calibration"),TEXT("Vehicle")},[this]{return Control.IsValid() && Control->GetActivePage()==ECXMRControlPage::Vehicle ? 1 : 0;},[this](int32 I){if(Control.IsValid()){Control->SelectPage(I==0 ? ECXMRControlPage::Calibration : ECXMRControlPage::Vehicle); Refresh();}}) ]
+		+ SVerticalBox::Slot().AutoHeight()[CXMRPanelUI::MakeDivider()]
+		+ SVerticalBox::Slot().FillHeight(1)[ SAssignNew(Content,SBox) ]
+		+ SVerticalBox::Slot().AutoHeight()[ SNew(SBorder).Padding(FMargin(16,12)).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(ShowroomColor(11,15,23))
+			[ SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(12,8))
+			+ SWrapBox::Slot()[ QuietAction(TAttribute<FText>::CreateLambda([this]{const int N=CXMRAdvancedSettings::ChangedCount(Tuning.Get());return FText::FromString(N==0 ? TEXT("Advanced settings at defaults") : FString::Printf(TEXT("%d advanced setting%s changed from defaults"),N,N==1 ? TEXT("") : TEXT("s")));}),[this]{if(Control.IsValid()){Control->OpenAdvancedWindow();}}) ]
+			+ SWrapBox::Slot()[ Action(TAttribute<FText>::CreateLambda([this]{return FText::FromString(Control.IsValid() && Control->IsAdvancedWindowOpen() ? TEXT("Advanced settings (open)") : TEXT("Advanced settings…"));}),[this]{if(Control.IsValid()){Control->OpenAdvancedWindow();}}) ] ] ] ) ];
+	Refresh();
 }
-
 TSharedRef<SWidget> SCXMRControlPanel::Header()
 {
-	const FWeakControl Weak = Control;
-	const TWeakObjectPtr<UCXMRControlPanelWidget> WeakViewer = Viewer;
-	auto Tone = [Weak, WeakViewer]
+	TSharedRef<SHorizontalBox> Modes=SNew(SHorizontalBox);
+	for (bool MR : {true,false})
 	{
-		ECXMRAlignmentTone Value = ECXMRAlignmentTone::Pending;
-		if (Weak.IsValid()) { Weak->GetAlignmentState(WeakViewer.IsValid() ? WeakViewer->FindLoader() : nullptr, Value); }
-		return Value;
-	};
-	auto State = [Weak, WeakViewer]
-	{
-		ECXMRAlignmentTone Value;
-		return Weak.IsValid() ? Weak->GetAlignmentState(WeakViewer.IsValid() ? WeakViewer->FindLoader() : nullptr, Value) : FText::GetEmpty();
-	};
-	auto Vehicle = [WeakViewer]
-	{
-		const UCXMRVehicleLoaderComponent* Loader = WeakViewer.IsValid() ? WeakViewer->FindLoader() : nullptr;
-		return Loader && Loader->Profile && Loader->GetSpawnedVehicle() ? Loader->Profile->DisplayName : LOCTEXT("NoVehicle", "No vehicle loaded");
-	};
-
-	TSharedRef<SHorizontalBox> Modes = SNew(SHorizontalBox);
-	struct FMode { bool bMR; FText Title; FText Detail; };
-	for (const FMode& Mode : { FMode{ true, LOCTEXT("MRTitle", "MR"), LOCTEXT("MRDetail", "Real environment") },
-							   FMode{ false, LOCTEXT("VRTitle", "VR"), LOCTEXT("VRDetail", "Virtual environment") } })
-	{
-		const bool bMR = Mode.bMR;
-		Modes->AddSlot().AutoWidth()
-		[
-			CXMRPanelUI::MakeRailSegment(Mode.Title, Mode.Detail,
-				TAttribute<bool>::CreateLambda([Weak, bMR] { return IsModeActive(Weak, bMR); }),
-				TAttribute<bool>::CreateLambda([Weak] { return CanSwitchMode(Weak); }),
-				[Weak, bMR] { return SwitchMode(Weak, bMR); })
-		];
+		const TSharedRef<STextBlock> Description=Text(TAttribute<FText>::CreateLambda([this,MR]
+		{
+			const auto* X=CXMRControlSubsystem(Control.Get());
+			return FText::FromString(!MR?TEXT("Virtual car and background only"):State().Stage==ECXMRControlStage::Starting && X && X->IsMRRequested()?TEXT("Switching on when the headset is ready…"):State().Stage==ECXMRControlStage::NoHeadset?TEXT("Needs a running headset"):TEXT("Real world with the virtual car"));
+		}),12);
+		Description->SetColorAndOpacity(TAttribute<FSlateColor>::CreateLambda([this,MR]{return FSlateColor(ModeSelected(MR)?ShowroomColor(11,15,23):ShowroomColor(185,198,228));}));
+		Modes->AddSlot().FillWidth(1).Padding(MR ? FMargin(0,0,8,0) : FMargin(0))
+		[ SNew(SButton).ButtonStyle(Button()).ContentPadding(0)
+			.IsEnabled_Lambda([this,MR]{return !MR || State().Stage!=ECXMRControlStage::NoHeadset;})
+			.OnClicked_Lambda([this,MR]{if(auto* X=CXMRControlSubsystem(Control.Get())){X->SetMixedReality(MR);}return FReply::Handled();})
+			[ SNew(SBorder).Padding(FMargin(14,10)).BorderImage(Frame()).BorderBackgroundColor(CXMRPanelUI::SurfaceColor())
+				.BorderBackgroundColor_Lambda([this,MR]{return ModeSelected(MR) ? CXMRPanelUI::SelectionColor() : ShowroomColor(11,15,23);})
+				[ SNew(SVerticalBox)
+				+ SVerticalBox::Slot().AutoHeight()[ SNew(STextBlock).Text(FText::FromString(MR ? TEXT("MR") : TEXT("VR"))).Font(CXMRPanelUI::CSSFont(18,600)).ColorAndOpacity_Lambda([this,MR]{return ModeSelected(MR)?ShowroomColor(11,15,23):CXMRPanelUI::InkColor();}) ]
+				+ SVerticalBox::Slot().AutoHeight()[ Description ] ] ] ];
 	}
-	TSharedRef<SWidget> ModeSwitch = CXMRPanelUI::MakeRailGroup(Modes);
-	ModeSwitch->SetToolTipText(LOCTEXT("ModeHelp", "Switch between the real room (passthrough) and the virtual environment. Needs a running headset session; the renderer stays the same."));
-
-	return SNew(SBorder)
-		.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
-		.BorderBackgroundColor(CXMRPanelUI::RailColor())
-		.Padding(FMargin(28.f, 18.f, 22.f, 18.f))
-		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
-			[
-				SNew(SVerticalBox)
-				+ SVerticalBox::Slot().AutoHeight()
-				[ SNew(STextBlock).Text(LOCTEXT("Title", "CXMR Design Review")).Font(CXMRPanelUI::HeadingFont(21)).ColorAndOpacity(CXMRPanelUI::RailInkColor()) ]
-				+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 7.f, 0.f, 0.f)
-				[
-					SNew(SHorizontalBox).ToolTipText(this, &SCXMRControlPanel::Status)
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 8.f, 0.f)
-					[ CXMRPanelUI::MakeLamp(TAttribute<FSlateColor>::CreateLambda([Tone] { return ToneLamp(Tone()); })) ]
-					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-					[ SNew(STextBlock).Text_Lambda(State).Font(CXMRPanelUI::StrongFont(12)).ColorAndOpacity(CXMRPanelUI::RailInkColor()) ]
-					+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center).Padding(18.f, 0.f, 12.f, 0.f)
-					[ SNew(STextBlock).Text_Lambda(Vehicle).Font(CXMRPanelUI::BodyFont(12)).ColorAndOpacity(CXMRPanelUI::RailMutedColor())
-						.OverflowPolicy(ETextOverflowPolicy::Ellipsis) ]
-				]
-			]
-			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[ ModeSwitch ]
-		];
+	return SNew(SBorder).Padding(16).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(CXMRPanelUI::RailColor())
+	[ SNew(SVerticalBox)
+	+ SVerticalBox::Slot().AutoHeight()[ SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().FillWidth(1)[ SNew(SVerticalBox)
+			+ SVerticalBox::Slot().AutoHeight()[ Text(FText::FromString(TEXT("Vehicle")),12,400,ShowroomColor(185,198,228)) ]
+			+ SVerticalBox::Slot().AutoHeight()[ Text(TAttribute<FText>::CreateLambda([this]{const auto* L=CXMRControlLoader(Control.Get());return L && L->Profile ? L->Profile->DisplayName : FText::GetEmpty();}),18,600) ] ]
+		+ SHorizontalBox::Slot().AutoWidth()[ SNew(SBorder).BorderImage(Frame()).BorderBackgroundColor(ShowroomColor(11,15,23)).Padding(FMargin(10,4))
+			[SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,6,0)[Dot(TAttribute<FLinearColor>::CreateLambda([this]{return State().Stage==ECXMRControlStage::Starting?CXMRPanelUI::SelectionColor():State().Stage==ECXMRControlStage::NoHeadset?ShowroomColor(255,122,114):ShowroomColor(60,194,133);}))]
+			+ SHorizontalBox::Slot().AutoWidth()[SNew(STextBlock).Font(CXMRPanelUI::CSSFont(13,500)).ColorAndOpacity(CXMRPanelUI::InkColor()).Text_Lambda([this]{return FText::FromString(State().Stage==ECXMRControlStage::Starting ? TEXT("Headset starting") : State().Stage==ECXMRControlStage::NoHeadset ? TEXT("No headset") : TEXT("Headset running"));})] ] ] ]
+	+ SVerticalBox::Slot().AutoHeight().Padding(0,12,0,0)[ Modes ]
+	+ SVerticalBox::Slot().AutoHeight().Padding(0,12,0,0)[ Text(TAttribute<FText>::CreateLambda([this]{const auto* X=CXMRControlSubsystem(Control.Get());const auto S=State();FString N;if(S.Stage==ECXMRControlStage::NoHeadset){N=TEXT("VR only until the headset session starts.");}else if(S.Stage==ECXMRControlStage::Starting && X && X->IsMRRequested()){N=TEXT("MR is selected and will switch on by itself.");}else if(X && X->IsMixedRealityOn()){N=X->bRequestedDepthTest ? FString::Printf(TEXT("Real hands and objects within %.2f m show in front of the car."),X->GetDepthTestRangeFarZ()) : TEXT("Depth test is off: real hands appear behind the virtual car.");}else{N=X && !X->bRequestedVRBackground ? TEXT("Virtual car on an empty background.") : TEXT("Virtual car with the virtual room around it.");}return FText::FromString(N);}),13,400,ShowroomColor(212,221,240)) ] ];
 }
-
-TSharedRef<SWidget> SCXMRControlPanel::AlignmentSteps()
+TSharedRef<SWidget> SCXMRControlPanel::Status()
 {
-	const FWeakControl Weak = Control;
-	struct FStep { FText Label; FText Detail; };
-	const FStep Steps[] = {
-		{ LOCTEXT("Initial", "Align to eyes"), LOCTEXT("InitialDetail", "Seated, facing ahead") },
-		{ LOCTEXT("Confirm", "Confirm fit"), LOCTEXT("ConfirmDetail", "Check against the rig") },
-		{ LOCTEXT("SaveAlignment", "Save alignment"), LOCTEXT("SaveDetail", "Reused next session") } };
-	const FMargin StepPadding(8.f, 6.f, 12.f, 6.f);
-	TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
-	for (int32 Index = 0; Index < UE_ARRAY_COUNT(Steps); ++Index)
+	return SNew(SBorder).Padding(FMargin(16,12)).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(CXMRPanelUI::SurfaceColor())
+	[ SNew(SHorizontalBox)
+	+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Top).Padding(0,2,12,0)[ SNew(SCXMRStatusIcon).Stage_Lambda([this]{return State().Stage;}) ]
+	+ SHorizontalBox::Slot().FillWidth(1)[ SNew(SVerticalBox)
+		+ SVerticalBox::Slot().AutoHeight()[ SNew(STextBlock).Font(CXMRPanelUI::CSSFont(15,600)).AutoWrapText(true)
+			.Text_Lambda([this]{return FText::FromString(CXMRDescribeControlStatus(State()).Title);})
+			.ColorAndOpacity_Lambda([this]{const auto S=State().Stage;return S==ECXMRControlStage::Aligned?ShowroomColor(60,194,133):S==ECXMRControlStage::NoHeadset?ShowroomColor(255,122,114):S==ECXMRControlStage::Adjusted || S==ECXMRControlStage::Waiting?ShowroomColor(242,181,68):CXMRPanelUI::SelectionColor();}) ]
+		+ SVerticalBox::Slot().AutoHeight()[ Caption(TAttribute<FText>::CreateLambda([this]{return FText::FromString(CXMRDescribeControlStatus(State()).Detail);})) ]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0,6,0,0)[ SNew(SBox).HeightOverride(4)
+			.Visibility_Lambda([this]{const auto S=State().Stage;return S==ECXMRControlStage::Saving || S==ECXMRControlStage::Settling ? EVisibility::Visible : EVisibility::Collapsed;})
+			[ SNew(SProgressBar).Percent_Lambda([this]{return TOptional<float>(State().Progress);}).FillColorAndOpacity(CXMRPanelUI::SelectionColor()) ] ] ] ];
+}
+TSharedRef<SWidget> SCXMRControlPanel::Calibration()
+{
+	const auto S=State(); const bool Live=S.Stage!=ECXMRControlStage::Starting && S.Stage!=ECXMRControlStage::NoHeadset;
+	const bool CanAdjust=Live && (S.Stage==ECXMRControlStage::Aligned || S.Stage==ECXMRControlStage::Adjusted);
+	const bool CanSave=S.Stage==ECXMRControlStage::Adjusted || (S.Stage==ECXMRControlStage::Aligned && S.Restore==ECXMRControlRestore::New);
+	TSharedRef<SVerticalBox> V=SNew(SVerticalBox);
+	V->AddSlot().AutoHeight()[ SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().FillWidth(1)[ Text(FText::FromString(TEXT("Markers")),15,600) ]
+		+ SHorizontalBox::Slot().AutoWidth()[ Caption(TAttribute<FText>::CreateLambda([this]{const auto St=State();return FText::FromString(St.Stage==ECXMRControlStage::Starting || St.Stage==ECXMRControlStage::NoHeadset ? TEXT("Waiting for headset") : FString::Printf(TEXT("%d of %d in view"),St.RequiredMarkers.Num()-St.MissingMarkers.Num(),St.RequiredMarkers.Num()));})) ] ];
+	TSharedRef<SVerticalBox> Markers=SNew(SVerticalBox);
+	for(int32 Id:S.RequiredMarkers)
+	{ Markers->AddSlot().AutoHeight().Padding(12,8)[ SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,12,0)[Dot(TAttribute<FLinearColor>::CreateLambda([this,Id]{const auto St=State();return St.Stage==ECXMRControlStage::Starting || St.Stage==ECXMRControlStage::NoHeadset?CXMRPanelUI::ReadoutColor():St.MissingMarkers.Contains(Id)?ShowroomColor(242,181,68):ShowroomColor(60,194,133);}),12)]
+		+ SHorizontalBox::Slot().FillWidth(1)[ Text(FText::FromString(FString::Printf(TEXT("Marker %d"),Id)),15,500) ]
+		+ SHorizontalBox::Slot().AutoWidth()[ Caption(TAttribute<FText>::CreateLambda([this,Id]{const auto St=State();return FText::FromString(St.Stage==ECXMRControlStage::Starting || St.Stage==ECXMRControlStage::NoHeadset ? TEXT("—") : St.MissingMarkers.Contains(Id) ? TEXT("Not in view") : TEXT("In view"));})) ] ]; }
+	V->AddSlot().AutoHeight().Padding(0,12,0,0)[ SNew(SBorder).Padding(0).BorderImage(Frame()).BorderBackgroundColor(CXMRPanelUI::SurfaceColor())[Markers] ];
+	V->AddSlot().AutoHeight().Padding(0,8,0,24)[ Caption(FText::FromString(TEXT("Every marker in the profile must be in view to calibrate, save or restore. Until then the car stays where it is."))) ];
+	V->AddSlot().AutoHeight()[ Text(FText::FromString(TEXT("Alignment")),15,600) ];
+	if(!Live || S.Stage==ECXMRControlStage::Waiting || S.Stage==ECXMRControlStage::Settling || S.Stage==ECXMRControlStage::Saving)
+	{ V->AddSlot().AutoHeight().Padding(0,12,0,0)[ Caption(FText::FromString(!Live ? TEXT("Calibration starts once the headset session is running.") : S.Stage==ECXMRControlStage::Waiting ? TEXT("Nothing to do here until every marker is in view.") : TEXT("Hold the view steady for a moment."))) ]; }
+	else
 	{
-		const FText Label = Steps[Index].Label;
-		const FText Detail = Steps[Index].Detail;
-		auto Content = [Weak, Index, Label, Detail]() -> TSharedRef<SWidget>
+		TSharedRef<SWrapBox> Actions=SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8,8));
+		if(CanSave){ Actions->AddSlot()[Action(FText::FromString(TEXT("Save alignment")),[this]{if(Control.IsValid()){Control->RequestAlignmentSave();}},S.MissingMarkers.IsEmpty() && !S.RequiredMarkers.IsEmpty(),true)]; }
+		if(S.Stage==ECXMRControlStage::Adjusted){ Actions->AddSlot()[Action(FText::FromString(TEXT("Discard changes")),[this]{if(Tuning.IsValid()){Tuning->InvokeTunable("Vehicle.ResetOffset");}})]; }
+		if(S.Stage==ECXMRControlStage::Aligned){ Actions->AddSlot()[Action(FText::FromString(TEXT("Recalibrate")),[this]{if(Tuning.IsValid()){Tuning->InvokeTunable("Vehicle.Recalibrate");}})]; }
+		V->AddSlot().AutoHeight().Padding(0,12,0,0)[Actions];
+		if(CanSave && !S.MissingMarkers.IsEmpty()){V->AddSlot().AutoHeight().Padding(0,8)[Caption(FText::FromString(FString::Printf(TEXT("Show marker %s to save."),*CXMRMissingMarkerNames(S))))];}
+		else if(S.Stage==ECXMRControlStage::Aligned && S.Restore!=ECXMRControlRestore::New){V->AddSlot().AutoHeight().Padding(0,8)[Caption(FText::FromString(TEXT("Recalibrate reads the markers again and places the car from them.")))];}
+	}
+
+	TSharedRef<SHorizontalBox> Steps=SNew(SHorizontalBox);
+	for(float Step:{0.1f,1.f,5.f})
+	{Steps->AddSlot().AutoWidth()[SelectAction(FText::FromString(FString::Printf(TEXT("%g cm"),Step)),[this,Step]{if(Tuning.IsValid()){Tuning->SetTunableValue("Vehicle.MoveStep",Step);}},TAttribute<bool>::CreateLambda([this,Step]{return Tuning.IsValid() && FMath::IsNearlyEqual(Tuning->GetTunableValue("Vehicle.MoveStep"),Step);}),CanAdjust,false)];}
+	V->AddSlot().AutoHeight().Padding(0,24,0,12)[SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Text(FText::FromString(TEXT("Fine-adjust position")),15,600)]
+		+ SHorizontalBox::Slot().AutoWidth()[Steps]];
+	const TCHAR* Labels[]={TEXT("Away"),TEXT("Toward"),TEXT("Left"),TEXT("Right"),TEXT("Up"),TEXT("Down"),TEXT("Turn ⟲"),TEXT("Turn ⟳")};
+	const FName Ids[]={"Vehicle.Away","Vehicle.Away","Vehicle.Right","Vehicle.Right","Vehicle.Up","Vehicle.Up","Vehicle.Turn","Vehicle.Turn"};
+	const float Dirs[]={1,-1,-1,1,1,-1,-1,1};
+	for(int Row=0;Row<2;++Row)
+	{
+		TSharedRef<SHorizontalBox> Pad=SNew(SHorizontalBox);
+		for(int Col=0;Col<4;++Col)
 		{
-			return SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 10.f, 0.f)
-				[ CXMRPanelUI::MakeStepMarker(Index + 1, TAttribute<int32>::CreateLambda([Weak, Index] { return AlignmentStepState(Weak, Index); })) ]
-				+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
-				[
-					SNew(SVerticalBox)
-					+ SVerticalBox::Slot().AutoHeight()
-					[
-						SNew(STextBlock).Font(CXMRPanelUI::StrongFont(13))
-						.Text_Lambda([Weak, Index, Label] { return Index == 0 && Weak.IsValid() && Weak->IsInitialAlignmentPending() ? LOCTEXT("CancelInitial", "Cancel alignment") : Label; })
-						.ColorAndOpacity_Lambda([Weak, Index] { return FSlateColor(AlignmentStepState(Weak, Index) > 0 ? CXMRPanelUI::InkColor() : CXMRPanelUI::ReadoutColor()); })
-					]
-					+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 2.f, 0.f, 0.f)
-					[ SNew(STextBlock).Text(Detail).Font(CXMRPanelUI::BodyFont(11)).ColorAndOpacity(CXMRPanelUI::ReadoutColor()) ]
-				];
-		};
-		// 잠긴 단계는 버튼 대신 그림만 보여 줌. 비활성 효과로 글자가 흐려지지 않게 함.
-		Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
-		[
-			SNew(SWidgetSwitcher).WidgetIndex_Lambda([Weak, Index] { return CanRunAlignmentStep(Weak, Index) ? 0 : 1; })
-			+ SWidgetSwitcher::Slot()
-			[
-				SNew(SButton).ButtonStyle(CXMRPanelUI::FlatButtonStyle()).ContentPadding(StepPadding)
-				.OnClicked_Lambda([Weak, Index] { return CanRunAlignmentStep(Weak, Index) ? RunAlignmentStep(Weak, Index) : FReply::Handled(); })
-				[ Content() ]
-			]
-			+ SWidgetSwitcher::Slot()[ SNew(SBox).Padding(StepPadding)[ Content() ] ]
-		];
-		if (Index + 1 < UE_ARRAY_COUNT(Steps))
-		{
-			// 이전 단계가 끝나면 연결선도 선택색으로 바뀜.
-			Row->AddSlot().FillWidth(1.f).VAlign(VAlign_Center).Padding(4.f, 0.f)
-			[
-				SNew(SBox).HeightOverride(2.f).MinDesiredWidth(16.f)
-				[ SNew(SImage).Image(FCoreStyle::Get().GetBrush("WhiteBrush"))
-					.ColorAndOpacity_Lambda([Weak, Index] { return FSlateColor(AlignmentStepState(Weak, Index) == 2 ? CXMRPanelUI::SelectionColor() : CXMRPanelUI::FaintColor().CopyWithNewOpacity(0.45f)); }) ]
-			];
+			const int I=Row*4+Col;TSharedRef<SWidget> B=Action(FText::FromString(Labels[I]),[this,Id=Ids[I],D=Dirs[I]]{if(Tuning.IsValid()){Tuning->InvokeTunable(Id,D);}},CanAdjust);
+			if(I>=6)
+			{
+				B=SNew(SBox).MinDesiredHeight(40)[SNew(SButton).ButtonStyle(Button()).ContentPadding(FMargin(6,8)).IsEnabled(CanAdjust)
+					.OnClicked_Lambda([this,D=Dirs[I]]{if(Tuning.IsValid()){Tuning->InvokeTunable("Vehicle.Turn",D);}return FReply::Handled();})
+					[SNew(SHorizontalBox)+ SHorizontalBox::Slot().FillWidth(1).HAlign(HAlign_Right).VAlign(VAlign_Center)[Text(FText::FromString(TEXT("Turn")),13,500)]
+					+ SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(4,0,0,0)[SNew(SCXMRRotateIcon).Clockwise(I==7)]]];
+			}
+			Pad->AddSlot().FillWidth(1).Padding(0,0,Col==3?0:8,0)[B];
 		}
+		V->AddSlot().AutoHeight().Padding(0,8,0,0)[Pad];
 	}
-	return Row;
+	V->AddSlot().AutoHeight().Padding(0,12,0,8)[ Caption(TAttribute<FText>::CreateLambda([this]{const auto St=State();if(St.Stage!=ECXMRControlStage::Aligned && St.Stage!=ECXMRControlStage::Adjusted){return FText::FromString(TEXT("Available once the car is aligned."));}const auto* P=Control.IsValid()?Control->FindPlacement():nullptr;const FVector A=P?P->AdjustmentSinceSave:FVector::ZeroVector;const float T=P?P->TurnSinceSave:0;return FText::FromString(FString::Printf(TEXT("Change since last save: %.1f cm %s · %.1f cm %s · %.1f cm %s · %.1f ° %s"),FMath::Abs(A.X),A.X>=0?TEXT("away"):TEXT("toward"),FMath::Abs(A.Y),A.Y>=0?TEXT("right"):TEXT("left"),FMath::Abs(A.Z),A.Z>=0?TEXT("up"):TEXT("down"),FMath::Abs(T),T>=0?TEXT("clockwise"):TEXT("counter-clockwise")));})) ];
+	V->AddSlot().AutoHeight()[Caption(FText::FromString(TEXT("Away and toward follow the direction you faced at the first press. Numpad keys do the same.")))];
+	V->AddSlot().AutoHeight().Padding(0,24,0,0)[SNew(SExpandableArea).InitiallyCollapsed(true).BorderImage(Frame()).BorderBackgroundColor(CXMRPanelUI::SurfaceColor()).BodyBorderImage(Frame()).BodyBorderBackgroundColor(CXMRPanelUI::SurfaceColor()).Padding(12)
+		.HeaderContent()[Text(FText::FromString(TEXT("First-time setup for a new rig")),15,500)]
+		.BodyContent()[SNew(SVerticalBox)
+		+ SVerticalBox::Slot().AutoHeight().Padding(0,12)[Caption(FText::FromString(TEXT("1. Sit in the driver's seat and face straight ahead.")))]
+		+ SVerticalBox::Slot().AutoHeight()[Caption(FText::FromString(TEXT("2. Align to my eyes. Puts the car's driver eye point at your eyes.")))]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0,6)[Action(FText::FromString(TEXT("Align to my eyes")),[this]{if(Control.IsValid()){Control->StartInitialAlignment();}},TAttribute<bool>::CreateLambda([this]{return Control.IsValid() && Control->CanStartInitialAlignment();}))]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0,8)[Caption(FText::FromString(TEXT("3. Fine-adjust until the virtual car sits on the physical rig.")))]
+		+ SVerticalBox::Slot().AutoHeight()[Caption(FText::FromString(TEXT("4. Save alignment with every marker in view. Later sessions restore it on their own.")))] ] ];
+	return SNew(SBorder).Padding(16).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(CXMRPanelUI::SurfaceColor())[V];
 }
-
-TSharedRef<SWidget> SCXMRControlPanel::CalibrationPage()
+TSharedRef<SWidget> SCXMRControlPanel::Vehicles()
 {
-	const FWeakControl Weak = Control;
-	return SNew(SVerticalBox)
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 12.f)
-		[ CXMRPanelUI::MakeHeader(LOCTEXT("EyeAlignment", "Driver-eye alignment")) ]
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 8.f)
-		[ CXMRPanelUI::MakeNotice(TAttribute<FText>::CreateLambda([Weak] { return AlignmentScope(Weak); }), CXMRPanelUI::ETone::Neutral) ]
-		+ SVerticalBox::Slot().AutoHeight()
-		[ CXMRPanelUI::MakeCaption(TAttribute<FText>::CreateLambda([Weak] { return AlignmentStorage(Weak); })) ]
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 18.f)[ AlignmentSteps() ]
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)
-		[ CXMRPanelUI::MakeNotice(TAttribute<FText>::CreateLambda([Weak] { return CalibrationMessage(Weak, true); }), CXMRPanelUI::ETone::Negative) ]
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)
-		[ CXMRPanelUI::MakeCaption(TAttribute<FText>::CreateLambda([Weak] { return CalibrationMessage(Weak, false); })) ]
-		+ SVerticalBox::Slot().AutoHeight()
-		[ CXMRPanelUI::MakeCaption(TAttribute<FText>::CreateLambda([Weak] { return EyeReferenceHelp(Weak); })) ]
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 30.f, 0.f, 0.f)[ RegistryPage(ECXMRControlPage::Calibration) ]
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 26.f, 0.f, 0.f)[ CXMRPanelUI::MakeDivider() ]
-		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 6.f, 0.f, 0.f)
-		[
-			SNew(SExpandableArea).InitiallyCollapsed(true)
-			.BorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
-			.BodyBorderImage(FCoreStyle::Get().GetBrush("NoBrush"))
-			.HeaderPadding(FMargin(0.f, 8.f))
-			.Padding(FMargin(0.f, 8.f, 0.f, 0.f))
-			.HeaderContent()
-			[ SNew(STextBlock).Text(LOCTEXT("AdvancedPlacement", "Advanced placement")).Font(CXMRPanelUI::StrongFont(13)).ColorAndOpacity(CXMRPanelUI::InkColor()) ]
-			.BodyContent()
-			[
-				SNew(SVerticalBox)
-				+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 4.f, 0.f, 18.f)
-				[
-					// 확인 문구가 길어지면 다음 줄로 내려감.
-					SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(10.f, 10.f))
-					+ SWrapBox::Slot()
-					[ SNew(SButton).ButtonStyle(CXMRPanelUI::ButtonStyle()).TextStyle(CXMRPanelUI::BodyTextStyle()).Text(LOCTEXT("ReadSavedAgain", "Restore from markers again"))
-						.OnClicked_Lambda([Weak] { if (Weak.IsValid()) { Weak->StartCalibration(); } return FReply::Handled(); }) ]
-					+ SWrapBox::Slot()
-					[
-						SNew(SBox).Visibility_Lambda([Weak] { return GroupResetVisibility(Weak); })
-						.ToolTipText(LOCTEXT("ResetGroupHelp", "Click twice within five seconds to delete the shared alignment for this group. Reset adjustment only discards temporary adjustments."))
-						[
-							CXMRPanelUI::MakeDangerButton(
-								TAttribute<FText>::CreateLambda([Weak] { return Weak.IsValid() ? Weak->GetSharedAlignmentResetLabel() : FText::GetEmpty(); }),
-								TAttribute<bool>::CreateLambda([Weak] { return Weak.IsValid() && Weak->IsSharedAlignmentResetArmed(); }),
-								[Weak] { if (Weak.IsValid()) { Weak->ResetSharedAlignment(); } return FReply::Handled(); })
-						]
-					]
-				]
-				+ SVerticalBox::Slot().AutoHeight()[ RegistryPage(ECXMRControlPage::Calibration, true) ]
-			]
-		];
+	VehicleAssets.Reset();TSharedRef<SVerticalBox> V=SNew(SVerticalBox);const auto* L=CXMRControlLoader(Control.Get());
+	V->AddSlot().AutoHeight()[Text(FText::FromString(TEXT("Vehicle")),15,600)];
+	const auto* P=Control.IsValid()?Control->FindPlacement():nullptr;
+	if(P && !P->GetAlignmentGroup().IsNone()){V->AddSlot().AutoHeight().Padding(0,8)[Caption(FText::FromString(TEXT("Alignment group ")+P->GetAlignmentGroup().ToString()))];}
+	if(L && L->Catalog)
+	{for(int I=0;I<L->Catalog->Vehicles.Num();++I){auto* Profile=L->Catalog->Vehicles[I].LoadSynchronous();if(!Profile){continue;}VehicleAssets.Add(TStrongObjectPtr<UObject>(Profile));V->AddSlot().AutoHeight().Padding(0,8)[VehicleChoice(Profile->DisplayName,TAttribute<bool>::CreateLambda([this,I]{const auto* Loader=CXMRControlLoader(Control.Get());return Loader && Loader->GetVehicleIndex()==I;}),[this,I]{if(auto* Loader=CXMRControlLoader(Control.Get())){Loader->SelectVehicle(I);}})];}}
+	if(P && !P->GetAlignmentGroup().IsNone()){V->AddSlot().AutoHeight().Padding(0,12)[Caption(FText::FromString(TEXT("Both vehicles share one saved alignment, so switching keeps the car in place.")))];}
+	return SNew(SBorder).Padding(16).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(CXMRPanelUI::SurfaceColor())[V];
 }
-
-TSharedRef<SWidget> SCXMRControlPanel::SettingsPage(UCXMRControlPanelWidget* InViewer)
+void SCXMRControlPanel::Refresh()
 {
-	TSharedRef<SVerticalBox> Settings = SNew(SVerticalBox);
-	Settings->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 24.f)
-	[ CXMRPanelUI::MakeCaption(LOCTEXT("Pipeline", "MR and VR keep separate virtual exposure. Camera exposure is set in Varjo Base. Real-object occlusion works only in MR.")) ];
-	Settings->AddSlot().AutoHeight()[ RegistryPage(ECXMRControlPage::Display) ];
-	if (InViewer) { Settings->AddSlot().AutoHeight().Padding(0.f, 30.f, 0.f, 0.f)[ InViewer->BuildDisplayPage() ]; }
-	return Settings;
+	if(!Content.IsValid()){return;}const auto S=State();const auto* L=CXMRControlLoader(Control.Get());
+	const int Page=Control.IsValid()?static_cast<int>(Control->GetActivePage()):0;
+	const FString K=FString::Printf(TEXT("%d/%d/%d/%p/%p/%p/%d"),Page,static_cast<int>(S.Stage),static_cast<int>(S.Restore),L,L?L->Profile.Get():nullptr,L?L->Catalog.Get():nullptr,L?L->GetVehicleIndex():0)+FString::JoinBy(S.RequiredMarkers,TEXT(","),[](int32 Id){return FString::FromInt(Id);})+CXMRMissingMarkerNames(S);
+	if(K==LastContentKey){return;}LastContentKey=K;
+	Content->SetContent(CXMRPanelUI::MakeScroll(Control.IsValid() && Control->GetActivePage()==ECXMRControlPage::Vehicle ? Vehicles() : Calibration()));
 }
+void SCXMRControlPanel::Tick(const FGeometry& G,double T,float D){SCompoundWidget::Tick(G,T,D);Refresh();}
 
-void SCXMRControlPanel::Tick(const FGeometry& Geometry, double CurrentTime, float DeltaTime)
+FReply SCXMRControlPanel::OnPreviewKeyDown(const FGeometry& G,const FKeyEvent& E)
 {
-	SCompoundWidget::Tick(Geometry, CurrentTime, DeltaTime);
-	UCXMRVehicleLoaderComponent* Loader = Viewer.IsValid() ? Viewer->FindLoader() : nullptr;
-	UObject* Profile = Loader ? Loader->Profile.Get() : nullptr;
-	UObject* Catalog = Loader ? Loader->Catalog.Get() : nullptr;
-	AActor* Vehicle = Loader ? Loader->GetSpawnedVehicle() : nullptr;
-	if (ReviewHost.IsValid() && Viewer.IsValid() && (Loader != LastLoader.Get() || Profile != LastProfile.Get() || Catalog != LastCatalog.Get() || Vehicle != LastVehicle.Get()))
-	{
-		LastLoader = Loader; LastProfile = Profile; LastCatalog = Catalog; LastVehicle = Vehicle;
-		ReviewHost->SetContent(Viewer->BuildViewerPage());
-	}
+	if(E.GetKey()==EKeys::Enter && Control.IsValid()){Control->RequestAlignmentSave();return FReply::Handled();}
+	return SCompoundWidget::OnPreviewKeyDown(G,E);
 }
-
-void SCXMRControlPanel::Construct(const FArguments& Args)
-{
-	Control = Args._Control;
-	Tuning = Args._Tuning;
-	Viewer = Args._Viewer;
-	const FWeakControl Weak = Control;
-
-	TSharedRef<SVerticalBox> Menu = SNew(SVerticalBox);
-	Menu->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)[ Navigation(ECXMRControlPage::Vehicle, LOCTEXT("Review", "Review")) ];
-	Menu->AddSlot().AutoHeight().Padding(0.f, 0.f, 0.f, 4.f)[ Navigation(ECXMRControlPage::Calibration, LOCTEXT("Alignment", "Alignment")) ];
-	Menu->AddSlot().AutoHeight()[ Navigation(ECXMRControlPage::Display, LOCTEXT("Settings", "Settings")) ];
-
-	SAssignNew(ReviewHost, SBox);
-	if (Args._Viewer) { ReviewHost->SetContent(Args._Viewer->BuildViewerPage()); }
-	else { ReviewHost->SetContent(CXMRPanelUI::MakeCaption(LOCTEXT("NoSession", "Start a session to review vehicles and design options."))); }
-
-	auto Page = [](const TSharedRef<SWidget>& Content) { return CXMRPanelUI::MakeScroll(CXMRPanelUI::MakeSurface(Content)); };
-
-	ChildSlot
-	[
-		CXMRPanelUI::MakeBackground(SNew(SVerticalBox)
-			+ SVerticalBox::Slot().AutoHeight()[ Header() ]
-			+ SVerticalBox::Slot().FillHeight(1.f).Padding(0.f, 20.f, 0.f, 0.f)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot().AutoWidth().Padding(16.f, 0.f, 16.f, 0.f)[ SNew(SBox).WidthOverride(164.f)[ Menu ] ]
-				+ SHorizontalBox::Slot().FillWidth(1.f).Padding(0.f, 0.f, 18.f, 0.f)
-				[
-					SNew(SWidgetSwitcher).WidgetIndex_Lambda([Weak]
-					{
-						const ECXMRControlPage Active = Weak.IsValid() ? Weak->GetActivePage() : ECXMRControlPage::Vehicle;
-						return Active == ECXMRControlPage::Calibration ? 1 : Active == ECXMRControlPage::Display ? 2 : 0;
-					})
-					+ SWidgetSwitcher::Slot()[ Page(ReviewHost.ToSharedRef()) ]
-					+ SWidgetSwitcher::Slot()[ Page(CalibrationPage()) ]
-					+ SWidgetSwitcher::Slot()[ Page(SettingsPage(Args._Viewer)) ]
-				]
-			]
-			+ SVerticalBox::Slot().AutoHeight().Padding(FMargin(196.f, 10.f, 24.f, 12.f))
-			[
-				SNew(STextBlock).Font(CXMRPanelUI::BodyFont(11)).ColorAndOpacity(CXMRPanelUI::FaintColor()).AutoWrapText(true)
-				.Text(LOCTEXT("SaveHelp", "Exposure presets save automatically. Alignment saves only through Save alignment."))
-			])
-	];
-}
-
-#undef LOCTEXT_NAMESPACE
