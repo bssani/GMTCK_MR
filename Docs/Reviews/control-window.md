@@ -198,26 +198,26 @@
 - 미리보기: `Saved/ControlWindowPreview_*.png`를 Edge 헤드리스로 찍은 시안과 나란히 봤다. 배치·문구·색·글꼴·상태별 표시는 시안을 따른다. 아래 C1-4의 작은 차이만 있다.
 - 열림 4건은 모두 헤드셋 기능 시험을 막지 않는다. 사용자가 이 브랜치로 헤드셋 시험을 시작해도 된다. C1-1은 Diagnostics의 "Dynamic tracking for all markers"를 켰을 때만 해당한다.
 
-### C1-1 Dynamic 모드에서 마커 이벤트마다 Varjo 모드 설정을 다시 부름 — 반영함 (fix(cxmr): address control window review C1)
+### C1-1 Dynamic 모드에서 마커 이벤트마다 Varjo 모드 설정을 다시 부름 — 반영함 (`723d016`)
 
 - 문제: `HandleMarkerDetected`·`HandleMarkerMoved`(`CXMRSubsystem.cpp:632`, `:639`)가 `bDynamicMarkers`이면 이벤트마다 `SetMarkerTrackingMode`를 부른다. 그러면 `xrSetMarkerTrackingPredictionVARJO`(`VarjoMarkersPlugin.cpp:161-176`)가 마커마다 매 프레임 불린다. 이미 Dynamic인 마커에도 같은 값을 다시 건다. 런타임이 매번 예측 상태를 다시 잡는지는 확인되지 않았다(헤드셋에서만 알 수 있음). 실패하면 매 프레임 Error 로그가 쌓인다.
 - 제안: 이미 감지된 마커는 켤 때 `ApplyDynamicMarkerModes`(`:717`)가 한 번 건다. 새로 감지되는 마커만 `HandleMarkerDetected`에서 건다. `HandleMarkerMoved`의 호출은 지운다.
   - Moved로만 처음 들어오는 마커도 있으면(프로필이 바뀌어 플러그인이 이미 아는 ID, `CXMRPlacementComponent.cpp`의 같은 주석) 걸어 둔 ID 집합으로 한 번만 걸게 한다.
 - 확인할 시험: Dynamic을 켠 상태에서 같은 마커에 Moved 이벤트를 여러 번 보냄 → 모드 설정 호출은 한 번이다. 새 ID의 Detected → 한 번 건다. 끄면 원래 모드로 한 번씩 돌린다(시험 훅 `RuntimeCallForTest`가 이미 있다).
 
-### C1-2 상태가 바뀔 때마다 기본 창 내용 전체를 새로 만들어 스크롤이 맨 위로 감 — 반영함 (fix(cxmr): address control window review C1)
+### C1-2 상태가 바뀔 때마다 기본 창 내용 전체를 새로 만들어 스크롤이 맨 위로 감 — 반영함 (`723d016`)
 
 - 문제: `SCXMRControlPanel::Refresh`(`SCXMRControlPanel.cpp:225-232`)는 단계·복원 종류·빠진 마커가 바뀔 때마다 `MakeScroll(...)`로 스크롤 상자까지 새로 만든다. 마커가 0.5초 관측 만료로 잠깐 빠졌다 돌아오면(H-1) 그때마다 내용이 다시 만들어진다. 진행자가 아래쪽 Fine-adjust 버튼을 보고 있으면 스크롤이 맨 위로 돌아가고, 누르던 버튼이 사라진다.
 - 제안: 스크롤 상자는 한 번만 만들고 안쪽 내용만 바꾼다. 또는 다시 만들 때 스크롤 위치를 보존한다. 마커별 표시(In view·Not in view)처럼 값만 바뀌는 곳은 이미 속성 람다이므로 빠진 마커 목록을 다시 만들기의 기준에서 뺄 수 있는지도 본다. 고급 창(`RebuildContent`)도 등록 항목이 바뀔 때 같은 일이 생기는지 같이 본다.
 - 확인할 시험: 기본 창을 아래로 스크롤한 뒤 빠진 마커 집합만 바뀜 → 스크롤 위치가 그대로다. 단계가 바뀌면 버튼 구성이 바뀌는 것은 지금처럼 확인한다.
 
-### C1-3 MR 중 깊이 테스트를 끄면 실세계 깊이 추정은 런타임에서 켜진 채 상태만 꺼짐으로 바뀜 — 반영함 (fix(cxmr): address control window review C1)
+### C1-3 MR 중 깊이 테스트를 끄면 실세계 깊이 추정은 런타임에서 켜진 채 상태만 꺼짐으로 바뀜 — 반영함 (`723d016`)
 
 - 문제: `ApplyRequestedMode`(`CXMRSubsystem.cpp:258-265`)는 깊이 테스트가 꺼지면 `bEnvDepthOn = false`만 하고 런타임 호출을 하지 않는다. 깊이 테스트를 켠 채 시작했다가 MR 중에 끄면, 런타임의 환경 깊이 추정은 켜진 채로 남는데 상태·로그(`DumpMRState`)는 꺼짐이라고 말한다. 이 클래스의 원칙(상태는 런타임과 같게 보고, `SetMixedReality`의 옛 주석)과 어긋난다. 헤드셋에서 쓸데없는 처리도 남는다.
 - 제안: 깊이 테스트가 꺼질 때 환경 깊이 추정이 켜져 있었으면 세션 안에서 끈다. 명세 A.2-4의 "깊이 테스트가 켜졌을 때만"은 켜는 조건이다. 끄는 것은 막지 않는다.
 - 확인할 시험: MR·깊이 켬·환경 깊이 켬 → 깊이 테스트 끔 → 런타임 호출 기록에 환경 깊이 끔이 있다. 다시 켜면 설정값대로 켠다.
 
-### C1-4 시안과 다른 작은 표시 차이 — 반영함 (fix(cxmr): address control window review C1)
+### C1-4 시안과 다른 작은 표시 차이 — 반영함 (`723d016`)
 
 - 문제: 시안 CSS와 다르다. 위치는 `Saved/ControlWindowPreview_World.png`·`_Waiting.png`·`_Advanced_MR.png`와 시안의 같은 상황.
   - Markers 목록: 시안은 `In view`가 성공색, `Not in view`가 경고색이다(`prototype.html:165-166`). 지금은 둘 다 흐린 글자색이다. 마커 표시도 시안은 원(`.ring`, `:161-162`)인데 지금은 마름모다.
@@ -285,3 +285,18 @@ C1-4: 마커 원은 12px 원형 SImage(관측=성공색 채움, 누락/대기=�
 - 헤드셋 PC: Headset-Test-Checklist §1·§2·§5(MR 시작/깊이 끔·다시 켬/마커 누락·저장), §15-4(Dynamic 이벤트·모드 복귀)를 확인할 것. 관련 헤드셋 상태는 모두 not-tested.
 - 재생성 PNG 25개(모두 Saved/): ControlWindowPreview_Starting.png, ControlWindowPreview_Waiting.png, ControlWindowPreview_World.png, ControlWindowPreview_Markers.png, ControlWindowPreview_Adjusted.png, ControlWindowPreview_NoHeadset.png, ControlWindowPreview_Adjusted_End.png, ControlWindowPreview_Setup.png, ControlWindowPreview_Vehicle.png, ControlWindowPreview_Main_125.png, ControlWindowPreview_Main_150.png, ControlWindowPreview_Advanced_MR.png, ControlWindowPreview_Advanced_MR_Middle.png, ControlWindowPreview_Advanced_MR_End.png, ControlWindowPreview_Advanced_VR.png, ControlWindowPreview_Advanced_VR_Middle.png, ControlWindowPreview_Advanced_VR_End.png, ControlWindowPreview_Advanced_Calibration.png, ControlWindowPreview_Advanced_Calibration_Middle.png, ControlWindowPreview_Advanced_Calibration_End.png, ControlWindowPreview_Advanced_Diagnostics.png, ControlWindowPreview_Advanced_Diagnostics_Middle.png, ControlWindowPreview_Advanced_Diagnostics_End.png, ControlWindowPreview_Advanced_125.png, ControlWindowPreview_Advanced_150.png.
 - 새 질문 없음. C1-1~C1-4 모두 위 커밋 제목으로 반영 상태를 기록함. push·머지 없음. 1·2번 브랜치 변경 없음.
+
+## 2회차 — 2026-10-15, `723d016` — 통과
+
+- 재현: `-DisableAdaptiveUnity` 빌드 성공, CXMR·GMTCK_MR 경고·오류 0(`Saved/ClaudeReview1015d_Build3.log`). `CXMR.` **80/80 통과**(`Saved/ClaudeReview1015d_Test3.log`). 이번 커밋의 바이너리 변경 0.
+- C1-1: Dynamic 모드 설정은 켤 때 이미 감지된 마커에 한 번, 그 뒤에는 처음 들어오는 ID(Detected·Moved)에만 한 번 건다. `SetMarkerTrackingMode`도 세션을 확인한 뒤 시험 훅을 거친다. 시험 `DynamicMarkerCalls`가 중복 이벤트에 호출이 없음을 확인한다.
+- C1-2: 스크롤 상자는 한 번만 만들고 안쪽 내용만 바꾼다. 빠진 마커 목록은 다시 만들기의 기준에서 빠졌고 Save 버튼·이유·마커 표시는 속성으로 갱신된다. 시험이 스크롤 위치 유지를 확인한다.
+- C1-3: 깊이 테스트를 끄면 환경 깊이가 켜져 있을 때 세션 안에서 끈다. 선호값은 남아 다시 켜면 적용된다.
+- C1-4: 미리보기를 시안과 다시 비교했다. 마커 원·상태 색, 버튼 글자 가운데, 붙은 간격 세그먼트, `0`·`0.75`·`90` 표시가 시안과 같다.
+- 열린 항목 없음. 머지는 사용자 승인 뒤. 헤드셋(체크리스트 §1·§2·§5·§3·§13·§15)은 `not-tested`.
+
+### 기록 (조치 불필요)
+
+- 고급 창의 선택지 행(Render from 등)은 시안에서 짧으면 라벨 오른쪽에 오는데 지금은 라벨 아래다. 기능과 문구는 같다. 헤드셋 시험 뒤 다른 손볼 것과 같이 본다.
+- 이 브랜치를 프로젝트 브랜치에 넣을 때는 컨트롤 창 파일이 충돌한다(프로젝트 쪽 USB 행). 고급 창에 USB 묶음을 더하는 작업을 별도 명세로 잡는다.
+
