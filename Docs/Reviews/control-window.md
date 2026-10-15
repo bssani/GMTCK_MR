@@ -198,26 +198,26 @@
 - 미리보기: `Saved/ControlWindowPreview_*.png`를 Edge 헤드리스로 찍은 시안과 나란히 봤다. 배치·문구·색·글꼴·상태별 표시는 시안을 따른다. 아래 C1-4의 작은 차이만 있다.
 - 열림 4건은 모두 헤드셋 기능 시험을 막지 않는다. 사용자가 이 브랜치로 헤드셋 시험을 시작해도 된다. C1-1은 Diagnostics의 "Dynamic tracking for all markers"를 켰을 때만 해당한다.
 
-### C1-1 Dynamic 모드에서 마커 이벤트마다 Varjo 모드 설정을 다시 부름 — 열림
+### C1-1 Dynamic 모드에서 마커 이벤트마다 Varjo 모드 설정을 다시 부름 — 반영함 (fix(cxmr): address control window review C1)
 
 - 문제: `HandleMarkerDetected`·`HandleMarkerMoved`(`CXMRSubsystem.cpp:632`, `:639`)가 `bDynamicMarkers`이면 이벤트마다 `SetMarkerTrackingMode`를 부른다. 그러면 `xrSetMarkerTrackingPredictionVARJO`(`VarjoMarkersPlugin.cpp:161-176`)가 마커마다 매 프레임 불린다. 이미 Dynamic인 마커에도 같은 값을 다시 건다. 런타임이 매번 예측 상태를 다시 잡는지는 확인되지 않았다(헤드셋에서만 알 수 있음). 실패하면 매 프레임 Error 로그가 쌓인다.
 - 제안: 이미 감지된 마커는 켤 때 `ApplyDynamicMarkerModes`(`:717`)가 한 번 건다. 새로 감지되는 마커만 `HandleMarkerDetected`에서 건다. `HandleMarkerMoved`의 호출은 지운다.
   - Moved로만 처음 들어오는 마커도 있으면(프로필이 바뀌어 플러그인이 이미 아는 ID, `CXMRPlacementComponent.cpp`의 같은 주석) 걸어 둔 ID 집합으로 한 번만 걸게 한다.
 - 확인할 시험: Dynamic을 켠 상태에서 같은 마커에 Moved 이벤트를 여러 번 보냄 → 모드 설정 호출은 한 번이다. 새 ID의 Detected → 한 번 건다. 끄면 원래 모드로 한 번씩 돌린다(시험 훅 `RuntimeCallForTest`가 이미 있다).
 
-### C1-2 상태가 바뀔 때마다 기본 창 내용 전체를 새로 만들어 스크롤이 맨 위로 감 — 열림
+### C1-2 상태가 바뀔 때마다 기본 창 내용 전체를 새로 만들어 스크롤이 맨 위로 감 — 반영함 (fix(cxmr): address control window review C1)
 
 - 문제: `SCXMRControlPanel::Refresh`(`SCXMRControlPanel.cpp:225-232`)는 단계·복원 종류·빠진 마커가 바뀔 때마다 `MakeScroll(...)`로 스크롤 상자까지 새로 만든다. 마커가 0.5초 관측 만료로 잠깐 빠졌다 돌아오면(H-1) 그때마다 내용이 다시 만들어진다. 진행자가 아래쪽 Fine-adjust 버튼을 보고 있으면 스크롤이 맨 위로 돌아가고, 누르던 버튼이 사라진다.
 - 제안: 스크롤 상자는 한 번만 만들고 안쪽 내용만 바꾼다. 또는 다시 만들 때 스크롤 위치를 보존한다. 마커별 표시(In view·Not in view)처럼 값만 바뀌는 곳은 이미 속성 람다이므로 빠진 마커 목록을 다시 만들기의 기준에서 뺄 수 있는지도 본다. 고급 창(`RebuildContent`)도 등록 항목이 바뀔 때 같은 일이 생기는지 같이 본다.
 - 확인할 시험: 기본 창을 아래로 스크롤한 뒤 빠진 마커 집합만 바뀜 → 스크롤 위치가 그대로다. 단계가 바뀌면 버튼 구성이 바뀌는 것은 지금처럼 확인한다.
 
-### C1-3 MR 중 깊이 테스트를 끄면 실세계 깊이 추정은 런타임에서 켜진 채 상태만 꺼짐으로 바뀜 — 열림
+### C1-3 MR 중 깊이 테스트를 끄면 실세계 깊이 추정은 런타임에서 켜진 채 상태만 꺼짐으로 바뀜 — 반영함 (fix(cxmr): address control window review C1)
 
 - 문제: `ApplyRequestedMode`(`CXMRSubsystem.cpp:258-265`)는 깊이 테스트가 꺼지면 `bEnvDepthOn = false`만 하고 런타임 호출을 하지 않는다. 깊이 테스트를 켠 채 시작했다가 MR 중에 끄면, 런타임의 환경 깊이 추정은 켜진 채로 남는데 상태·로그(`DumpMRState`)는 꺼짐이라고 말한다. 이 클래스의 원칙(상태는 런타임과 같게 보고, `SetMixedReality`의 옛 주석)과 어긋난다. 헤드셋에서 쓸데없는 처리도 남는다.
 - 제안: 깊이 테스트가 꺼질 때 환경 깊이 추정이 켜져 있었으면 세션 안에서 끈다. 명세 A.2-4의 "깊이 테스트가 켜졌을 때만"은 켜는 조건이다. 끄는 것은 막지 않는다.
 - 확인할 시험: MR·깊이 켬·환경 깊이 켬 → 깊이 테스트 끔 → 런타임 호출 기록에 환경 깊이 끔이 있다. 다시 켜면 설정값대로 켠다.
 
-### C1-4 시안과 다른 작은 표시 차이 — 열림
+### C1-4 시안과 다른 작은 표시 차이 — 반영함 (fix(cxmr): address control window review C1)
 
 - 문제: 시안 CSS와 다르다. 위치는 `Saved/ControlWindowPreview_World.png`·`_Waiting.png`·`_Advanced_MR.png`와 시안의 같은 상황.
   - Markers 목록: 시안은 `In view`가 성공색, `Not in view`가 경고색이다(`prototype.html:165-166`). 지금은 둘 다 흐린 글자색이다. 마커 표시도 시안은 원(`.ring`, `:161-162`)인데 지금은 마름모다.
@@ -234,3 +234,54 @@
 - 새 Slate 코드(`SCXMRControlPanel.cpp`, `SCXMRAdvancedPanel.cpp`, `CXMRControlStatus.cpp`)는 한 줄에 여러 문장을 넣고 공백을 줄인 형태다. 기존 파일의 형식과 다르다. 다음 작업부터는 주변 코드 형식을 따른다. `CXMRPlacementComponent.cpp:25-26` include 중복, `AdjustMarkerOffset`의 `bControlChangesDiscarded` 줄 들여쓰기는 C1 반영 때 같이 고쳐도 된다.
 - 빌드·전체 시험을 여러 번 돌린 것은 보고 ③대로 컴파일 오류와 PNG 확인 때문이었다. 받아들인다.
 
+
+## Codex 보고 — 2026-10-15, 1회차 C1-1~C1-4 반영
+
+### ① 바뀐 파일
+
+- `Plugins/CXMR/Source/CXMR/Private/CXMRSubsystem.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/SCXMRControlPanel.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRShowroomUI.h`
+- `Plugins/CXMR/Source/CXMR/Private/SCXMRAdvancedPanel.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/CXMRPlacementComponent.cpp`
+- `Plugins/CXMR/Source/CXMR/Private/Tests/CXMRControlWindowTests.cpp`
+- `Plugins/CXMR/Source/CXMREditor/Private/Tests/CXMRPanelEditorTests.cpp`
+- `Docs/Reviews/control-window.md`
+
+C1-1: 기존 PluginMarkerIds로 새 ID만 판별함. 켤 때 기존 ID, 켠 뒤 새 Detected/Moved ID에 한 번 적용하며, 같은 값으로 다시 켜도 호출하지 않음. 끄면 기존 Follower/프로필/Stationary 복귀 경로를 한 번씩 사용함. 추적 재시작은 기존 ID 초기화 경로를 따름.
+C1-2: 기본 창의 SScrollBox를 한 번 만들고 내부 SBox만 교체함. 빠진 마커 목록은 재구성 키에서 빼고 Save 활성화·이유·마커 상태를 속성으로 갱신함. 누락/재관측만으로 버튼·펼침 상태·스크롤을 버리지 않음. 고급 창은 생성 시 네 페이지와 스크롤을 만들고 WidgetSwitcher로 전환하며 재구성 경로가 없어 수정하지 않음.
+C1-3: MR 중 깊이 테스트를 끌 때 환경 깊이가 켜져 있으면 세션 가드 안에서 false를 보내고 실제 상태를 끔. 환경 깊이 선호값은 보존하며 깊이를 다시 켜면 재적용함.
+C1-4: 마커 원은 12px 원형 SImage(관측=성공색 채움, 누락/대기=빈 원), 상태 문구는 성공/경고색으로 맞춤. 조정 버튼을 가운데 정렬하고 간격 세 개를 공통 테두리와 구분선으로 붙임. 숫자 입력의 최소 소수 자릿수를 0으로 지정함. 리뷰 기록에서 허용한 중복 include와 들여쓰기도 정리함.
+
+### ② 명세 완료 조건별 상태
+
+1. 충족(합성 Slate 렌더): 여섯 상황·Advanced 네 탭·125%/150% DPI 모사 등 기존 25개 PNG를 모두 재생성함. Waiting/World에서 원·상태 색·버튼 정렬·세그먼트를, Advanced MR/Diagnostics에서 0·0.75·90을 직접 확인함.
+2. 충족: ControlStatusText를 포함한 전체 시험 통과. 상태 문구 정책 변경 없음.
+3. 충족(합성 세션): ControlStartup에서 MR 중 깊이 끔→환경 깊이 끔 호출·상태·선호값 보존, 이미 꺼짐 때 중복 호출 없음, 다시 켬, 세션 전 호출 없음 확인. DynamicMarkerCalls에서 기존 ID·새 Moved/Detected·중복 이벤트·원래 모드 복귀·추적 재시작 확인.
+4. 충족(자동화): RenderPreview에 스크롤한 뒤 누락/재관측 시 같은 스크롤·콘텐츠 위젯과 위치 유지, 단계 전환 시 버튼 구성 교체 시험을 추가함. 기존 고급 창 단일 인스턴스·숨김·재열기·변경 수·초기화 시험도 통과함.
+5. 충족: 기존 AdvancedPrototypeWording 통과. 등록 문구 변경 없음.
+6. 충족: 최종 -DisableAdaptiveUnity 빌드 1회, Result: Succeeded/프로세스 0, 전체 빌드 경고·오류 0. CXMR. 전체 1회, 발견/완료/성공 80/80, 실패 0, TEST COMPLETE. EXIT CODE: 0/프로세스 0. 로그는 Saved/ControlWindow_C1_Build.log, Saved/ControlWindow_C1_Tests.log, Saved/ControlWindow_C1_Tests_Process.log.
+7. 충족: 이번 변경의 .uasset/.umap/TTF/기타 바이너리 0. /CXMR/·/Game/ 콘텐츠, Config, 로컬 도구 플러그인 변경 없음.
+8. 충족 유지: 기존 Operating-Guide §7·Headset-Test-Checklist §5 설명과 동작 정책은 같으며 이번에 문구/절차 변경이 없어 재편집하지 않음.
+
+### ③ 명세·제안과 다른 점과 이유
+
+- 명세 범위 차이 없음. C1-1의 별도 적용 ID 집합 대신 이미 추적 재시작 때 초기화되는 PluginMarkerIds를 재사용함. 새 Moved도 한 번 처리해야 하므로 Moved 경로의 호출은 새 ID 조건으로 제한함.
+- C1-4 숫자는 실제 표시 위치인 SCXMRAdvancedPanel의 SSpinBox에서 수정함. 나머지는 지정된 Showroom/Control 위젯만 수정함. 파일 재분할·기능 추가 없음.
+- 시안 file:// 브라우저 열기는 도구의 URL 보안 정책으로 차단됨. 우회하지 않고 로컬 HTML/CSS 원본·수정 전 PNG와 새 Slate PNG를 대조함. 이번 실행에서 시안을 브라우저에 띄워 나란히 비교한 것은 아님. Claude의 시안 재비교는 남음.
+- 빌드 1회·전체 시험 1회만 실행함. 하위 에이전트/리뷰 루프/추가 전체 실행 없음. 자동화 프로세스 stderr의 OpenXR loader API 1.1/최대 1.0 메시지는 기존 이 PC 환경 메시지임. 자동화는 80/80·종료 0이며 헤드셋 호환성 증거로 해석하지 않음.
+
+### ④ Varjo·엔진 API 근거 — 소스로 확인함
+
+- 마커 모드 설정: Plugins/VarjoPlugin/Source/VarjoOpenXR/Private/VarjoMarkersPlugin.cpp:161-176. known ID에 xrSetMarkerTrackingPredictionVARJO를 보내고 캐시 모드를 바꿈. 추적 끔의 ID 초기화는 같은 파일 :123-136. 제품 호출 가드는 CXMRSubsystem.cpp:612의 HasRunningSession이며 기존 IsXRSessionRunning으로 이어짐.
+- 환경 깊이 끔: Plugins/VarjoPlugin/Source/VarjoOpenXR/Private/DepthPlugin.cpp:92-103. bool을 xrSetEnvironmentDepthEstimationVARJO(Session, Enabled)에 전달함. 제품 ApplyRequestedMode의 running 가드 안에서 false를 보냄.
+- 엔진 루트 C:/Program Files/Epic Games/UE_5.7/Engine/: 세션 판정 Plugins/Runtime/OpenXR/Source/OpenXRHMD/Public/IOpenXRHMD.h:35; SBox 내부 교체 Source/Runtime/Slate/Public/Widgets/Layout/SBox.h:114; 스크롤 조회/설정 Source/Runtime/Slate/Public/Widgets/Layout/SScrollBox.h:298-315; 버튼 정렬 Source/Runtime/Slate/Public/Widgets/Input/SButton.h:77-80; 숫자 최소 소수 자릿수 Source/Runtime/Slate/Public/Widgets/Input/SSpinBox.h:121(기본 1은 :407); 원형 이미지 속성 Source/Runtime/SlateCore/Public/Widgets/Images/SImage.h:40; 모서리 반경 Source/Runtime/SlateCore/Public/Styling/SlateBrush.h:142-179.
+- 합성 시험은 RuntimeCallForTest로 실제 Varjo 호출을 대신 기록함. 실제 런타임 성공·성능·헤드셋 화면은 미검증임.
+
+### ⑤ 로컬에서 확인할 것
+
+- 빌드·전체 시험 증거는 ②-6. 에디터/MCP 쓰기/Blueprint·레벨 변경 없음. 시작·빌드 전·종료에 사용자 에디터 닫힘 확인.
+- 에디터 PIE 실제 레벨: Fine-adjust 아래로 스크롤한 채 마커가 빠졌다 돌아올 때 위치·버튼 유지, 단계가 Saving/Aligned로 바뀔 때 버튼 변경, 두 창 조작을 확인할 것. 네이티브 모니터 배율 125%/150%는 not-tested. DPI 모사 PNG만 생성함.
+- 헤드셋 PC: Headset-Test-Checklist §1·§2·§5(MR 시작/깊이 끔·다시 켬/마커 누락·저장), §15-4(Dynamic 이벤트·모드 복귀)를 확인할 것. 관련 헤드셋 상태는 모두 not-tested.
+- 재생성 PNG 25개(모두 Saved/): ControlWindowPreview_Starting.png, ControlWindowPreview_Waiting.png, ControlWindowPreview_World.png, ControlWindowPreview_Markers.png, ControlWindowPreview_Adjusted.png, ControlWindowPreview_NoHeadset.png, ControlWindowPreview_Adjusted_End.png, ControlWindowPreview_Setup.png, ControlWindowPreview_Vehicle.png, ControlWindowPreview_Main_125.png, ControlWindowPreview_Main_150.png, ControlWindowPreview_Advanced_MR.png, ControlWindowPreview_Advanced_MR_Middle.png, ControlWindowPreview_Advanced_MR_End.png, ControlWindowPreview_Advanced_VR.png, ControlWindowPreview_Advanced_VR_Middle.png, ControlWindowPreview_Advanced_VR_End.png, ControlWindowPreview_Advanced_Calibration.png, ControlWindowPreview_Advanced_Calibration_Middle.png, ControlWindowPreview_Advanced_Calibration_End.png, ControlWindowPreview_Advanced_Diagnostics.png, ControlWindowPreview_Advanced_Diagnostics_Middle.png, ControlWindowPreview_Advanced_Diagnostics_End.png, ControlWindowPreview_Advanced_125.png, ControlWindowPreview_Advanced_150.png.
+- 새 질문 없음. C1-1~C1-4 모두 위 커밋 제목으로 반영 상태를 기록함. push·머지 없음. 1·2번 브랜치 변경 없음.

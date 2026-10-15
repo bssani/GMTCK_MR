@@ -23,7 +23,6 @@
 #include "HAL/IConsoleManager.h"
 #include "CXMRMarkerDebugComponent.h"
 #include "UObject/UObjectIterator.h"
-#include "UObject/UObjectIterator.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogCXMRPlacement, Log, All);
 
@@ -1354,7 +1353,7 @@ void UCXMRPlacementComponent::AdjustMarkerOffset(FVector DeltaLocation, FRotator
 	{
 		CancelAlignmentCapture();
 		bManualAlignment = true;
-	bControlChangesDiscarded = false;
+		bControlChangesDiscarded = false;
 		bAlignmentPoseLocked = true;
 		if (GetWorld()) { GetWorld()->GetTimerManager().ClearTimer(SettleTimer); }
 	}

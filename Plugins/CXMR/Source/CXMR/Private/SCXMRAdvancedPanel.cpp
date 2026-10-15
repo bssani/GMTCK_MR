@@ -121,7 +121,7 @@ TSharedRef<SWidget> SCXMRAdvancedPanel::Row(const FCXMRAdvancedRow& Spec,const F
 	else
 	{
 		C=SNew(SHorizontalBox)
-		+ SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(76)[SNew(SSpinBox<float>).Style(CXMRPanelUI::SpinStyle()).Font(CXMRPanelUI::CSSFont(15)).MinValue(T.Min).MaxValue(T.Max).MinSliderValue(T.Min).MaxSliderValue(T.Max).Delta(T.Delta).Value_Lambda(Get).IsEnabled_Lambda(Enabled)
+		+ SHorizontalBox::Slot().AutoWidth()[SNew(SBox).WidthOverride(76)[SNew(SSpinBox<float>).Style(CXMRPanelUI::SpinStyle()).Font(CXMRPanelUI::CSSFont(15)).MinFractionalDigits(0).MinValue(T.Min).MaxValue(T.Max).MinSliderValue(T.Min).MaxSliderValue(T.Max).Delta(T.Delta).Value_Lambda(Get).IsEnabled_Lambda(Enabled)
 			.OnValueChanged_Lambda([Apply](float Value){Apply(Value,false);}).OnValueCommitted_Lambda([Apply](float Value,ETextCommit::Type){Apply(Value,true);}).OnEndSliderMovement_Lambda([Apply](float Value){Apply(Value,true);})]]
 		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(8,0)[Text(T.Unit,12,400,CXMRPanelUI::ReadoutColor())];
 	}

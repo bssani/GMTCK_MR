@@ -2,6 +2,9 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #include "CXMRSubsystem.h"
+#include "CXMRMarkerFollower.h"
+#include "CXMRMarkerProfile.h"
+#include "VarjoMarkersEvent.h"
 #include "CXMRControlStatus.h"
 #include "CXMRAdvancedSettings.h"
 #include "CXMRTuningSubsystem.h"
@@ -68,9 +71,66 @@ bool FCXMRControlStartupTest::RunTest(const FString&)
 	const TArray<FName> Expected={"MR","Depth.Test","Depth.Range","Depth.EnvEstimation","Diagnostics.MarkerTracking"};TestTrue(TEXT("Late session applies ordered MR startup"),Calls==Expected);TestTrue(TEXT("MR running"),X->IsMixedRealityOn());
 	X->SetRequestedVRBackground(false);TestFalse(TEXT("Background stays hidden during MR"),X->IsVRBackgroundVisible());X->SetMixedReality(false);TestFalse(TEXT("VR applies background preference"),X->IsVRBackgroundVisible());TestTrue(TEXT("VR keeps depth preference"),X->bRequestedDepthTest);
 	X->SetRequestedVRBackground(true);TestTrue(TEXT("VR background preference applies immediately"),X->IsVRBackgroundVisible());X->SetMixedReality(true);TestFalse(TEXT("MR hides actual background"),X->IsVRBackgroundVisible());TestTrue(TEXT("MR keeps background preference"),X->bRequestedVRBackground);X->ToggleVRBackground();TestTrue(TEXT("B in MR temporarily shows background"),X->IsVRBackgroundVisible());TestTrue(TEXT("B in MR keeps preference"),X->bRequestedVRBackground);X->SetMixedReality(false);X->ToggleVRBackground();TestFalse(TEXT("B in VR changes preference"),X->bRequestedVRBackground);
-	X->SetDepthTest(false);Calls.Reset();X->SetMixedReality(true);TestFalse(TEXT("No environment-depth call when depth disabled"),Calls.Contains("Depth.EnvEstimation"));
+	X->SetMixedReality(true);Calls.Reset();X->SetDepthTest(false);
+	TestTrue(TEXT("Disabling depth stops active environment depth"),Calls.Contains("Depth.EnvEstimation"));
+	TestFalse(TEXT("Environment depth state is off"),X->IsEnvironmentDepthEstimationOn());
+	TestTrue(TEXT("Environment depth preference is retained"),X->bRequestedEnvironmentDepth);
+	Calls.Reset();X->SetMixedReality(true);TestFalse(TEXT("No environment-depth call when already off"),Calls.Contains("Depth.EnvEstimation"));
+	Calls.Reset();X->SetDepthTest(true);
+	TestTrue(TEXT("Re-enabling depth reapplies environment depth preference"),Calls.Contains("Depth.EnvEstimation") && X->IsEnvironmentDepthEstimationOn());
+	X->SessionRunningForTest=false;Calls.Reset();X->SetDepthTest(false);
+	TestEqual(TEXT("Disabling depth without a session makes no runtime calls"),Calls.Num(),0);
 	X->SessionRunningForTest=false;X->bStartInMR=false;X->SetMarkerTracking(false);X->StartHeadsetSessionWait();Calls.Reset();X->SessionRunningForTest=true;X->AdvanceSessionForTest(0.f);TestFalse(TEXT("StartInMR off starts in VR"),X->IsMixedRealityOn());TestFalse(TEXT("Tracking off stays off at startup"),Calls.Contains("Diagnostics.MarkerTracking"));
 	X->Deinitialize();return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRDynamicMarkerCallsTest,"CXMR.Panels.DynamicMarkerCalls",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FCXMRDynamicMarkerCallsTest::RunTest(const FString&)
+{
+	TStrongObjectPtr<UGameInstance> GI(NewObject<UGameInstance>(GEngine));
+	GI->InitializeStandalone();
+	UCXMRSubsystem* X=GI->GetSubsystem<UCXMRSubsystem>();
+	UWorld* World=GI->GetWorld();
+	AActor* Owner=World->SpawnActor<AActor>();
+	UCXMRPlacementComponent* Placement=NewObject<UCXMRPlacementComponent>(Owner);
+	Owner->AddInstanceComponent(Placement);
+	Placement->MarkerProfile=NewObject<UCXMRMarkerProfile>(Owner);
+	FCXMRMarkerEntry Entry; Entry.MarkerId=3; Entry.TrackingMode=ECXMRMarkerTrackingMode::Stationary;
+	Placement->MarkerProfile->Markers.Add(Entry);
+	ACXMRMarkerFollower* Follower=World->SpawnActor<ACXMRMarkerFollower>();
+	Follower->MarkerId=7; Follower->TrackingMode=ECXMRMarkerTrackingMode::Dynamic;
+	TArray<FName> Calls;
+	X->SessionRunningForTest=false;
+	X->RuntimeCallForTest=[&Calls](FName Call) { Calls.Add(Call); };
+	TestFalse(TEXT("Mode setter is guarded before the session"),X->SetMarkerTrackingMode(3,ECXMRMarkerTrackingMode::Dynamic));
+	TestTrue(TEXT("No mode call before the session"),Calls.IsEmpty());
+	X->SessionRunningForTest=true;
+	auto Moved=[](int32 Id) { UVarjoMarkerDelegates::VarjoMarkerMoved.Broadcast(Id,FVector::ZeroVector,FRotator::ZeroRotator,FVector2D(10)); };
+	auto Detected=[](int32 Id) { UVarjoMarkerDelegates::NewVarjoMarkerDetected.Broadcast(Id,FVector::ZeroVector,FRotator::ZeroRotator,FVector2D(10)); };
+	Detected(3); X->SetDynamicMarkers(true);
+	TestEqual(TEXT("Enabling applies once to an existing marker"),Calls.Num(),1);
+	TestEqual(TEXT("Existing marker uses Dynamic override"),Calls.Last(),FName("Markers.Dynamic"));
+	Calls.Reset();
+	for(int32 I=0; I<5; ++I) { Moved(3); }
+	TestTrue(TEXT("Existing marker movement does not reapply mode"),Calls.IsEmpty());
+	Moved(9); Moved(9); Detected(9);
+	TestEqual(TEXT("Moved-only new marker is configured once"),Calls.Num(),1);
+	Detected(7); Detected(7); Moved(7);
+	TestEqual(TEXT("New Detected marker is configured once"),Calls.Num(),2);
+	TestTrue(TEXT("New markers both receive Dynamic"),Calls[0]=="Markers.Dynamic" && Calls[1]=="Markers.Dynamic");
+	X->SetDynamicMarkers(true);
+	TestEqual(TEXT("Repeated enable does not reapply modes"),Calls.Num(),2);
+	Calls.Reset(); X->SetDynamicMarkers(false);
+	TestEqual(TEXT("Disabling restores each known marker once"),Calls.Num(),3);
+	TestEqual(TEXT("Profile and unconfigured marker return to Stationary"),Calls.FilterByPredicate([](FName Call) { return Call=="Markers.Stationary"; }).Num(),2);
+	TestEqual(TEXT("Follower returns to its Dynamic mode"),Calls.FilterByPredicate([](FName Call) { return Call=="Markers.Dynamic"; }).Num(),1);
+	Calls.Reset(); X->SetDynamicMarkers(false); Moved(3); Moved(7); Moved(9);
+	TestTrue(TEXT("Disabled override does not reapply on movement"),Calls.IsEmpty());
+	X->SetDynamicMarkers(true); X->SetMarkerTracking(false); X->SetMarkerTracking(true); Calls.Reset(); Moved(3); Moved(3);
+	TestEqual(TEXT("Tracking restart configures rediscovered ID once"),Calls.Num(),1);
+	X->RuntimeCallForTest=nullptr;
+	Follower->Destroy(); Owner->Destroy(); GI->Shutdown(); World->DestroyWorld(false); GEngine->DestroyWorldContext(World);
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRAdvancedChangedTest,"CXMR.Panels.AdvancedChangedAndReset",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)

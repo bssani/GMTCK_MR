@@ -10,6 +10,7 @@
 #include "Widgets/Layout/SWrapBox.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Widgets/Images/SImage.h"
 
 namespace CXMRShowroomUI
 {
@@ -44,6 +45,27 @@ namespace CXMRShowroomUI
 	}
 
 	inline TSharedRef<SWidget> Caption(TAttribute<FText> Value) { return Text(Value,13,400,CXMRPanelUI::ReadoutColor()); }
+	inline TSharedRef<SWidget> MarkerRing(TAttribute<bool> InView)
+	{
+		static const FSlateRoundedBoxBrush On(ShowroomColor(60,194,133),6.f);
+		static const FSlateRoundedBoxBrush Off(FLinearColor::Transparent,6.f,ShowroomColor(102,116,138),2.f);
+		return SNew(SBox).WidthOverride(12).HeightOverride(12)
+			[SNew(SImage).Image_Lambda([InView] { return InView.Get() ? &On : &Off; })];
+	}
+
+	inline TSharedRef<SWidget> StepAction(const FText& Value, TFunction<void()> Run, TAttribute<bool> Selected, bool Enabled, int32 Index)
+	{
+		static const FSlateRoundedBoxBrush Left(FLinearColor::White,FVector4(5,0,0,5));
+		static const FSlateRoundedBoxBrush Middle(FLinearColor::White,0.f);
+		static const FSlateRoundedBoxBrush Right(FLinearColor::White,FVector4(0,5,5,0));
+		const FSlateBrush* Shape = Index == 0 ? &Left : Index == 2 ? &Right : &Middle;
+		return SNew(SButton).ButtonStyle(CXMRPanelUI::FlatButtonStyle()).ContentPadding(0).IsEnabled(Enabled)
+			.OnClicked_Lambda([Run] { Run(); return FReply::Handled(); })
+			[SNew(SBorder).BorderImage(Shape).Padding(FMargin(10,4))
+				.BorderBackgroundColor_Lambda([Selected] { return Selected.Get() ? ShowroomColor(28,37,52) : FLinearColor::Transparent; })
+				[SNew(STextBlock).Text(Value).Font(CXMRPanelUI::CSSFont(13,500))
+					.ColorAndOpacity_Lambda([Selected] { return Selected.Get() ? CXMRPanelUI::SelectionColor() : CXMRPanelUI::ReadoutColor(); })]];
+	}
 	inline TSharedRef<SWidget> QuietAction(TAttribute<FText> Value,TFunction<void()> Run)
 	{
 		return SNew(SButton).ButtonStyle(CXMRPanelUI::QuietButtonStyle()).ContentPadding(0)
@@ -54,7 +76,7 @@ namespace CXMRShowroomUI
 	inline TSharedRef<SWidget> Action(TAttribute<FText> Value, TFunction<void()> Run, TAttribute<bool> Enabled = true, bool Primary = false)
 	{
 		return SNew(SBox).MinDesiredHeight(40)
-		[ SNew(SButton).ButtonStyle(Button(Primary)).ContentPadding(FMargin(16,8)).IsEnabled(Enabled)
+		[ SNew(SButton).ButtonStyle(Button(Primary)).ContentPadding(FMargin(16,8)).HAlign(HAlign_Center).VAlign(VAlign_Center).IsEnabled(Enabled)
 			.OnClicked_Lambda([Run] { if (Run) { Run(); } return FReply::Handled(); })
 			[ Text(Value,13,500,Primary ? ShowroomColor(11,15,23) : CXMRPanelUI::InkColor()) ] ];
 	}

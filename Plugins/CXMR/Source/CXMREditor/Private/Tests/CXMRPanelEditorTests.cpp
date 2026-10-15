@@ -168,6 +168,19 @@ bool FCXMRPanelCalibrationTest::RunTest(const FString& Parameters)
 
 namespace
 {
+	TSharedPtr<SWidget> CXMRFindPreviewWidget(SWidget& Widget, const FString& Type)
+	{
+		if (Widget.GetTypeAsString() == Type) { return Widget.AsShared(); }
+		if (FChildren* Children = Widget.GetChildren())
+		{
+			for (int32 Index = 0; Index < Children->Num(); ++Index)
+			{
+				if (TSharedPtr<SWidget> Found = CXMRFindPreviewWidget(*Children->GetChildAt(Index), Type)) { return Found; }
+			}
+		}
+		return nullptr;
+	}
+
 	TSharedPtr<SWidget> FindExpandableArea(SWidget& Widget)
 	{
 		if (Widget.GetTypeAsString() == TEXT("SExpandableArea")) { return Widget.AsShared(); }
@@ -299,6 +312,25 @@ bool FCXMRPanelRenderTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("Scenario preview saved"),SavePanelPreview(Main.ToSharedRef(),FString::Printf(TEXT("ControlWindowPreview_%s.png"),Names[I])));
 		}
 		FCXMRControlStatus State;State.RequiredMarkers={3,7};State.Stage=ECXMRControlStage::Adjusted;Placement->ControlStatusForTest=State;CXMR->SetMixedReality(true);
+		FSlateApplication::Get().Tick(); ScrollPreviewTo(*Main,80.f); FSlateApplication::Get().Tick();
+		const TSharedPtr<SWidget> ScrollWidget=CXMRFindPreviewWidget(*Main,TEXT("SScrollBox"));
+		if(TestTrue(TEXT("Main content scroll exists"),ScrollWidget.IsValid()))
+		{
+			const TSharedPtr<SWidget> Setup=CXMRFindPreviewWidget(*ScrollWidget,TEXT("SExpandableArea"));
+			SScrollBox& Scroll=static_cast<SScrollBox&>(*ScrollWidget);
+			const float Offset=Scroll.GetScrollOffset();
+			TestTrue(TEXT("Main content was scrolled down"),Offset>0.f);
+			State.MissingMarkers={7}; Placement->ControlStatusForTest=State; FSlateApplication::Get().Tick();
+			TestTrue(TEXT("Missing markers retain the scroll widget"),CXMRFindPreviewWidget(*Main,TEXT("SScrollBox"))==ScrollWidget);
+			TestTrue(TEXT("Missing markers retain the content widgets"),CXMRFindPreviewWidget(*Main,TEXT("SExpandableArea"))==Setup);
+			TestEqual(TEXT("Missing markers retain the scroll offset"),Scroll.GetScrollOffset(),Offset);
+			State.MissingMarkers.Reset(); Placement->ControlStatusForTest=State; FSlateApplication::Get().Tick();
+			TestEqual(TEXT("Reacquired markers retain the scroll offset"),Scroll.GetScrollOffset(),Offset);
+			State.Stage=ECXMRControlStage::Saving; Placement->ControlStatusForTest=State; FSlateApplication::Get().Tick();
+			TestTrue(TEXT("Stage change retains the scroll widget"),CXMRFindPreviewWidget(*Main,TEXT("SScrollBox"))==ScrollWidget);
+			TestTrue(TEXT("Stage change rebuilds the button layout"),CXMRFindPreviewWidget(*Main,TEXT("SExpandableArea"))!=Setup);
+			State.Stage=ECXMRControlStage::Adjusted; Placement->ControlStatusForTest=State;
+		}
 		FSlateApplication::Get().Tick(); ScrollPreviewTo(*Main,-1.f);
 		TestTrue(TEXT("Control lower preview saved"),SavePanelPreview(Main.ToSharedRef(),TEXT("ControlWindowPreview_Adjusted_End.png")));
 		ShowAdvancedPlacement(*Main);

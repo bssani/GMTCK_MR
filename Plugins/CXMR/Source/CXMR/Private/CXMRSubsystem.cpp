@@ -262,7 +262,11 @@ void UCXMRSubsystem::ApplyRequestedMode()
 			ApplyRuntimeCall("Depth.EnvEstimation", [this] { UVarjoOpenXRFunctionLibrary::SetEnvironmentDepthEstimationEnabled(bRequestedEnvironmentDepth); });
 			bEnvDepthOn = bRequestedEnvironmentDepth;
 		}
-		else { bEnvDepthOn = false; }
+		else if (bEnvDepthOn)
+		{
+			ApplyRuntimeCall("Depth.EnvEstimation", [] { UVarjoOpenXRFunctionLibrary::SetEnvironmentDepthEstimationEnabled(false); });
+			bEnvDepthOn = false;
+		}
 		OnEnvironmentDepthEstimationChanged.Broadcast(bEnvDepthOn);
 		SetViewOffset(RequestedViewOffset);
 	}
@@ -605,9 +609,16 @@ bool UCXMRSubsystem::SetMarkerTimeout(int32 MarkerId, float Seconds)
 
 bool UCXMRSubsystem::SetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMode Mode)
 {
+	if (!HasRunningSession()) { return false; }
 	const EMarkerTrackingMode VarjoMode =
 		((bDynamicMarkers ? ECXMRMarkerTrackingMode::Dynamic : Mode) == ECXMRMarkerTrackingMode::Dynamic) ? EMarkerTrackingMode::Dynamic : EMarkerTrackingMode::Stationary;
-	return IsXRSessionRunning() && UVarjoOpenXRFunctionLibrary::SetMarkerTrackingMode(MarkerId, VarjoMode);
+	bool bResult = false;
+	ApplyRuntimeCall(VarjoMode == EMarkerTrackingMode::Dynamic ? "Markers.Dynamic" : "Markers.Stationary",
+		[&bResult, MarkerId, VarjoMode] { bResult = UVarjoOpenXRFunctionLibrary::SetMarkerTrackingMode(MarkerId, VarjoMode); });
+#if WITH_DEV_AUTOMATION_TESTS
+	if (SessionRunningForTest.IsSet()) { bResult = true; }
+#endif
+	return bResult;
 }
 
 bool UCXMRSubsystem::GetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMode& OutMode) const
@@ -628,15 +639,18 @@ bool UCXMRSubsystem::GetMarkerTrackingMode(int32 MarkerId, ECXMRMarkerTrackingMo
 
 void UCXMRSubsystem::HandleMarkerDetected(int32 MarkerId, const FVector& Position, const FRotator& Rotation, const FVector2D& Size)
 {
+	const bool bNewMarker = !PluginMarkerIds.Contains(MarkerId);
 	PluginMarkerIds.Add(MarkerId);
-	if (bDynamicMarkers) { SetMarkerTrackingMode(MarkerId, ECXMRMarkerTrackingMode::Dynamic); }
+	if (bDynamicMarkers && bNewMarker) { SetMarkerTrackingMode(MarkerId, ECXMRMarkerTrackingMode::Dynamic); }
 	OnMarkerDetected.Broadcast(MarkerId, Position, Rotation, Size);
 }
 
 void UCXMRSubsystem::HandleMarkerMoved(int32 MarkerId, const FVector& Position, const FRotator& Rotation, const FVector2D& Size)
 {
+	// 프로필 전환 뒤 Moved로 처음 들어오는 ID도 한 번만 적용함.
+	const bool bNewMarker = !PluginMarkerIds.Contains(MarkerId);
 	PluginMarkerIds.Add(MarkerId);
-	if (bDynamicMarkers) { SetMarkerTrackingMode(MarkerId, ECXMRMarkerTrackingMode::Dynamic); }
+	if (bDynamicMarkers && bNewMarker) { SetMarkerTrackingMode(MarkerId, ECXMRMarkerTrackingMode::Dynamic); }
 	OnMarkerMoved.Broadcast(MarkerId, Position, Rotation, Size);
 }
 
@@ -710,6 +724,7 @@ void UCXMRSubsystem::ReportManikin(FText Name, int32 Index, int32 Count)
 
 void UCXMRSubsystem::SetDynamicMarkers(bool bEnable)
 {
+	if (bDynamicMarkers == bEnable) { return; }
 	bDynamicMarkers = bEnable;
 	ApplyDynamicMarkerModes();
 }

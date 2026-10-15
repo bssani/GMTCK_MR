@@ -87,7 +87,7 @@ void SCXMRControlPanel::Construct(const FArguments& A)
 		+ SVerticalBox::Slot().AutoHeight()[CXMRPanelUI::MakeDivider()]
 		+ SVerticalBox::Slot().AutoHeight()[ Tabs({TEXT("Calibration"),TEXT("Vehicle")},[this]{return Control.IsValid() && Control->GetActivePage()==ECXMRControlPage::Vehicle ? 1 : 0;},[this](int32 I){if(Control.IsValid()){Control->SelectPage(I==0 ? ECXMRControlPage::Calibration : ECXMRControlPage::Vehicle); Refresh();}}) ]
 		+ SVerticalBox::Slot().AutoHeight()[CXMRPanelUI::MakeDivider()]
-		+ SVerticalBox::Slot().FillHeight(1)[ SAssignNew(Content,SBox) ]
+		+ SVerticalBox::Slot().FillHeight(1)[ CXMRPanelUI::MakeScroll(SAssignNew(Content,SBox)) ]
 		+ SVerticalBox::Slot().AutoHeight()[ SNew(SBorder).Padding(FMargin(16,12)).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(ShowroomColor(11,15,23))
 			[ SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(12,8))
 			+ SWrapBox::Slot()[ QuietAction(TAttribute<FText>::CreateLambda([this]{const int N=CXMRAdvancedSettings::ChangedCount(Tuning.Get());return FText::FromString(N==0 ? TEXT("Advanced settings at defaults") : FString::Printf(TEXT("%d advanced setting%s changed from defaults"),N,N==1 ? TEXT("") : TEXT("s")));}),[this]{if(Control.IsValid()){Control->OpenAdvancedWindow();}}) ]
@@ -154,9 +154,11 @@ TSharedRef<SWidget> SCXMRControlPanel::Calibration()
 	TSharedRef<SVerticalBox> Markers=SNew(SVerticalBox);
 	for(int32 Id:S.RequiredMarkers)
 	{ Markers->AddSlot().AutoHeight().Padding(12,8)[ SNew(SHorizontalBox)
-		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,12,0)[Dot(TAttribute<FLinearColor>::CreateLambda([this,Id]{const auto St=State();return St.Stage==ECXMRControlStage::Starting || St.Stage==ECXMRControlStage::NoHeadset?CXMRPanelUI::ReadoutColor():St.MissingMarkers.Contains(Id)?ShowroomColor(242,181,68):ShowroomColor(60,194,133);}),12)]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0,0,12,0)[MarkerRing(TAttribute<bool>::CreateLambda([this,Id] { const auto St=State(); return St.Stage!=ECXMRControlStage::Starting && St.Stage!=ECXMRControlStage::NoHeadset && !St.MissingMarkers.Contains(Id); }))]
 		+ SHorizontalBox::Slot().FillWidth(1)[ Text(FText::FromString(FString::Printf(TEXT("Marker %d"),Id)),15,500) ]
-		+ SHorizontalBox::Slot().AutoWidth()[ Caption(TAttribute<FText>::CreateLambda([this,Id]{const auto St=State();return FText::FromString(St.Stage==ECXMRControlStage::Starting || St.Stage==ECXMRControlStage::NoHeadset ? TEXT("—") : St.MissingMarkers.Contains(Id) ? TEXT("Not in view") : TEXT("In view"));})) ] ]; }
+		+ SHorizontalBox::Slot().AutoWidth()[ SNew(STextBlock).Font(CXMRPanelUI::CSSFont(13))
+			.Text_Lambda([this,Id] { const auto St=State(); return FText::FromString(St.Stage==ECXMRControlStage::Starting || St.Stage==ECXMRControlStage::NoHeadset ? TEXT("—") : St.MissingMarkers.Contains(Id) ? TEXT("Not in view") : TEXT("In view")); })
+			.ColorAndOpacity_Lambda([this,Id] { const auto St=State(); return St.Stage==ECXMRControlStage::Starting || St.Stage==ECXMRControlStage::NoHeadset ? CXMRPanelUI::ReadoutColor() : St.MissingMarkers.Contains(Id) ? ShowroomColor(242,181,68) : ShowroomColor(60,194,133); }) ] ]; }
 	V->AddSlot().AutoHeight().Padding(0,12,0,0)[ SNew(SBorder).Padding(0).BorderImage(Frame()).BorderBackgroundColor(CXMRPanelUI::SurfaceColor())[Markers] ];
 	V->AddSlot().AutoHeight().Padding(0,8,0,24)[ Caption(FText::FromString(TEXT("Every marker in the profile must be in view to calibrate, save or restore. Until then the car stays where it is."))) ];
 	V->AddSlot().AutoHeight()[ Text(FText::FromString(TEXT("Alignment")),15,600) ];
@@ -165,20 +167,31 @@ TSharedRef<SWidget> SCXMRControlPanel::Calibration()
 	else
 	{
 		TSharedRef<SWrapBox> Actions=SNew(SWrapBox).UseAllottedSize(true).InnerSlotPadding(FVector2D(8,8));
-		if(CanSave){ Actions->AddSlot()[Action(FText::FromString(TEXT("Save alignment")),[this]{if(Control.IsValid()){Control->RequestAlignmentSave();}},S.MissingMarkers.IsEmpty() && !S.RequiredMarkers.IsEmpty(),true)]; }
+		if(CanSave){ Actions->AddSlot()[Action(FText::FromString(TEXT("Save alignment")),[this]{if(Control.IsValid()){Control->RequestAlignmentSave();}},TAttribute<bool>::CreateLambda([this] { const auto St=State(); return St.MissingMarkers.IsEmpty() && !St.RequiredMarkers.IsEmpty(); }),true)]; }
 		if(S.Stage==ECXMRControlStage::Adjusted){ Actions->AddSlot()[Action(FText::FromString(TEXT("Discard changes")),[this]{if(Tuning.IsValid()){Tuning->InvokeTunable("Vehicle.ResetOffset");}})]; }
 		if(S.Stage==ECXMRControlStage::Aligned){ Actions->AddSlot()[Action(FText::FromString(TEXT("Recalibrate")),[this]{if(Tuning.IsValid()){Tuning->InvokeTunable("Vehicle.Recalibrate");}})]; }
 		V->AddSlot().AutoHeight().Padding(0,12,0,0)[Actions];
-		if(CanSave && !S.MissingMarkers.IsEmpty()){V->AddSlot().AutoHeight().Padding(0,8)[Caption(FText::FromString(FString::Printf(TEXT("Show marker %s to save."),*CXMRMissingMarkerNames(S))))];}
+		if(CanSave)
+		{
+			TSharedRef<SWidget> Reason=Caption(TAttribute<FText>::CreateLambda([this] { return FText::FromString(FString::Printf(TEXT("Show marker %s to save."),*CXMRMissingMarkerNames(State()))); }));
+			Reason->SetVisibility(TAttribute<EVisibility>::CreateLambda([this] { return State().MissingMarkers.IsEmpty() ? EVisibility::Collapsed : EVisibility::Visible; }));
+			V->AddSlot().AutoHeight().Padding(0,8)[Reason];
+		}
 		else if(S.Stage==ECXMRControlStage::Aligned && S.Restore!=ECXMRControlRestore::New){V->AddSlot().AutoHeight().Padding(0,8)[Caption(FText::FromString(TEXT("Recalibrate reads the markers again and places the car from them.")))];}
 	}
 
 	TSharedRef<SHorizontalBox> Steps=SNew(SHorizontalBox);
+	int32 StepIndex=0;
 	for(float Step:{0.1f,1.f,5.f})
-	{Steps->AddSlot().AutoWidth()[SelectAction(FText::FromString(FString::Printf(TEXT("%g cm"),Step)),[this,Step]{if(Tuning.IsValid()){Tuning->SetTunableValue("Vehicle.MoveStep",Step);}},TAttribute<bool>::CreateLambda([this,Step]{return Tuning.IsValid() && FMath::IsNearlyEqual(Tuning->GetTunableValue("Vehicle.MoveStep"),Step);}),CanAdjust,false)];}
+	{
+		if(StepIndex>0) { Steps->AddSlot().AutoWidth()[SNew(SBox).WidthOverride(1)[SNew(SBorder).Padding(0).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush")).BorderBackgroundColor(ShowroomColor(102,116,138))]]; }
+		Steps->AddSlot().AutoWidth()[StepAction(FText::FromString(FString::Printf(TEXT("%g cm"),Step)),[this,Step]{if(Tuning.IsValid()){Tuning->SetTunableValue("Vehicle.MoveStep",Step);}},TAttribute<bool>::CreateLambda([this,Step]{return Tuning.IsValid() && FMath::IsNearlyEqual(Tuning->GetTunableValue("Vehicle.MoveStep"),Step);}),CanAdjust,StepIndex)];
+		++StepIndex;
+	}
+	static const FSlateRoundedBoxBrush StepFrame(FLinearColor::Transparent,6.f,ShowroomColor(102,116,138),1.f);
 	V->AddSlot().AutoHeight().Padding(0,24,0,12)[SNew(SHorizontalBox)
 		+ SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center)[Text(FText::FromString(TEXT("Fine-adjust position")),15,600)]
-		+ SHorizontalBox::Slot().AutoWidth()[Steps]];
+		+ SHorizontalBox::Slot().AutoWidth()[SNew(SBorder).BorderImage(&StepFrame).Padding(1)[Steps]]];
 	const TCHAR* Labels[]={TEXT("Away"),TEXT("Toward"),TEXT("Left"),TEXT("Right"),TEXT("Up"),TEXT("Down"),TEXT("Turn ⟲"),TEXT("Turn ⟳")};
 	const FName Ids[]={"Vehicle.Away","Vehicle.Away","Vehicle.Right","Vehicle.Right","Vehicle.Up","Vehicle.Up","Vehicle.Turn","Vehicle.Turn"};
 	const float Dirs[]={1,-1,-1,1,1,-1,-1,1};
@@ -190,10 +203,10 @@ TSharedRef<SWidget> SCXMRControlPanel::Calibration()
 			const int I=Row*4+Col;TSharedRef<SWidget> B=Action(FText::FromString(Labels[I]),[this,Id=Ids[I],D=Dirs[I]]{if(Tuning.IsValid()){Tuning->InvokeTunable(Id,D);}},CanAdjust);
 			if(I>=6)
 			{
-				B=SNew(SBox).MinDesiredHeight(40)[SNew(SButton).ButtonStyle(Button()).ContentPadding(FMargin(6,8)).IsEnabled(CanAdjust)
+				B=SNew(SBox).MinDesiredHeight(40)[SNew(SButton).ButtonStyle(Button()).ContentPadding(FMargin(6,8)).HAlign(HAlign_Center).VAlign(VAlign_Center).IsEnabled(CanAdjust)
 					.OnClicked_Lambda([this,D=Dirs[I]]{if(Tuning.IsValid()){Tuning->InvokeTunable("Vehicle.Turn",D);}return FReply::Handled();})
-					[SNew(SHorizontalBox)+ SHorizontalBox::Slot().FillWidth(1).HAlign(HAlign_Right).VAlign(VAlign_Center)[Text(FText::FromString(TEXT("Turn")),13,500)]
-					+ SHorizontalBox::Slot().FillWidth(1).VAlign(VAlign_Center).Padding(4,0,0,0)[SNew(SCXMRRotateIcon).Clockwise(I==7)]]];
+					[SNew(SHorizontalBox)+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)[Text(FText::FromString(TEXT("Turn")),13,500)]
+					+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4,0,0,0)[SNew(SCXMRRotateIcon).Clockwise(I==7)]]];
 			}
 			Pad->AddSlot().FillWidth(1).Padding(0,0,Col==3?0:8,0)[B];
 		}
@@ -226,9 +239,9 @@ void SCXMRControlPanel::Refresh()
 {
 	if(!Content.IsValid()){return;}const auto S=State();const auto* L=CXMRControlLoader(Control.Get());
 	const int Page=Control.IsValid()?static_cast<int>(Control->GetActivePage()):0;
-	const FString K=FString::Printf(TEXT("%d/%d/%d/%p/%p/%p/%d"),Page,static_cast<int>(S.Stage),static_cast<int>(S.Restore),L,L?L->Profile.Get():nullptr,L?L->Catalog.Get():nullptr,L?L->GetVehicleIndex():0)+FString::JoinBy(S.RequiredMarkers,TEXT(","),[](int32 Id){return FString::FromInt(Id);})+CXMRMissingMarkerNames(S);
+	const FString K=FString::Printf(TEXT("%d/%d/%d/%p/%p/%p/%d"),Page,static_cast<int>(S.Stage),static_cast<int>(S.Restore),L,L?L->Profile.Get():nullptr,L?L->Catalog.Get():nullptr,L?L->GetVehicleIndex():0)+FString::JoinBy(S.RequiredMarkers,TEXT(","),[](int32 Id){return FString::FromInt(Id);});
 	if(K==LastContentKey){return;}LastContentKey=K;
-	Content->SetContent(CXMRPanelUI::MakeScroll(Control.IsValid() && Control->GetActivePage()==ECXMRControlPage::Vehicle ? Vehicles() : Calibration()));
+	Content->SetContent(Control.IsValid() && Control->GetActivePage()==ECXMRControlPage::Vehicle ? Vehicles() : Calibration());
 }
 void SCXMRControlPanel::Tick(const FGeometry& G,double T,float D){SCompoundWidget::Tick(G,T,D);Refresh();}
 
