@@ -317,6 +317,16 @@ roll/pitch는 0으로 고정한다(차는 바닥에 평평히 놓인다는 가�
 
 ## 3-2. 마커를 따라가는 메시 만들기
 
+### 예제 레벨로 바로 시험하기
+
+1. `/Game/Map/L_DynamicMarker`를 연다.
+2. 실물 박스에 붙인 마커 번호가 300이 아니면, World Outliner에서 `BP_DynamicMarkerBox`를 고르고 Details의 `Marker Id`를 바꾼다. **PIE를 멈춘 상태에서** 바꾼다. PIE 중에 바꾼 번호는 반영되지 않는다.
+3. 박스 크기가 30 cm가 아니면 같은 액터의 Scale을 바꾼다. **Scale = 실제 길이(cm) ÷ 100**이다. 예를 들어 30 cm는 0.3, 40 cm는 0.4다. 가로·세로·높이가 다르면 X·Y·Z에 따로 넣는다.
+4. VR Preview를 누른다. 마커가 보이면 메시가 박스로 간다.
+5. 메시가 박스와 어긋나면 `Marker To Actor`로 맞춘다. 마커가 윗면 가운데에 붙어 있으면, 박스 중심은 마커에서 박스 높이의 절반만큼 안쪽에 있다. 어느 축이 면 바깥인지는 고급 창 Diagnostics → `Marker axes and labels`로 본다.
+
+### 직접 만드는 법
+
 1. Content Browser에서 `/Game/` 아래 원하는 폴더에 Blueprint Class를 만들고, 부모로 **CXMR Marker Follower**를 고른다(예: `BP_Dynamic`).
 2. BP를 열어 루트 아래에 Static Mesh를 붙인다. 실물 박스 치수에 맞춘다(엔진 큐브는 100 cm, 30 cm 박스면 Scale 0.3).
 3. Class Defaults(또는 레벨에 놓은 뒤 Details)에서 `Marker Id`에 박스에 붙인 마커 번호를 넣는다. **차량 보정 마커와 다른 번호**를 쓴다.
