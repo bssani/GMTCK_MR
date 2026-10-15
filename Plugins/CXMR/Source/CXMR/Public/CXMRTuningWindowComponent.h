@@ -25,7 +25,7 @@ class APostProcessVolume;
 UENUM(BlueprintType)
 enum class ECXMRControlPage : uint8
 {
-	Vehicle, View, Calibration, Display, USB, Diagnostics
+	Vehicle, View, Calibration, Display, Diagnostics
 };
 
 /** 정렬 상태 표시등 등급. 표시 전용. */

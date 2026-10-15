@@ -7,7 +7,6 @@
 #include "CXMRControlPanelWidget.h"
 #include "CXMRVehicleLoaderComponent.h"
 #include "CXMRVehicleProfile.h"
-#include "CXMRDesignOption.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Widgets/SWidget.h"
 #include "Engine/GameInstance.h"
@@ -77,24 +76,17 @@ bool FCXMRReviewAssetLifetimeTest::RunTest(const FString& Parameters)
 	Loader->Catalog = NewObject<UCXMRVehicleCatalog>(Owner.Get());
 	Loader->Profile = NewObject<UCXMRVehicleProfile>(Owner.Get());
 	UCXMRVehicleProfile* InactiveVehicle = NewObject<UCXMRVehicleProfile>(Owner.Get());
-	UCXMRDesignOption* InactiveOption = NewObject<UCXMRDesignOption>(Owner.Get());
 	InactiveVehicle->DisplayName = FText::FromString(TEXT("Inactive vehicle"));
-	InactiveOption->DisplayName = FText::FromString(TEXT("Inactive option"));
-	InactiveOption->OptionId = "Alternative"; InactiveOption->SlotId = "Console";
 	Loader->Catalog->Vehicles.Add(Loader->Profile.Get());
 	Loader->Catalog->Vehicles.Add(InactiveVehicle);
-	Loader->Profile->DesignOptions.Add(InactiveOption);
 	const TWeakObjectPtr<UCXMRVehicleProfile> WeakVehicle(InactiveVehicle);
-	const TWeakObjectPtr<UCXMRDesignOption> WeakOption(InactiveOption);
 	TStrongObjectPtr<UCXMRControlPanelWidget> Viewer(CreateWidget<UCXMRControlPanelWidget>(World, UCXMRControlPanelWidget::StaticClass()));
 	if (TestNotNull(TEXT("Review helper is created"), Viewer.Get()))
 	{
 		const TSharedRef<SWidget> Page = Viewer->BuildViewerPage();
 		// 소프트 참조만 남은 비활성 행의 GC 생존을 검사함.
-		InactiveVehicle = nullptr; InactiveOption = nullptr;
 		CollectGarbage(RF_NoFlags);
 		TestTrue(TEXT("Visible inactive vehicle survives garbage collection"), WeakVehicle.IsValid());
-		TestTrue(TEXT("Visible inactive design option survives garbage collection"), WeakOption.IsValid());
 		TestEqual(TEXT("Review still resolves the current loader after GC"), Viewer->FindLoader(), Loader);
 		Loader->DestroyComponent();
 		UCXMRVehicleLoaderComponent* Replacement = NewObject<UCXMRVehicleLoaderComponent>(Owner.Get());

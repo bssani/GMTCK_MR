@@ -1,4 +1,34 @@
+#include "Tests/CXMRVehicleTestTypes.h"
 // Copyright GMTCK CX.
+
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+
+ACXMRVehicleTestActor::ACXMRVehicleTestActor()
+{
+	SetRootComponent(CreateDefaultSubobject<USceneComponent>(TEXT("VehicleRoot")));
+	UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+	UStaticMeshComponent* First = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FirstMesh"));
+	First->SetupAttachment(GetRootComponent());
+	First->SetStaticMesh(Cube);
+	UStaticMeshComponent* Second = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SecondMesh"));
+	Second->SetupAttachment(GetRootComponent());
+	Second->SetStaticMesh(Cube);
+	Second->SetRelativeLocation(FVector(4, 7, 11));
+}
+
+ACXMRVehicleActivityTestActor::ACXMRVehicleActivityTestActor()
+{
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = true;
+}
+void ACXMRVehicleActivityTestActor::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	SetActorHiddenInGame(true);
+	SetActorEnableCollision(false);
+	SetActorTickEnabled(true);
+}
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -7,9 +37,6 @@
 #include "CXMRMarkerProfile.h"
 #include "CXMRVehicleLoaderComponent.h"
 #include "CXMRVehicleProfile.h"
-#include "CXMRPartVariantComponent.h"
-#include "CXMRUsbPortTarget.h"
-#include "CXMRPartVariantTestTypes.h"
 #include "CXMRSpectatorComponent.h"
 #include "CXMRVehicleRoot.h"
 #include "Components/SceneCaptureComponent2D.h"
@@ -313,7 +340,7 @@ bool FCXMRFailedVehicleSwapTest::RunTest(const FString& Parameters)
 	UCXMRVehicleLoaderComponent* Loader = NewObject<UCXMRVehicleLoaderComponent>(Fixture.Anchor);
 	Loader->RegisterComponent();
 	UCXMRVehicleProfile* Good = NewObject<UCXMRVehicleProfile>();
-	Good->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	Good->VehicleActor = ACXMRVehicleTestActor::StaticClass();
 	UCXMRVehicleProfile* Bad = NewObject<UCXMRVehicleProfile>();
 	Loader->Catalog = NewObject<UCXMRVehicleCatalog>();
 	Loader->Catalog->Vehicles = {Good, Bad};
@@ -332,13 +359,11 @@ bool FCXMRFailedVehicleSwapTest::RunTest(const FString& Parameters)
 	Bad->VehicleActor = AActor::StaticClass();
 	Loader->LoadVehicle(Bad);
 	TestTrue(TEXT("Attachment failure preserves the actor and profile"), Loader->GetSpawnedVehicle() == Original && IsValid(Original) && Loader->Profile == Good);
-	Bad->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	Bad->VehicleActor = ACXMRVehicleTestActor::StaticClass();
 	Bad->VehicleRootOffset.SetScale3D(FVector(1, 0, 1));
 	Loader->LoadVehicle(Bad);
 	TestTrue(TEXT("Zero scale rejects replacement without changing accepted actor"), Loader->GetSpawnedVehicle() == Original && Loader->Profile == Good);
 	TestFalse(TEXT("Invalid transform exposes a reason"), Loader->GetLastFailureReason().IsEmpty());
-	ACXMRUsbPortTarget* Port = Cast<ACXMRUsbPortTarget>(Original);
-	TestTrue(TEXT("Rejected vehicle leaves accepted contact active"), Port && Port->IsContactEnabled());
 	Loader->UnloadVehicle();
 	return true;
 }
@@ -352,9 +377,9 @@ bool FCXMRVehicleSelectionsTest::RunTest(const FString& Parameters)
 	UCXMRVehicleLoaderComponent* Loader = NewObject<UCXMRVehicleLoaderComponent>(Fixture.Anchor);
 	Loader->RegisterComponent();
 	UCXMRVehicleProfile* First = NewObject<UCXMRVehicleProfile>();
-	First->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	First->VehicleActor = ACXMRVehicleTestActor::StaticClass();
 	UCXMRVehicleProfile* Second = NewObject<UCXMRVehicleProfile>();
-	Second->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	Second->VehicleActor = ACXMRVehicleTestActor::StaticClass();
 	Second->VehicleRootOffset = FTransform(FRotator(0, 17, 0), FVector(120, -30, 45));
 	Loader->Catalog = NewObject<UCXMRVehicleCatalog>();
 	Loader->Catalog->Vehicles = {First, Second};
@@ -376,22 +401,17 @@ bool FCXMRVehicleSelectionsTest::RunTest(const FString& Parameters)
 	AActor* Accepted = Loader->GetSpawnedVehicle();
 	TestFalse(TEXT("Committed vehicle restores authored visibility"), Accepted->IsHidden());
 	TestTrue(TEXT("Committed vehicle restores authored collision"), Accepted->GetActorEnableCollision());
-	TestTrue(TEXT("Committed USB restores contact"), Cast<ACXMRUsbPortTarget>(Accepted)->IsContactEnabled());
-	TArray<UCXMRPartVariantComponent*> Controllers;
-	Accepted->GetComponents(Controllers);
-	TestEqual(TEXT("Vehicle has one part controller"), Controllers.Num(), 1);
 	FActorSpawnParameters OwnedParams;
 	OwnedParams.Owner = Accepted;
-	ACXMRUsbPortTarget* OwnedPort = Fixture.World->SpawnActor<ACXMRUsbPortTarget>(ACXMRUsbPortTarget::StaticClass(), FTransform::Identity, OwnedParams);
-	OwnedPort->AttachToComponent(Accepted->GetRootComponent(), FAttachmentTransformRules::KeepWorldTransform);
-	ACXMRUsbPortTarget* ForeignPort = Fixture.World->SpawnActor<ACXMRUsbPortTarget>();
-	ForeignPort->AttachToComponent(Accepted->GetRootComponent(), FAttachmentTransformRules::KeepWorldTransform);
-	const FTransform ForeignPose = ForeignPort->GetActorTransform();
+	ACXMRVehicleTestActor* OwnedActor = Fixture.World->SpawnActor<ACXMRVehicleTestActor>(ACXMRVehicleTestActor::StaticClass(), FTransform::Identity, OwnedParams);
+	OwnedActor->AttachToComponent(Accepted->GetRootComponent(), FAttachmentTransformRules::KeepWorldTransform);
+	ACXMRVehicleTestActor* ForeignActor = Fixture.World->SpawnActor<ACXMRVehicleTestActor>();
+	ForeignActor->AttachToComponent(Accepted->GetRootComponent(), FAttachmentTransformRules::KeepWorldTransform);
+	const FTransform ForeignPose = ForeignActor->GetActorTransform();
 	Loader->UnloadVehicle();
-	TestFalse(TEXT("Unload destroys owned port descendants"), IsValid(OwnedPort));
-	TestFalse(TEXT("Owned port contact disabled on unload"), OwnedPort->IsContactEnabled());
-	TestTrue(TEXT("Unload preserves externally attached actors"), IsValid(ForeignPort) && ForeignPort->IsContactEnabled());
-	TestTrue(TEXT("Preserved external actor retains world transform"), ForeignPort->GetActorTransform().Equals(ForeignPose, 0.01f));
+	TestFalse(TEXT("Unload destroys owned descendants"), IsValid(OwnedActor));
+	TestTrue(TEXT("Unload preserves externally attached actors"), IsValid(ForeignActor));
+	TestTrue(TEXT("Preserved external actor retains world transform"), ForeignActor->GetActorTransform().Equals(ForeignPose, 0.01f));
 	return true;
 }
 
@@ -410,7 +430,7 @@ bool FCXMRVehicleRootContractTest::RunTest(const FString& Parameters)
 	const FTransform AnchorPose(FRotator(0, 45, 0), FVector(100, -150, 70));
 	Root->SetActorTransform(AnchorPose);
 	UCXMRVehicleProfile* Profile = NewObject<UCXMRVehicleProfile>();
-	Profile->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	Profile->VehicleActor = ACXMRVehicleTestActor::StaticClass();
 	Profile->VehicleRootOffset = FTransform(FRotator(0, -20, 0), FVector(300, 40, 15));
 	Root->Loader->LoadVehicle(Profile);
 	AActor* Vehicle = Root->Loader->GetSpawnedVehicle();
@@ -428,7 +448,7 @@ bool FCXMRVehicleConstructedStateTest::RunTest(const FString& Parameters)
 	FTestWorld Fixture;
 	ACXMRVehicleRoot* Root = Fixture.World->SpawnActor<ACXMRVehicleRoot>();
 	UCXMRVehicleProfile* Profile = NewObject<UCXMRVehicleProfile>();
-	Profile->VehicleActor = ACXMRPartAuthoredActivityTestAssembly::StaticClass();
+	Profile->VehicleActor = ACXMRVehicleActivityTestActor::StaticClass();
 	Root->Loader->LoadVehicle(Profile);
 	AActor* Vehicle = Root->Loader->GetSpawnedVehicle();
 	if (!TestNotNull(TEXT("Constructed vehicle accepted"), Vehicle)) { return false; }
@@ -446,7 +466,7 @@ bool FCXMRSpectatorBoundsTest::RunTest(const FString& Parameters)
 	FTestWorld Fixture;
 	ACXMRVehicleRoot* Root = Fixture.World->SpawnActor<ACXMRVehicleRoot>();
 	UCXMRVehicleProfile* Profile = NewObject<UCXMRVehicleProfile>();
-	Profile->VehicleActor = ACXMRUsbPortTarget::StaticClass();
+	Profile->VehicleActor = ACXMRVehicleTestActor::StaticClass();
 	Profile->VehicleRootOffset.SetLocation(FVector(1000, 500, 200));
 	Root->Loader->LoadVehicle(Profile);
 	AActor* Vehicle = Root->Loader->GetSpawnedVehicle();
