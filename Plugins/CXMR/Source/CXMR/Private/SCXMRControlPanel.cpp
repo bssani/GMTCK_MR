@@ -126,11 +126,7 @@ namespace
 		return Control.IsValid() && HasError(Control) == bError ? Control->GetCalibrationMessage() : FText::GetEmpty();
 	}
 
-	EVisibility RestoreVisibility(FWeakControl Control)
-	{
-		const UCXMRPlacementComponent* Placement = FindPlacement(Control);
-		return Placement && Placement->NeedsRestoreConfirmation() ? EVisibility::Visible : EVisibility::Collapsed;
-	}
+
 
 	EVisibility GroupResetVisibility(FWeakControl Control)
 	{
@@ -395,10 +391,6 @@ TSharedRef<SWidget> SCXMRControlPanel::CalibrationPage()
 		[ CXMRPanelUI::MakeNotice(TAttribute<FText>::CreateLambda([Weak] { return CalibrationMessage(Weak, true); }), CXMRPanelUI::ETone::Negative) ]
 		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 0.f, 0.f, 10.f)
 		[ CXMRPanelUI::MakeCaption(TAttribute<FText>::CreateLambda([Weak] { return CalibrationMessage(Weak, false); })) ]
-		+ SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.f, 0.f, 0.f, 10.f)
-		[ SNew(SButton).ButtonStyle(CXMRPanelUI::PrimaryButtonStyle()).TextStyle(CXMRPanelUI::BodyTextStyle()).Text(LOCTEXT("AcceptRestored", "Use restored alignment"))
-			.Visibility_Lambda([Weak] { return RestoreVisibility(Weak); })
-			.OnClicked_Lambda([Weak] { if (Weak.IsValid()) { Weak->AcceptRestoredAlignment(); } return FReply::Handled(); }) ]
 		+ SVerticalBox::Slot().AutoHeight()
 		[ CXMRPanelUI::MakeCaption(TAttribute<FText>::CreateLambda([Weak] { return EyeReferenceHelp(Weak); })) ]
 		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 30.f, 0.f, 0.f)[ RegistryPage(ECXMRControlPage::Calibration) ]

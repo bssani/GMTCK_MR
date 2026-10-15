@@ -59,7 +59,6 @@ public:
 	void CancelInitialAlignment();
 	bool IsInitialAlignmentPending() const;
 	bool CanStartInitialAlignment() const;
-	bool AcceptRestoredAlignment();
 	void PlaceManually();
 	bool ConfirmCalibration();
 	bool SaveCalibration();
@@ -108,6 +107,7 @@ private:
 	TSharedPtr<SWindow> Window;
 	FDelegateHandle TunablesChangedHandle;
 	ECXMRControlPage ActivePage = ECXMRControlPage::Vehicle;
+	mutable TWeakObjectPtr<UCXMRPlacementComponent> CachedPlacement;
 	TWeakObjectPtr<UCXMRPlacementComponent> ResetPlacement;
 	FName ResetGroup;
 	double ResetDeadline = 0.0;

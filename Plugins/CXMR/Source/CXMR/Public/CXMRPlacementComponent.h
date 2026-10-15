@@ -15,6 +15,8 @@
 #include "Engine/TimerHandle.h"
 #include "CXMRPlacementComponent.generated.h"
 
+DECLARE_LOG_CATEGORY_EXTERN(LogCXMRAlignment, Log, All);
+
 class UCXMRSubsystem;
 class UCXMRMarkerProfile;
 class UCXMRVehicleProfile;
@@ -68,14 +70,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment", meta=(ToolTip="Confirm the final vehicle pose and collect fresh observations of every configured calibration marker.")) bool BeginAlignmentCapture();
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") bool CanSaveAlignment() const;
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment") bool SaveAlignment();
-	/** 저장 요청은 확인, 새 관측, 저장 순서로 처리함. */
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment", meta=(ToolTip="First request confirms the pose and starts fresh marker capture; request again after observing all configured markers to save.")) bool RequestAlignmentSave();
+	/** 한 번 요청하면 새 평균을 모아 자동 저장함. */
+	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment", meta=(ToolTip="Start fresh marker capture and save automatically when every configured marker has enough samples.")) bool RequestAlignmentSave();
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") FText GetAlignmentSaveMessage() const { return AlignmentSaveMessage; }
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") bool IsManualAlignment() const { return bManualAlignment; }
 	bool HasAlignmentCapture() const { return IsCapturePoseCurrent(); }
-	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") bool NeedsRestoreConfirmation() const { return bRestoreNeedsConfirmation; }
 	bool HasSavedAlignment() const { return !SavedAlignmentMarkers.IsEmpty(); }
-	UFUNCTION(BlueprintCallable, Category = "CXMR|Alignment") bool ConfirmRestoredAlignment();
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") int32 GetCapturedAlignmentMarkerCount() const;
 	UFUNCTION(BlueprintPure, Category = "CXMR|Alignment") int32 GetRequiredAlignmentMarkerCount() const;
 	void CancelAlignmentCapture();
@@ -97,8 +97,16 @@ public:
 	/** 위치 고정 전 표본을 더 받을 시간(초). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ToolTip="Seconds to accumulate samples before freezing placement.", ClampMin = "0.0")) float CalibrationSettleSeconds = 1.5f;
 
-	/** 완료에 필요한 마커 수. 2개 이상이면 위치로 수평 정렬함. 그 전에는 임시 배치함. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ToolTip="Markers required for completion. Two or more use a horizontal fit; fewer give provisional placement.", ClampMin = "1")) int32 MinMarkersToCalibrate = 2;
+	/** 저장 표본은 보정 평균과 분리해서 새로 모음. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="CXMR|Alignment", meta=(ToolTip="Fresh samples required per marker before alignment saves automatically.", ClampMin="1")) int32 AlignmentCaptureMinSamples = 10;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="CXMR|Alignment", meta=(ToolTip="Maximum capture duration in seconds before the save request is cancelled.", ClampMin="0.1")) float AlignmentCaptureTimeout = 10.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="CXMR|Alignment", meta=(ToolTip="Maximum marker position change in cm for reusing the saved world pose.", ClampMin="0")) float OriginReuseTolerance = 0.3f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="CXMR|Alignment", meta=(ToolTip="Maximum single-marker yaw change in degrees for reusing the saved world pose.", ClampMin="0")) float OriginReuseYawTolerance = 0.3f;
+	FText GetAlignmentProgress() const;
+	FString GetMissingAlignmentMarkerIds() const;
+	bool IsAlignmentSettling() const;
+	bool WasWorldPoseReused() const { return bUsedSavedWorldPose; }
+	float GetOriginMovement() const { return OriginMovement; }
 
 	/** 최근 관측한 마커만 학습과 완료 판정에 사용함. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Placement", meta = (ToolTip="Maximum observation age used for learning and calibration completion, in seconds.", ClampMin = "0.01")) float MarkerObservationMaxAge = 0.5f;
@@ -241,6 +249,7 @@ private:
 		float   Scatter     = 0.0f;
 
 		FTransform Mean() const;
+		FTransform Add(const FVector& Position, const FRotator& Rotation);
 	};
 
 	/** 마커별 표본. 재보정 시 비움. */
@@ -297,7 +306,6 @@ private:
 	// 수동 위치는 새 마커가 잡혀도 유지함.
 	bool bManualAlignment = false;
 	bool bAlignmentPoseLocked = false;
-	bool bRestoreNeedsConfirmation = false;
 	bool bCapturingAlignment = false;
 	FTransform CapturePose;
 	FTransform CaptureVehicleRelativePose;
@@ -309,6 +317,24 @@ private:
 	TWeakObjectPtr<UCXMRVehicleProfile> CaptureVehicleProfile;
 	TWeakObjectPtr<UCXMRMarkerProfile> CaptureMarkerProfile;
 	TMap<int32, FTransform> CapturedAlignmentMarkers;
+	TMap<int32, FMarkerSamples> CaptureSamples;
+	bool bCapturePreviousLock = false;
+	bool bAutoSaveCapture = false;
+	FTimerHandle CaptureCheckTimer;
+	FTimerHandle CaptureTimeoutTimer;
+	void CheckAlignmentCapture();
+	void TimeoutAlignmentCapture();
+	void FailAlignmentCapture(const FString& Reason);
+	TSet<int32> RequiredAlignmentMarkerIds() const;
+	bool IsFollowerMarker(int32 Id) const;
+	bool HaveAllAlignmentMarkers() const;
+	bool bHaveSavedWorldPose = false;
+	bool bUsedSavedWorldPose = false;
+	float OriginMovement = -1.f;
+	FTransform SavedWorldPose;
+	TMap<int32, FTransform> SavedMarkerWorld;
+	void ChooseRestoredWorldPose(FTransform& Pose);
+	void LogAlignmentMarkers(const TCHAR* Action, const TMap<int32, FTransform>& Observations, const TArray<FCXMRMarkerEntry>& Entries, const FTransform& Pose) const;
 	TSet<int32> CaptureMarkerIds;
 	bool bCaptureHasEyeReference = false;
 	TSet<int32> SavedAlignmentMarkers;
@@ -316,7 +342,7 @@ private:
 	FName LoadedAlignmentGroup;
 	FText AlignmentStorageMessage;
 	bool IsCapturePoseCurrent() const;
-	bool WriteCalibrationData(const TArray<FCXMRMarkerEntry>& Entries, const TSet<int32>& ValidatedIds, int32 PrimaryMarker = 0);
+	bool WriteCalibrationData(const TArray<FCXMRMarkerEntry>& Entries, const TSet<int32>& ValidatedIds, int32 PrimaryMarker = 0, const TMap<int32, FTransform>* WorldMarkers = nullptr);
 	bool ComputeSavedAlignmentPose(FTransform& Out, bool& bReady);
 
 	/** 기준 위치에 임시 오프셋 적용함. */

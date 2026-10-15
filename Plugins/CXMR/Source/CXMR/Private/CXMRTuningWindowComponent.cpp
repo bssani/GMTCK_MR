@@ -349,13 +349,17 @@ void UCXMRTuningWindowComponent::SelectPage(ECXMRControlPage Page)
 
 UCXMRPlacementComponent* UCXMRTuningWindowComponent::FindPlacement() const
 {
+	if (CachedPlacement.IsValid() && CachedPlacement->GetWorld() == GetWorld()
+		&& IsValid(CachedPlacement->GetOwner()) && !CachedPlacement->GetOwner()->IsActorBeingDestroyed()
+		&& CachedPlacement->IsRegistered()) { return CachedPlacement.Get(); }
+	CachedPlacement.Reset();
 	if (GetWorld())
 	{
 		for (TActorIterator<AActor> It(GetWorld()); It; ++It)
 		{
 			if (!It->IsActorBeingDestroyed())
 			{
-				if (UCXMRPlacementComponent* Placement = It->FindComponentByClass<UCXMRPlacementComponent>()) { return Placement; }
+				if (UCXMRPlacementComponent* Placement = It->FindComponentByClass<UCXMRPlacementComponent>(); Placement && Placement->IsRegistered()) { CachedPlacement = Placement; return Placement; }
 			}
 		}
 	}
@@ -377,6 +381,7 @@ int32 UCXMRTuningWindowComponent::GetCalibrationPhase() const
 		CalibrationMessage = LOCTEXT("SessionChanged", "Vehicle or profile changed. Start calibration again.");
 		return 0;
 	}
+	if (CalibrationPhase == 2 && Placement->WasLastCalibrationSaveSuccessful()) { CalibrationPhase = 3; }
 	if (CalibrationPhase >= 2)
 	{
 		const AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
@@ -401,10 +406,12 @@ FText UCXMRTuningWindowComponent::GetCalibrationMessage() const
 		return FText::FromString(FString::Printf(TEXT("Sit naturally and face straight ahead. Aligning in %d..."), FMath::Max(1, FMath::CeilToInt(Remaining))));
 	}
 	const UCXMRPlacementComponent* Placement = FindPlacement();
-	if (Placement && Placement->NeedsRestoreConfirmation()) { return LOCTEXT("RestoreCheck", "Restored from one marker. Check the physical reference, then use this alignment."); }
+	if (Placement && (Placement->HasAlignmentCapture() || !Placement->GetAlignmentSaveMessage().IsEmpty())) { return Placement->GetAlignmentProgress(); }
+	if (!CalibrationMessage.IsEmpty()) { return CalibrationMessage; }
+	if (Placement && (Placement->WasLastCalibrationSaveSuccessful() || !Placement->bCalibrated)) { return Placement->GetAlignmentProgress(); }
 	if (Placement && Placement->bCalibrated && !Placement->IsManualAlignment() && Placement->HasSavedAlignment() && CalibrationPhase == 0)
 	{
-		return LOCTEXT("RestoredAutomatically", "Saved alignment restored from consistent markers. The vehicle stays fixed.");
+		return Placement->GetAlignmentProgress();
 	}
 	if (Placement && CalibrationPhase == 2 && (Placement->IsManualAlignment() || Placement->HasAlignmentCapture()))
 	{
@@ -424,7 +431,7 @@ FText UCXMRTuningWindowComponent::GetAlignmentState(const UCXMRVehicleLoaderComp
 	{
 		OutTone = ECXMRAlignmentTone::Attention;
 		if (IsInitialAlignmentPending()) { State = TEXT("Alignment in progress"); }
-		else if (Placement && Placement->NeedsRestoreConfirmation()) { State = TEXT("Restore needs confirmation"); }
+		else if (Placement && Placement->HasAlignmentCapture()) { State = TEXT("Saving alignment"); }
 		else if (GetCalibrationPhase() == 2) { State = TEXT("Alignment confirmed; save pending"); }
 		else if (Placement && Placement->IsManualAlignment()) { State = TEXT("Manual alignment; confirmation pending"); }
 		else if (Placement && Placement->bCalibrated) { State = TEXT("Aligned"); OutTone = ECXMRAlignmentTone::Aligned; }
@@ -460,6 +467,7 @@ FText UCXMRTuningWindowComponent::GetSharedAlignmentResetLabel() const
 
 void UCXMRTuningWindowComponent::ResetSharedAlignment()
 {
+	GetCalibrationPhase();
 	UCXMRPlacementComponent* Placement = FindPlacement();
 	if (!Placement || Placement->GetAlignmentGroup().IsNone()) { ResetDeadline = 0.0; return; }
 	if (!IsSharedAlignmentResetArmed())
@@ -586,18 +594,6 @@ void UCXMRTuningWindowComponent::FinishInitialAlignment()
 	}
 }
 
-bool UCXMRTuningWindowComponent::AcceptRestoredAlignment()
-{
-	UCXMRPlacementComponent* Placement = FindPlacement();
-	if (!Placement || !Placement->ConfirmRestoredAlignment()) { return false; }
-	CaptureSessionIdentity(Placement);
-	const AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
-	ConfirmedPose = Root->GetActorTransform();
-	CalibrationPhase = 3;
-	CalibrationMessage = LOCTEXT("RestoredAccepted", "Saved alignment restored and accepted. No new calibration save is needed.");
-	return true;
-}
-
 void UCXMRTuningWindowComponent::PlaceManually()
 {
 	if (UCXMRTuningSubsystem* Registry = GetTuning()) { Registry->InvokeTunable("Vehicle.PlaceInFront"); }
@@ -612,31 +608,17 @@ bool UCXMRTuningWindowComponent::CanConfirmCalibration() const
 
 bool UCXMRTuningWindowComponent::ConfirmCalibration()
 {
-	UCXMRPlacementComponent* Placement = FindPlacement();
-	if (!CanConfirmCalibration()) { return false; }
-	AActor* Root = Placement->VehicleRoot ? Placement->VehicleRoot.Get() : Placement->GetOwner();
-	if (!IsValid(Root)) { return false; }
-	const bool bNeedsCapture = Placement->IsManualAlignment() || (!Placement->GetAlignmentGroup().IsNone() && !Placement->HasSavedAlignment());
-	if (bNeedsCapture && !Placement->BeginAlignmentCapture())
-	{
-		CalibrationMessage = Placement->GetAlignmentSaveMessage();
-		return false;
-	}
-	CaptureSessionIdentity(Placement);
-	ConfirmedPose = Root->GetActorTransform();
-	bAlignmentSaveFailed = false;
-	CalibrationPhase = 2;
-	CalibrationMessage = LOCTEXT("CalibrationConfirmed", "Alignment confirmed. Save calibration.");
-	return true;
+	if (!FindPlacement() || IsInitialAlignmentPending()) { return false; }
+	RequestAlignmentSave();
+	return FindPlacement()->HasAlignmentCapture() || FindPlacement()->WasLastCalibrationSaveSuccessful();
 }
 
 bool UCXMRTuningWindowComponent::CanSaveCalibration() const
 {
 	const UCXMRPlacementComponent* Placement = FindPlacement();
-	if (GetCalibrationPhase() != 2 || !Placement) { return false; }
-	const bool bNeedsCapture = Placement->IsManualAlignment() || Placement->HasAlignmentCapture()
-		|| (!Placement->GetAlignmentGroup().IsNone() && !Placement->HasSavedAlignment());
-	return !bNeedsCapture || Placement->CanSaveAlignment();
+	const UCXMRVehicleLoaderComponent* Loader = Placement && Placement->GetOwner() ? Placement->GetOwner()->FindComponentByClass<UCXMRVehicleLoaderComponent>() : nullptr;
+	return Loader && IsValid(Loader->GetSpawnedVehicle()) && Placement && !IsInitialAlignmentPending() && !Placement->HasAlignmentCapture()
+		&& (Placement->IsManualAlignment() || Placement->bCalibrated);
 }
 
 void UCXMRTuningWindowComponent::RequestAlignmentSave()
@@ -656,23 +638,8 @@ void UCXMRTuningWindowComponent::RequestAlignmentSave()
 bool UCXMRTuningWindowComponent::SaveCalibration()
 {
 	if (!CanSaveCalibration()) { return false; }
-	UCXMRPlacementComponent* Placement = FindPlacement();
-	if (Placement->IsManualAlignment() || Placement->HasAlignmentCapture()) { Placement->SaveAlignment(); }
-	else if (!Placement->GetMarkerLocationOffset().IsNearlyZero() || !Placement->GetMarkerRotationOffset().IsNearlyZero())
-	{
-		Placement->SaveMarkerOffsetToProfile();
-	}
-	else
-	{
-		Placement->SaveCalibrationToDisk();
-	}
-	const bool bSaved = Placement->WasLastCalibrationSaveSuccessful();
-	bAlignmentSaveFailed = !bSaved;
-	CalibrationPhase = bSaved ? 3 : 2;
-	CalibrationMessage = bSaved ? LOCTEXT("CalibrationSaved", "Calibration saved.")
-		: Placement->GetAlignmentStorageMessage().IsEmpty()
-			? LOCTEXT("CalibrationSaveFailed", "Save failed. Check the profile and save location, then retry.") : Placement->GetAlignmentStorageMessage();
-	return bSaved;
+	RequestAlignmentSave();
+	return FindPlacement()->WasLastCalibrationSaveSuccessful();
 }
 
 void UCXMRTuningWindowComponent::RebuildContent()

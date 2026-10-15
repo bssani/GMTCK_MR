@@ -96,13 +96,14 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
   - `Depth.Range`(항상 켬)
   - `Vehicle.SaveOffset` / `Recalibrate` / `ResetOffset` / `Away` / `Right` / `Up` / `Turn` / `MoveStep`(기본 창)
   - `Port.*`(main-basic에서 삭제됨)
-  - 이 밖에 시안에 없는 등록 항목을 찾으면 질문한다.
+  - 1번(oct-review-fixes)에서 새로 생기는 프로퍼티(마커당 최소 표본 수, 캡처 시간 제한)와 0번 Marker Follower의 값. 시안에 없으므로 창에 넣지 않는다. 레지스트리에 등록했다면 창에서만 뺀다.
+  - 이 밖에 시안에 없는 등록 항목을 찾으면 질문한다. 2026-10-15 Claude가 확인했을 때 지금 등록된 47개는 전부 시안이나 이 목록에 자리가 있었다.
 - **새로 등록할 항목** (`SETTINGS`의 `new:`):
   - `MR.StartInMR`
   - 마커 평균 시간(`CalibrationSettleSeconds`)
   - 원점 재사용 허용 오차 두 개(oct-review-fixes U-2의 프로퍼티)
   - 마커 좌표 로그 실행(oct-review-fixes R1-5의 `CXMR.DumpMarkers`)
-  - `Diagnostics.DynamicMarkers` — "Dynamic tracking for all markers". 켜면 감지된 모든 마커(새로 감지되는 마커 포함)에 Dynamic 모드를 건다. 끄면 각 마커를 원래 모드로 되돌린다(보정 마커는 프로필 값, 나머지는 Stationary). **저장하지 않는 설정**이라 앱을 다시 켜면 꺼져 있다. 마커 라벨(`CXMRMarkerDebugComponent.cpp:223-224`)이 이미 마커별 모드를 보여 주므로, 확인은 라벨과 축으로 한다. 10-07에 지운 `C` 키와 같은 기능이고, 키는 되살리지 않는다.
+  - `Diagnostics.DynamicMarkers` — "Dynamic tracking for all markers". 켜면 감지된 모든 마커(새로 감지되는 마커 포함)에 Dynamic 모드를 건다. 끄면 각 마커를 원래 모드로 되돌린다: 보정 마커는 프로필 값, Marker Follower 액터가 따라가는 마커는 그 액터의 `TrackingMode`, 나머지는 Stationary. **저장하지 않는 설정**이라 앱을 다시 켜면 꺼져 있다. 마커 라벨(`CXMRMarkerDebugComponent.cpp:223-224`)이 이미 마커별 모드를 보여 주므로, 확인은 라벨과 축으로 한다. 10-07에 지운 `C` 키와 같은 기능이고, 키는 되살리지 않는다.
 
 ### E. 모양 — CX Toolkit "Showroom"
 
@@ -198,3 +199,4 @@ oct-review-fixes가 "확정 → 다시 눌러 저장" 두 단계로 끝났다면
 - 2026-10-14: Vehicle 탭에서 디자인 옵션 삭제(시안 3판) — 사용자 결정, main-basic에서 기능도 뺌
 - 2026-10-14: 시안 4판 — 시선 점(G)·Foveated(I) 행 삭제(사용자 결정, 10-08에 이미 지워진 기능)
 - 2026-10-14: 시안 5판 — 박스 따라가기 기능은 만들지 않기로(사용자: "dynamic 되는지 확인만"). Moving objects 자리를 빼고 탭 이름은 Vehicle 그대로, 고급 창 Diagnostics에 Dynamic 스위치 하나 추가
+- 2026-10-15: 1번의 새 프로퍼티는 창에 넣지 않음, "Dynamic tracking for all markers"를 끌 때 Marker Follower 마커는 그 액터의 모드로 — Codex가 멈추지 않게 미리 확정

@@ -148,8 +148,7 @@ bool FCXMRDegenerateMarkersTest::RunTest(const FString& Parameters)
 	Fixture.Placement->CalibrationSettleSeconds = 0.f;
 	SendMarker(Fixture.Placement, 1, FVector(100, 0, 0), 45);
 	SendMarker(Fixture.Placement, 2, FVector(100, 0, 0), 45);
-	TestTrue(TEXT("Coincident markers retain the single-marker heading"),
-		FMath::IsNearlyEqual(Fixture.Anchor->GetActorRotation().Yaw, 45.0, 0.01));
+	TestTrue(TEXT("Degenerate full set cannot move the anchor"), Fixture.Anchor->GetActorTransform().Equals(FTransform::Identity, 0.001));
 	TestFalse(TEXT("Fallback placement cannot complete a two-marker calibration"), Fixture.Placement->bCalibrated);
 	return true;
 }
