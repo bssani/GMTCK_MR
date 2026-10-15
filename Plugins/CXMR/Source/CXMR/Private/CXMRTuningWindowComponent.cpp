@@ -217,7 +217,7 @@ void UCXMRTuningWindowComponent::RegisterCoreTunables()
 	const FText Depth = LOCTEXT("CatDepth", "Depth");
 	{
 		FCXMRTunable T = Make("Depth.Test", Depth, FText::GetEmpty(), ECXMRTunableKind::Bool);
-		T.Default = 1.f; T.bPersist = true;
+		T.Default = 0.f; T.bPersist = true;
 		T.Get = [Weak] { return Weak.IsValid() ? AsValue(Weak->bRequestedDepthTest) : 0.0f; };
 		T.Set = [Weak](float V) { if (Weak.IsValid()) { Weak->SetDepthTest(V > 0.5f); } };
 

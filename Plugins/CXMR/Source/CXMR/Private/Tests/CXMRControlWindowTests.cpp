@@ -19,6 +19,10 @@
 #include "GameFramework/Actor.h"
 #include "Components/SceneComponent.h"
 #include "UObject/StrongObjectPtr.h"
+#include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Misc/ScopeExit.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRControlStatusTest,"CXMR.Panels.ControlStatusText",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FCXMRControlStatusTest::RunTest(const FString&)
@@ -26,7 +30,7 @@ bool FCXMRControlStatusTest::RunTest(const FString&)
 	FCXMRControlStatus S;S.RequiredMarkers={3,7};S.MissingMarkers={7};S.SettleSeconds=1.5f;S.OriginMovement=0.12f;
 	auto Check=[this,&S](ECXMRControlStage Stage,const TCHAR* Title,const TCHAR* Detail)
 	{S.Stage=Stage;const auto Text=CXMRDescribeControlStatus(S);TestEqual(TEXT("Status title matches prototype"),Text.Title,FString(Title));TestEqual(TEXT("Status detail matches prototype"),Text.Detail,FString(Detail));};
-	Check(ECXMRControlStage::Starting,TEXT("Starting the headset session"),TEXT("MR, the depth test and real-world depth switch on as soon as the headset is ready."));
+	Check(ECXMRControlStage::Starting,TEXT("Starting the headset session"),TEXT("MR switches on as soon as the headset is ready."));
 	Check(ECXMRControlStage::NoHeadset,TEXT("Headset not running"),TEXT("MR and markers need a running headset session. Showing VR until it starts."));
 	Check(ECXMRControlStage::Waiting,TEXT("Waiting for markers · 1 of 2 in view"),TEXT("Show marker 7 to the headset. The car stays where it is until every marker is in view."));
 	Check(ECXMRControlStage::Settling,TEXT("Reading markers"),TEXT("Hold the view steady. Averaging every marker for 1.5 s."));
@@ -82,6 +86,54 @@ bool FCXMRControlStartupTest::RunTest(const FString&)
 	TestEqual(TEXT("Disabling depth without a session makes no runtime calls"),Calls.Num(),0);
 	X->SessionRunningForTest=false;X->bStartInMR=false;X->SetMarkerTracking(false);X->StartHeadsetSessionWait();Calls.Reset();X->SessionRunningForTest=true;X->AdvanceSessionForTest(0.f);TestFalse(TEXT("StartInMR off starts in VR"),X->IsMixedRealityOn());TestFalse(TEXT("Tracking off stays off at startup"),Calls.Contains("Diagnostics.MarkerTracking"));
 	X->Deinitialize();return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRDepthDefaultOffTest,"CXMR.Panels.DepthDefaultOff",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FCXMRDepthDefaultOffTest::RunTest(const FString&)
+{
+	const FString Path=FPaths::ProjectSavedDir()/TEXT("CXMR/Tuning.json");
+	const bool bHadFile=IFileManager::Get().FileExists(*Path);
+	TArray<uint8> Original;
+	if(bHadFile && !TestTrue(TEXT("Back up operator settings"),FFileHelper::LoadFileToArray(Original,*Path))){return false;}
+	// 시험 저장값이 실제 PC 설정을 덮어쓰지 않도록 복원함.
+	ON_SCOPE_EXIT
+	{
+		if(bHadFile){TestTrue(TEXT("Restore operator settings"),FFileHelper::SaveArrayToFile(Original,*Path));}
+		else{TestTrue(TEXT("Remove test settings"),IFileManager::Get().Delete(*Path));}
+	};
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path),true);
+	for(bool bSavedOn:{false,true})
+	{
+		const FString Settings=bSavedOn?TEXT("{\"values\":{\"Depth.Test\":1}}"):TEXT("{\"values\":{}}");
+		if(!TestTrue(TEXT("Write isolated settings"),FFileHelper::SaveStringToFile(Settings,*Path))){return false;}
+		TStrongObjectPtr<UGameInstance> GI(NewObject<UGameInstance>(GEngine));GI->InitializeStandalone();
+		UWorld* World=GI->GetWorld();UCXMRSubsystem* X=GI->GetSubsystem<UCXMRSubsystem>();
+		TestFalse(TEXT("Subsystem starts with depth preference off"),X->bRequestedDepthTest);
+		TArray<FName> Calls;X->SessionRunningForTest=false;X->RuntimeCallForTest=[&Calls](FName Call){Calls.Add(Call);};
+		AActor* Owner=World->SpawnActor<AActor>();
+		UCXMRTuningWindowComponent* Control=NewObject<UCXMRTuningWindowComponent>(Owner);Control->bOpenOnBeginPlay=false;Control->RegisterComponent();Owner->DispatchBeginPlay();
+		UCXMRTuningSubsystem* R=GI->GetSubsystem<UCXMRTuningSubsystem>();
+		TestEqual(TEXT("Registry restores saved depth preference"),X->bRequestedDepthTest,bSavedOn);
+		TestEqual(TEXT("MR changed count reflects restored value"),CXMRAdvancedSettings::ChangedCount(R,TEXT("MR")),bSavedOn?1:0);
+		X->AdvanceSessionForTest(21.f);TestTrue(TEXT("No runtime calls before late session"),Calls.IsEmpty());
+		X->SessionRunningForTest=true;X->AdvanceSessionForTest(0.f);
+		TArray<FName> Expected={"MR","Depth.Test","Depth.Range"};
+		if(bSavedOn){Expected.Add("Depth.EnvEstimation");}Expected.Add("Diagnostics.MarkerTracking");
+		TestTrue(TEXT("Late session applies requested startup order"),Calls==Expected);
+		TestEqual(TEXT("Applied depth state follows preference"),X->IsDepthTestOn(),bSavedOn);
+		TestEqual(TEXT("Environment depth only applies with depth test"),X->IsEnvironmentDepthEstimationOn(),bSavedOn);
+		CXMRAdvancedSettings::ResetTab(R,TEXT("MR"));
+		TestFalse(TEXT("Reset MR turns depth off"),X->bRequestedDepthTest);
+		TestEqual(TEXT("Reset MR clears changed count"),CXMRAdvancedSettings::ChangedCount(R,TEXT("MR")),0);
+		X->ToggleDepthTest();
+		TestTrue(TEXT("T enables depth and default environment depth"),X->IsDepthTestOn() && X->IsEnvironmentDepthEstimationOn());
+		TestEqual(TEXT("Depth enabled changes one MR setting"),CXMRAdvancedSettings::ChangedCount(R,TEXT("MR")),1);
+		CXMRAdvancedSettings::ResetTab(R,TEXT("MR"));
+		TestFalse(TEXT("Reset MR stops environment depth"),X->IsEnvironmentDepthEstimationOn());
+		TestEqual(TEXT("Default MR changed count returns to zero"),CXMRAdvancedSettings::ChangedCount(R,TEXT("MR")),0);
+		X->RuntimeCallForTest=nullptr;Owner->Destroy();GI->Shutdown();World->DestroyWorld(false);GEngine->DestroyWorldContext(World);
+	}
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCXMRDynamicMarkerCallsTest,"CXMR.Panels.DynamicMarkerCalls",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
@@ -155,7 +207,7 @@ bool FCXMRAdvancedWordingTest::RunTest(const FString&)
 	struct FExpected{const TCHAR* Id;const TCHAR* Label;const TCHAR* Help;};
 	const FExpected Expected[]={
 		{TEXT("MR.StartInMR"),TEXT("Start in MR"),TEXT("Switch to MR as soon as the headset session is running.")},
-		{TEXT("Depth.Test"),TEXT("Real objects in front of the car"),TEXT("Hands and nearby real objects cover the virtual car instead of disappearing behind it.")},
+		{TEXT("Depth.Test"),TEXT("Real objects in front of the car"),TEXT("Hands and nearby real objects cover the virtual car instead of disappearing behind it. Leave off when Occlusion is on in Varjo Base.")},
 		{TEXT("Depth.EnvEstimation"),TEXT("Estimate real-world depth"),TEXT("Cleaner hand edges. Works only with the setting above.")},
 		{TEXT("Depth.FarZ"),TEXT("Depth range, far edge"),TEXT("Real objects closer than this cover the car; beyond it the car is always on top. A wider range can flicker where real and virtual surfaces meet, such as a physical steering wheel.")},
 		{TEXT("Depth.NearZ"),TEXT("Depth range, near edge"),TEXT("Usually 0. Raise it only if something right in front of the headset should not cover the car.")},
@@ -212,9 +264,11 @@ bool FCXMRAdvancedWordingTest::RunTest(const FString&)
 		const FCXMRTunable* const* Found=Rows.FindByPredicate([&E](const FCXMRTunable* T){return T->Id==E.Id;});
 		if(!TestTrue(E.Id,Found!=nullptr)){continue;}TestEqual(TEXT("Registry label equals prototype"),(*Found)->Label.ToString(),FString(E.Label));TestEqual(TEXT("Registry help equals prototype"),(*Found)->Help.ToString(),FString(E.Help));
 	}
-	for(FName Id:{FName("MR.VRBackground"),FName("Diagnostics.MarkerTracking"),FName("Depth.Test"),FName("Depth.EnvEstimation")})
+	for(FName Id:{FName("MR.VRBackground"),FName("Diagnostics.MarkerTracking"),FName("Depth.EnvEstimation")})
 	{const auto* const* Found=Rows.FindByPredicate([Id](const FCXMRTunable* T){return T->Id==Id;});if(TestTrue(TEXT("Default metadata exists"),Found!=nullptr)){TestEqual(TEXT("True default matches prototype"),(*Found)->Default,1.f);}}
 	UCXMRSubsystem* X=GI->GetSubsystem<UCXMRSubsystem>();
+	const auto* const* DepthRow=Rows.FindByPredicate([](const FCXMRTunable* T){return T->Id=="Depth.Test";});
+	if(TestTrue(TEXT("Depth default metadata exists"),DepthRow!=nullptr)){TestEqual(TEXT("False depth default matches prototype"),(*DepthRow)->Default,0.f);}
 	TestEqual(TEXT("No headset keeps default depth preference"),R->GetTunableValue("Depth.Test"),X->bRequestedDepthTest?1.f:0.f);
 	TestEqual(TEXT("No headset keeps tracking preference"),R->GetTunableValue("Diagnostics.MarkerTracking"),1.f);
 	X->SessionRunningForTest=false;
