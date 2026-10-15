@@ -189,3 +189,48 @@
 - `Saved/ControlWindowPreview_World.png`
 
 - 비교용 묶음: `Saved/ControlWindowQA_AdvancedTop.png`, `ControlWindowQA_AdvancedLowerA.png`, `ControlWindowQA_AdvancedLowerB.png`, `ControlWindowQA_Extras.png`.
+
+## 1회차 — 2026-10-15, `3edd2d0` (`codex/main-basic...codex/control-window`)
+
+- 재현: `-DisableAdaptiveUnity` 빌드 성공, CXMR·GMTCK_MR 경고·오류 0(`Saved/ClaudeReview1015c_Build3.log`). `CXMR.` **79/79 통과**(`Saved/ClaudeReview1015c_Test3.log`). 바이너리는 명세가 허용한 TTF 3개뿐이다.
+- 확정 제약: 세션 전 Varjo 호출 없음을 확인했다. MR·깊이·환경 깊이는 `ApplyRequestedMode`(`CXMRSubsystem.cpp:241`)가 `HasRunningSession` 뒤에만 부른다. `ApplyDepthTestRange`에도 세션 확인이 새로 들어갔다(전에는 없었다). 마커 추적·모드·View offset도 세션을 확인한다.
+- 명세 대조: 상태 문구(`CXMRControlStatus.cpp`)는 시안 `status()`와 1:1이다. 버튼 조건은 `renderActions()`·`renderAdjust()`와 같다. 고급 창은 시안 `SETTINGS`를 옮긴 표 하나(`CXMRAdvancedSettings.cpp`)가 행·문구·순서·`requires`를 정한다. Q1~Q4 정책(행은 적용할 값, 바뀐 수는 저장 여부 무관, 손 오프셋 제외, 기본값 1)이 들어갔다.
+- 미리보기: `Saved/ControlWindowPreview_*.png`를 Edge 헤드리스로 찍은 시안과 나란히 봤다. 배치·문구·색·글꼴·상태별 표시는 시안을 따른다. 아래 C1-4의 작은 차이만 있다.
+- 열림 4건은 모두 헤드셋 기능 시험을 막지 않는다. 사용자가 이 브랜치로 헤드셋 시험을 시작해도 된다. C1-1은 Diagnostics의 "Dynamic tracking for all markers"를 켰을 때만 해당한다.
+
+### C1-1 Dynamic 모드에서 마커 이벤트마다 Varjo 모드 설정을 다시 부름 — 열림
+
+- 문제: `HandleMarkerDetected`·`HandleMarkerMoved`(`CXMRSubsystem.cpp:632`, `:639`)가 `bDynamicMarkers`이면 이벤트마다 `SetMarkerTrackingMode`를 부른다. 그러면 `xrSetMarkerTrackingPredictionVARJO`(`VarjoMarkersPlugin.cpp:161-176`)가 마커마다 매 프레임 불린다. 이미 Dynamic인 마커에도 같은 값을 다시 건다. 런타임이 매번 예측 상태를 다시 잡는지는 확인되지 않았다(헤드셋에서만 알 수 있음). 실패하면 매 프레임 Error 로그가 쌓인다.
+- 제안: 이미 감지된 마커는 켤 때 `ApplyDynamicMarkerModes`(`:717`)가 한 번 건다. 새로 감지되는 마커만 `HandleMarkerDetected`에서 건다. `HandleMarkerMoved`의 호출은 지운다.
+  - Moved로만 처음 들어오는 마커도 있으면(프로필이 바뀌어 플러그인이 이미 아는 ID, `CXMRPlacementComponent.cpp`의 같은 주석) 걸어 둔 ID 집합으로 한 번만 걸게 한다.
+- 확인할 시험: Dynamic을 켠 상태에서 같은 마커에 Moved 이벤트를 여러 번 보냄 → 모드 설정 호출은 한 번이다. 새 ID의 Detected → 한 번 건다. 끄면 원래 모드로 한 번씩 돌린다(시험 훅 `RuntimeCallForTest`가 이미 있다).
+
+### C1-2 상태가 바뀔 때마다 기본 창 내용 전체를 새로 만들어 스크롤이 맨 위로 감 — 열림
+
+- 문제: `SCXMRControlPanel::Refresh`(`SCXMRControlPanel.cpp:225-232`)는 단계·복원 종류·빠진 마커가 바뀔 때마다 `MakeScroll(...)`로 스크롤 상자까지 새로 만든다. 마커가 0.5초 관측 만료로 잠깐 빠졌다 돌아오면(H-1) 그때마다 내용이 다시 만들어진다. 진행자가 아래쪽 Fine-adjust 버튼을 보고 있으면 스크롤이 맨 위로 돌아가고, 누르던 버튼이 사라진다.
+- 제안: 스크롤 상자는 한 번만 만들고 안쪽 내용만 바꾼다. 또는 다시 만들 때 스크롤 위치를 보존한다. 마커별 표시(In view·Not in view)처럼 값만 바뀌는 곳은 이미 속성 람다이므로 빠진 마커 목록을 다시 만들기의 기준에서 뺄 수 있는지도 본다. 고급 창(`RebuildContent`)도 등록 항목이 바뀔 때 같은 일이 생기는지 같이 본다.
+- 확인할 시험: 기본 창을 아래로 스크롤한 뒤 빠진 마커 집합만 바뀜 → 스크롤 위치가 그대로다. 단계가 바뀌면 버튼 구성이 바뀌는 것은 지금처럼 확인한다.
+
+### C1-3 MR 중 깊이 테스트를 끄면 실세계 깊이 추정은 런타임에서 켜진 채 상태만 꺼짐으로 바뀜 — 열림
+
+- 문제: `ApplyRequestedMode`(`CXMRSubsystem.cpp:258-265`)는 깊이 테스트가 꺼지면 `bEnvDepthOn = false`만 하고 런타임 호출을 하지 않는다. 깊이 테스트를 켠 채 시작했다가 MR 중에 끄면, 런타임의 환경 깊이 추정은 켜진 채로 남는데 상태·로그(`DumpMRState`)는 꺼짐이라고 말한다. 이 클래스의 원칙(상태는 런타임과 같게 보고, `SetMixedReality`의 옛 주석)과 어긋난다. 헤드셋에서 쓸데없는 처리도 남는다.
+- 제안: 깊이 테스트가 꺼질 때 환경 깊이 추정이 켜져 있었으면 세션 안에서 끈다. 명세 A.2-4의 "깊이 테스트가 켜졌을 때만"은 켜는 조건이다. 끄는 것은 막지 않는다.
+- 확인할 시험: MR·깊이 켬·환경 깊이 켬 → 깊이 테스트 끔 → 런타임 호출 기록에 환경 깊이 끔이 있다. 다시 켜면 설정값대로 켠다.
+
+### C1-4 시안과 다른 작은 표시 차이 — 열림
+
+- 문제: 시안 CSS와 다르다. 위치는 `Saved/ControlWindowPreview_World.png`·`_Waiting.png`·`_Advanced_MR.png`와 시안의 같은 상황.
+  - Markers 목록: 시안은 `In view`가 성공색, `Not in view`가 경고색이다(`prototype.html:165-166`). 지금은 둘 다 흐린 글자색이다. 마커 표시도 시안은 원(`.ring`, `:161-162`)인데 지금은 마름모다.
+  - Fine-adjust 버튼(Away…Turn): 시안은 글자가 가운데다(HTML 버튼 기본). 지금은 왼쪽이다.
+  - 이동 간격 0.1 / 1 / 5 cm: 시안은 한 테두리 안에 붙은 세그먼트다(`.steps`, `:184-187`). 지금은 따로 떨어진 버튼 세 개다.
+  - 숫자 입력: 시안은 `0`, `0.75`, `90`처럼 필요한 자리만 보인다. 지금은 `0.0`, `90.0`이다.
+- 제안: `CXMRShowroomUI`·`CXMRPanelUI`의 해당 위젯만 고친다. 다른 배치는 바꾸지 않는다.
+- 확인할 시험: 미리보기 PNG를 다시 만든다. Claude가 다시 비교한다.
+
+### 기록 (조치 불필요)
+
+- `B` 키로 MR 중 배경을 잠시 켠 뒤 깊이 설정을 바꾸면 `ApplyRequestedMode`가 다시 돌아 배경이 숨겨진다. 명세는 "다음 모드 전환에서 풀린다"고만 했다. 문제 삼지 않는다.
+- `SetMixedReality`에서 `xr.OpenXREnvironmentBlendMode` CVar가 없을 때의 경고가 빠졌다. 세션이 running이면 OpenXR 플러그인이 있어 CVar도 있으므로 실제로는 생기지 않는다.
+- 새 Slate 코드(`SCXMRControlPanel.cpp`, `SCXMRAdvancedPanel.cpp`, `CXMRControlStatus.cpp`)는 한 줄에 여러 문장을 넣고 공백을 줄인 형태다. 기존 파일의 형식과 다르다. 다음 작업부터는 주변 코드 형식을 따른다. `CXMRPlacementComponent.cpp:25-26` include 중복, `AdjustMarkerOffset`의 `bControlChangesDiscarded` 줄 들여쓰기는 C1 반영 때 같이 고쳐도 된다.
+- 빌드·전체 시험을 여러 번 돌린 것은 보고 ③대로 컴파일 오류와 PNG 확인 때문이었다. 받아들인다.
+
