@@ -10,6 +10,11 @@
 #include "Components/SceneComponent.h"
 #include "CXMRDesktopPanelComponent.h"
 #include "CXMRTuningWindowComponent.h"
+#include "CXMRSubsystem.h"
+#include "CXMRTuningSubsystem.h"
+#include "CXMRSpectatorComponent.h"
+#include "CXMRHandDebugComponent.h"
+#include "CXMRVarjoInputComponent.h"
 #include "CXMRPlacementComponent.h"
 #include "CXMRVehicleRoot.h"
 #include "Engine/StaticMeshActor.h"
@@ -56,7 +61,7 @@ bool FCXMRPanelRecoveryTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Developer button runs during Play"), DeveloperButton->TryExecuteToolUIAction(Context));
 	if (FApp::CanEverRender())
 	{
-		TestTrue(TEXT("Both APIs see the shared window"), UserPanel->IsWindowOpen() && DeveloperPanel->IsWindowOpen());
+		TestTrue(TEXT("Both APIs see the control window"), UserPanel->IsWindowOpen() && DeveloperPanel->IsWindowOpen());
 		// X로 닫은 경로와 재열기 확인함.
 		const TArray<TSharedRef<SWindow>> Windows = FSlateApplication::Get().GetTopLevelWindows();
 		int32 ControlWindows = 0;
@@ -104,11 +109,10 @@ bool FCXMRPanelModesTest::RunTest(const FString& Parameters)
 	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>();
 	Control->SelectPage(ECXMRControlPage::Calibration);
 	TestEqual(TEXT("Calibration remains accessible in daily use"), Control->GetActivePage(), ECXMRControlPage::Calibration);
-	Control->SelectPage(ECXMRControlPage::Diagnostics);
-	TestEqual(TEXT("Settings remain accessible during review"), Control->GetActivePage(), ECXMRControlPage::Display);
-	Control->SelectPage(ECXMRControlPage::Diagnostics);
-	TestEqual(TEXT("Historical diagnostics navigation resolves to Settings"), Control->GetActivePage(), ECXMRControlPage::Display);
-	TestEqual(TEXT("Settings navigation survives setup preference changes"), Control->GetActivePage(), ECXMRControlPage::Display);
+	Control->SelectPage(ECXMRControlPage::Vehicle);
+	TestEqual(TEXT("Vehicle remains accessible"),Control->GetActivePage(),ECXMRControlPage::Vehicle);
+	TestEqual(TEXT("Control window client size"),Control->WindowSize,FVector2D(480,820));
+
 	return true;
 }
 
@@ -164,6 +168,19 @@ bool FCXMRPanelCalibrationTest::RunTest(const FString& Parameters)
 
 namespace
 {
+	TSharedPtr<SWidget> CXMRFindPreviewWidget(SWidget& Widget, const FString& Type)
+	{
+		if (Widget.GetTypeAsString() == Type) { return Widget.AsShared(); }
+		if (FChildren* Children = Widget.GetChildren())
+		{
+			for (int32 Index = 0; Index < Children->Num(); ++Index)
+			{
+				if (TSharedPtr<SWidget> Found = CXMRFindPreviewWidget(*Children->GetChildAt(Index), Type)) { return Found; }
+			}
+		}
+		return nullptr;
+	}
+
 	TSharedPtr<SWidget> FindExpandableArea(SWidget& Widget)
 	{
 		if (Widget.GetTypeAsString() == TEXT("SExpandableArea")) { return Widget.AsShared(); }
@@ -258,53 +275,105 @@ bool FCXMRPanelRenderTest::RunTest(const FString& Parameters)
 
 	VehicleA->AlignmentGroup = "PreviewRig";
 	UCXMRPlacementComponent* Placement = NewObject<UCXMRPlacementComponent>(Owner);
+	UCXMRMarkerProfile* PreviewMarkers=NewObject<UCXMRMarkerProfile>(Owner);
+	PreviewMarkers->CalibrationId=TEXT("ControlWindowPreview_")+FGuid::NewGuid().ToString(EGuidFormats::Digits);
+	for(int32 Id:{3,7}){FCXMRMarkerEntry Entry;Entry.MarkerId=Id;PreviewMarkers->Markers.Add(Entry);}
+	Placement->MarkerProfile=PreviewMarkers;
 	Placement->RegisterComponent();
 	UCXMRTuningWindowComponent* Control = NewObject<UCXMRTuningWindowComponent>(Owner);
 	Control->RegisterComponent();
+	UCXMRHandDebugComponent* Hands=NewObject<UCXMRHandDebugComponent>(Owner);Hands->RegisterComponent();
+	UCXMRSpectatorComponent* Spectator=NewObject<UCXMRSpectatorComponent>(Owner);Spectator->RegisterComponent();
+	UCXMRVarjoInputComponent* Input=NewObject<UCXMRVarjoInputComponent>(Owner);Input->RegisterComponent();
 	Owner->DispatchBeginPlay();
-	Control->SelectPage(ECXMRControlPage::Display);
+	Control->SelectPage(ECXMRControlPage::Calibration);
 	Control->OpenWindow();
-	bool bFoundWindow = false;
-	for (const TSharedRef<SWindow>& Window : FSlateApplication::Get().GetTopLevelWindows())
+	UCXMRSubsystem* CXMR=GI->GetSubsystem<UCXMRSubsystem>();
+	CXMR->SessionRunningForTest=false;
+	UCXMRTuningSubsystem* Registry=GI->GetSubsystem<UCXMRTuningSubsystem>();
+	for(const FCXMRTunable* T:Registry->GetTunables()){if(T->Set){Registry->ApplyValue(T->Id,T->Default,false);}}
+	CXMR->SessionRunningForTest=true; CXMR->SetMixedReality(true);
+	TSharedPtr<SWindow> Main;
+	for(const auto& W:FSlateApplication::Get().GetTopLevelWindows()){if(W->GetTitle().EqualTo(Control->WindowTitle)){Main=W;break;}}
+	if(TestTrue(TEXT("Main window exists"),Main.IsValid()))
 	{
-		if (Window->GetTitle().EqualTo(Control->WindowTitle))
+		Main->SetDPIScaleFactor(1.f); Main->Resize(FVector2D(480,820));
+		const TCHAR* Names[]={TEXT("Starting"),TEXT("Waiting"),TEXT("World"),TEXT("Markers"),TEXT("Adjusted"),TEXT("NoHeadset")};
+		for(int I=0;I<6;++I)
 		{
-			bFoundWindow = true;
-			for (ECXMRControlPage Page : { ECXMRControlPage::Vehicle, ECXMRControlPage::Calibration, ECXMRControlPage::Display })
-			{
-				Control->SelectPage(Page);
-				ScrollPreview(*Window);
-				FSlateApplication::Get().Tick();
-				TArray<FColor> Pixels;
-				FIntVector Size;
-				if (TestTrue(TEXT("Slate control page renders"), FSlateApplication::Get().TakeScreenshot(Window, Pixels, Size)))
-				{
-					TArray64<uint8> PNG;
-					FImageUtils::PNGCompressImageArray(Size.X, Size.Y, TArrayView64<const FColor>(Pixels.GetData(), Pixels.Num()), PNG);
-					const FString Filename = Page == ECXMRControlPage::Display ? TEXT("ControlPanelPreview.png") : FString::Printf(TEXT("ControlPanelPreview_%d.png"), static_cast<int32>(Page));
-					TestTrue(TEXT("Preview image is saved"), FFileHelper::SaveArrayToFile(PNG, *(FPaths::ProjectSavedDir() / Filename)));
-				}
-			}
-			// 고정 폭 +/- 버튼처럼 첫 화면 아래에 있는 조작부도 확인함.
-			Control->SelectPage(ECXMRControlPage::Calibration);
-			FSlateApplication::Get().Tick();
-			ScrollPreviewTo(*Window, 420.f);
-			TestTrue(TEXT("Alignment adjustment preview saved"), SavePanelPreview(Window, TEXT("ControlPanelPreview_AlignmentAdjust.png")));
-			Control->SelectPage(ECXMRControlPage::Display);
-			FSlateApplication::Get().Tick();
-			ScrollPreviewTo(*Window, -1.f);
-			TestTrue(TEXT("Settings end preview saved"), SavePanelPreview(Window, TEXT("ControlPanelPreview_SettingsEnd.png")));
-			Control->SelectPage(ECXMRControlPage::Calibration);
-			ScrollPreviewTo(*Window, 0.f);
-			ShowAdvancedPlacement(*Window);
-			TestTrue(TEXT("Expanded Alignment preview saved"), SavePanelPreview(Window, TEXT("ControlPanelPreview_AlignmentAdvanced.png")));
-			Control->ResetSharedAlignment();
-			TestTrue(TEXT("Armed Alignment preview saved"), SavePanelPreview(Window, TEXT("ControlPanelPreview_AlignmentArmed.png")));
-			break;
+			FCXMRControlStatus State; State.RequiredMarkers={3,7}; State.MissingMarkers={};
+			State.Stage=I==0?ECXMRControlStage::Starting:I==1?ECXMRControlStage::Waiting:I==4?ECXMRControlStage::Adjusted:I==5?ECXMRControlStage::NoHeadset:ECXMRControlStage::Aligned;
+			State.Restore=I==3?ECXMRControlRestore::Markers:ECXMRControlRestore::World; State.OriginMovement=I==3?1.4f:0.12f;
+			if(I==1){State.MissingMarkers={7};}else if(I==0 || I==5){State.MissingMarkers={3,7};}
+			Placement->ControlStatusForTest=State;
+			if(I==4){Placement->AdjustmentSinceSave=FVector(1,-0.5,0); Placement->TurnSinceSave=0.5f;}
+			CXMR->SetMixedReality(I!=5);
+			FSlateApplication::Get().Tick(); ScrollPreviewTo(*Main,0.f);
+			TestTrue(TEXT("Scenario preview saved"),SavePanelPreview(Main.ToSharedRef(),FString::Printf(TEXT("ControlWindowPreview_%s.png"),Names[I])));
+		}
+		FCXMRControlStatus State;State.RequiredMarkers={3,7};State.Stage=ECXMRControlStage::Adjusted;Placement->ControlStatusForTest=State;CXMR->SetMixedReality(true);
+		FSlateApplication::Get().Tick(); ScrollPreviewTo(*Main,80.f); FSlateApplication::Get().Tick();
+		const TSharedPtr<SWidget> ScrollWidget=CXMRFindPreviewWidget(*Main,TEXT("SScrollBox"));
+		if(TestTrue(TEXT("Main content scroll exists"),ScrollWidget.IsValid()))
+		{
+			const TSharedPtr<SWidget> Setup=CXMRFindPreviewWidget(*ScrollWidget,TEXT("SExpandableArea"));
+			SScrollBox& Scroll=static_cast<SScrollBox&>(*ScrollWidget);
+			const float Offset=Scroll.GetScrollOffset();
+			TestTrue(TEXT("Main content was scrolled down"),Offset>0.f);
+			State.MissingMarkers={7}; Placement->ControlStatusForTest=State; FSlateApplication::Get().Tick();
+			TestTrue(TEXT("Missing markers retain the scroll widget"),CXMRFindPreviewWidget(*Main,TEXT("SScrollBox"))==ScrollWidget);
+			TestTrue(TEXT("Missing markers retain the content widgets"),CXMRFindPreviewWidget(*Main,TEXT("SExpandableArea"))==Setup);
+			TestEqual(TEXT("Missing markers retain the scroll offset"),Scroll.GetScrollOffset(),Offset);
+			State.MissingMarkers.Reset(); Placement->ControlStatusForTest=State; FSlateApplication::Get().Tick();
+			TestEqual(TEXT("Reacquired markers retain the scroll offset"),Scroll.GetScrollOffset(),Offset);
+			State.Stage=ECXMRControlStage::Saving; Placement->ControlStatusForTest=State; FSlateApplication::Get().Tick();
+			TestTrue(TEXT("Stage change retains the scroll widget"),CXMRFindPreviewWidget(*Main,TEXT("SScrollBox"))==ScrollWidget);
+			TestTrue(TEXT("Stage change rebuilds the button layout"),CXMRFindPreviewWidget(*Main,TEXT("SExpandableArea"))!=Setup);
+			State.Stage=ECXMRControlStage::Adjusted; Placement->ControlStatusForTest=State;
+		}
+		FSlateApplication::Get().Tick(); ScrollPreviewTo(*Main,-1.f);
+		TestTrue(TEXT("Control lower preview saved"),SavePanelPreview(Main.ToSharedRef(),TEXT("ControlWindowPreview_Adjusted_End.png")));
+		ShowAdvancedPlacement(*Main);
+		TestTrue(TEXT("First-time setup preview saved"),SavePanelPreview(Main.ToSharedRef(),TEXT("ControlWindowPreview_Setup.png")));
+		Control->SelectPage(ECXMRControlPage::Vehicle); FSlateApplication::Get().Tick(); ScrollPreviewTo(*Main,0.f);
+		TestTrue(TEXT("Vehicle tab preview saved"),SavePanelPreview(Main.ToSharedRef(),TEXT("ControlWindowPreview_Vehicle.png")));
+		for(float Scale:{1.25f,1.5f})
+		{
+			Main->SetDPIScaleFactor(Scale);Main->Resize(FVector2D(480,820)*Scale); FSlateApplication::Get().Tick();
+			TestTrue(TEXT("Scaled main preview saved"),SavePanelPreview(Main.ToSharedRef(),FString::Printf(TEXT("ControlWindowPreview_Main_%d.png"),FMath::RoundToInt(Scale*100))));
 		}
 	}
-	TestTrue(TEXT("The control window was found for rendering"), bFoundWindow);
-	Control->CloseWindow();
+	Control->OpenAdvancedWindow();Control->OpenAdvancedWindow();
+	TSharedPtr<SWindow> Advanced;int AdvancedCount=0;
+	for(const auto& W:FSlateApplication::Get().GetTopLevelWindows()){if(W->GetTitle().ToString()==TEXT("CXMR Advanced settings")){Advanced=W;++AdvancedCount;}}
+	TestEqual(TEXT("Advanced window is single"),AdvancedCount,1);
+	if(Advanced.IsValid())
+	{
+		Advanced->SetDPIScaleFactor(1.f);Advanced->Resize(FVector2D(560,760));
+		const TCHAR* Names[]={TEXT("MR"),TEXT("VR"),TEXT("Calibration"),TEXT("Diagnostics")};
+		for(int I=0;I<4;++I)
+		{
+			Control->AdvancedTab=I; FSlateApplication::Get().Tick();ScrollPreviewTo(*Advanced,0.f);
+			TestTrue(TEXT("Advanced tab preview saved"),SavePanelPreview(Advanced.ToSharedRef(),FString::Printf(TEXT("ControlWindowPreview_Advanced_%s.png"),Names[I])));
+			ScrollPreviewTo(*Advanced,440.f);
+			TestTrue(TEXT("Advanced middle preview saved"),SavePanelPreview(Advanced.ToSharedRef(),FString::Printf(TEXT("ControlWindowPreview_Advanced_%s_Middle.png"),Names[I])));
+			ScrollPreviewTo(*Advanced,-1.f);
+			TestTrue(TEXT("Advanced lower preview saved"),SavePanelPreview(Advanced.ToSharedRef(),FString::Printf(TEXT("ControlWindowPreview_Advanced_%s_End.png"),Names[I])));
+		}
+		Control->AdvancedTab=3;const auto Position=Advanced->GetPositionInScreen();
+		Advanced->RequestDestroyWindow(); FSlateApplication::Get().Tick();
+		TestFalse(TEXT("X hides advanced window"),Control->IsAdvancedWindowOpen());Control->OpenAdvancedWindow();
+		TestEqual(TEXT("Advanced tab survives reopen"),Control->AdvancedTab,3);
+		TestTrue(TEXT("Advanced position survives reopen"),Advanced->GetPositionInScreen().Equals(Position));
+		for(float Scale:{1.25f,1.5f})
+		{
+			Advanced->SetDPIScaleFactor(Scale);Advanced->Resize(FVector2D(560,760)*Scale);ScrollPreviewTo(*Advanced,-1.f);
+			TestTrue(TEXT("Scaled advanced preview saved"),SavePanelPreview(Advanced.ToSharedRef(),FString::Printf(TEXT("ControlWindowPreview_Advanced_%d.png"),FMath::RoundToInt(Scale*100))));
+		}
+	}
+	Control->CloseWindow();TestFalse(TEXT("Closing main also closes advanced"),Control->IsAdvancedWindowOpen());
+	Hands->DestroyComponent();Spectator->DestroyComponent();
+
 	Owner->Destroy();
 	GI->Shutdown();
 	World->DestroyWorld(false);

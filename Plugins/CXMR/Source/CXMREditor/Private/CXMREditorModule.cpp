@@ -62,7 +62,7 @@ private:
 			{
 				if (UCXMRTuningWindowComponent* Panel = FindPlayComponent<UCXMRTuningWindowComponent>())
 				{
-					Panel->SelectPage(ECXMRControlPage::Display);
+					Panel->OpenAdvancedWindow();
 					Panel->OpenWindow();
 				}
 			}), FToolMenuCanExecuteAction::CreateLambda([](const FToolMenuContext&) { return FindPlayComponent<UCXMRTuningWindowComponent>() != nullptr; }), FToolMenuGetActionCheckState()),

@@ -185,6 +185,13 @@ void UCXMRMarkerDebugComponent::Draw() const
 #endif
 }
 
+TArray<int32> UCXMRMarkerDebugComponent::GetVisibleMarkerIds() const
+{
+	TArray<int32> Ids;
+	for (const auto& Pair : Markers) { if (!Pair.Value.bLost) { Ids.Add(Pair.Key); } }
+	Ids.Sort(); return Ids;
+}
+
 void UCXMRMarkerDebugComponent::DumpMarkers() const
 {
 	UE_LOG(LogCXMRDebug, Warning, TEXT("===== CXMR marker dump (%d seen this session) ====="), Markers.Num());

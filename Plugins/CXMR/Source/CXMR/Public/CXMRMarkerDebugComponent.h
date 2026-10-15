@@ -69,6 +69,7 @@ public:
 
 	/** Dumps every marker seen this session to the log. Console: CXMR.DumpMarkers */
 	UFUNCTION(BlueprintCallable, Category = "CXMR|Debug") void DumpMarkers() const;
+	TArray<int32> GetVisibleMarkerIds() const;
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 

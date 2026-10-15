@@ -62,6 +62,7 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type Reason) override;
 
 private:
+	FText LastSnapResult;
 	UCXMRSubsystem* GetCXMR() const;
 	UCXMRTuningSubsystem* GetTuning() const;
 	IHandTracker* GetHandTracker() const;

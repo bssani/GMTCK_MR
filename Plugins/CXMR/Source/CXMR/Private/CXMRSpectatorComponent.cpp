@@ -293,35 +293,35 @@ void UCXMRSpectatorComponent::RegisterTunables()
 
 	// Sizes first: a saved mode starts the camera the moment its row registers.
 	{
-		FCXMRTunable T = Make("Spectator.FieldOfView", LOCTEXT("FieldOfView", "Monitor field of view"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("Degrees", "deg"); T.Min = 40.0f; T.Max = 120.0f; T.Delta = 1.0f; T.Default = 90.0f; T.bPersist = true;
+		FCXMRTunable T = Make("Spectator.FieldOfView", FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = 40.0f; T.Max = 120.0f; T.Delta = 1.0f; T.Default = 90.0f; T.bPersist = true;
 		T.Get = [this] { return FieldOfView; };
 		T.Set = [this](float Value) { FieldOfView = Value; };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Spectator.FollowSpeed", LOCTEXT("FollowSpeed", "Smoothing (lower = calmer)"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("PerSecond", "per s"); T.Min = 0.5f; T.Max = 20.0f; T.Delta = 0.1f; T.Default = 4.0f; T.bPersist = true;
+		FCXMRTunable T = Make("Spectator.FollowSpeed", FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = 0.5f; T.Max = 20.0f; T.Delta = 0.1f; T.Default = 4.0f; T.bPersist = true;
 		T.Get = [this] { return FollowSpeed; };
 		T.Set = [this](float Value) { FollowSpeed = Value; };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Spectator.OrbitDistance", LOCTEXT("OrbitDistance", "Orbit distance"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("cm", "cm"); T.Min = 150.0f; T.Max = 2000.0f; T.Delta = 10.0f; T.Default = 600.0f; T.bPersist = true;
+		FCXMRTunable T = Make("Spectator.OrbitDistance", FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = 150.0f; T.Max = 2000.0f; T.Delta = 10.0f; T.Default = 600.0f; T.bPersist = true;
 		T.Get = [this] { return OrbitDistance; };
 		T.Set = [this](float Value) { OrbitDistance = Value; };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Spectator.OrbitSpeed", LOCTEXT("OrbitSpeed", "Orbit speed"), ECXMRTunableKind::Float);
-		T.Unit = LOCTEXT("DegreesPerSecond", "deg/s"); T.Min = -45.0f; T.Max = 45.0f; T.Delta = 0.5f; T.Default = 8.0f; T.bPersist = true;
+		FCXMRTunable T = Make("Spectator.OrbitSpeed", FText::GetEmpty(), ECXMRTunableKind::Float);
+		T.Min = -45.0f; T.Max = 45.0f; T.Delta = 0.5f; T.Default = 8.0f; T.bPersist = true;
 		T.Get = [this] { return OrbitDegreesPerSecond; };
 		T.Set = [this](float Value) { OrbitDegreesPerSecond = Value; };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Spectator.Mode", LOCTEXT("Mode", "Monitor shows"), ECXMRTunableKind::Choice);
+		FCXMRTunable T = Make("Spectator.Mode", FText::GetEmpty(), ECXMRTunableKind::Choice);
 		T.Options = { LOCTEXT("ModeOff", "Headset mirror"), LOCTEXT("ModeFirstPerson", "Wearer's view, smoothed"), LOCTEXT("ModeOrbit", "Orbit the vehicle") };
 		T.Default = 0.0f; T.bPersist = true;
 		T.Get = [this] { return static_cast<float>(Mode); };
@@ -329,7 +329,7 @@ void UCXMRSpectatorComponent::RegisterTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Spectator.Output", LOCTEXT("Output", "Monitor picture"), ECXMRTunableKind::Readout);
+		FCXMRTunable T = Make("Spectator.Output", FText::GetEmpty(), ECXMRTunableKind::Readout);
 		T.Text = [this] { return DescribeOutput(); };
 		Tuning->Register(MoveTemp(T));
 	}
@@ -339,11 +339,11 @@ FText UCXMRSpectatorComponent::DescribeOutput() const
 {
 	if (Mode == ECXMRSpectatorMode::Off || !RenderTarget)
 	{
-		return LOCTEXT("OutputMirror", "headset mirror (no extra rendering)");
+		return LOCTEXT("OutputMirror", "Headset mirror");
 	}
 	if (bOnSpectatorScreen)
 	{
-		return FText::FromString(FString::Printf(TEXT("camera on the monitor, %d x %d"), RenderTarget->SizeX, RenderTarget->SizeY));
+		return FText::FromString(FString::Printf(TEXT("Spectator camera, %d × %d"), RenderTarget->SizeX, RenderTarget->SizeY));
 	}
 	return LOCTEXT("OutputNoScreen", "rendering, but no headset spectator screen to show it on");
 }

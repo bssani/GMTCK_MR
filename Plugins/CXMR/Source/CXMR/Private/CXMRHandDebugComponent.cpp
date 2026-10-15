@@ -248,17 +248,17 @@ void UCXMRHandDebugComponent::RegisterTunables()
 	};
 
 	{
-		FCXMRTunable T = Make("Hands.RightTip", NSLOCTEXT("CXMRHands", "RightTip", "Right index tip (cm)"), ECXMRTunableKind::Readout);
+		FCXMRTunable T = Make("Hands.RightTip", FText::GetEmpty(), ECXMRTunableKind::Readout);
 		T.Text = [this] { return DescribeTip(EControllerHand::Right); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Hands.LeftTip", NSLOCTEXT("CXMRHands", "LeftTip", "Left index tip (cm)"), ECXMRTunableKind::Readout);
+		FCXMRTunable T = Make("Hands.LeftTip", FText::GetEmpty(), ECXMRTunableKind::Readout);
 		T.Text = [this] { return DescribeTip(EControllerHand::Left); };
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Hands.TipToMarker", NSLOCTEXT("CXMRHands", "TipToMarker", "Tip minus marker"), ECXMRTunableKind::Readout);
+		FCXMRTunable T = Make("Hands.TipToMarker", FText::GetEmpty(), ECXMRTunableKind::Readout);
 		T.Text = [this] { return DescribeTipToMarker(); };
 		Tuning->Register(MoveTemp(T));
 	}
@@ -271,6 +271,7 @@ void UCXMRHandDebugComponent::RegisterTunables()
 	{
 		FCXMRTunable T = Make(HandOffsetIds[Axis], Labels[Axis], ECXMRTunableKind::Float);
 		T.Unit = NSLOCTEXT("CXMRHands", "cm", "cm");
+
 		T.Min = -30.0f; T.Max = 30.0f; T.Delta = 0.5f; T.Default = 0.0f; T.bPersist = true;
 		T.Get = [Axis] { return static_cast<float>(CXMRHands::GetOffset()[Axis]); };
 		T.Set = [Axis](float Value)
@@ -282,8 +283,9 @@ void UCXMRHandDebugComponent::RegisterTunables()
 		Tuning->Register(MoveTemp(T));
 	}
 	{
-		FCXMRTunable T = Make("Hands.SnapToMarker", NSLOCTEXT("CXMRHands", "SnapToMarker", "Snap hand to marker (index tip on its centre)"), ECXMRTunableKind::Action);
-		T.Invoke = [this] { CalibrateToNearestMarker(); };
+		FCXMRTunable T = Make("Hands.SnapToMarker", FText::GetEmpty(), ECXMRTunableKind::Action);
+		T.Invoke = [this] { LastSnapResult = CalibrateToNearestMarker() ? FText::FromString(TEXT("Hand offset updated")) : FText::GetEmpty(); };
+		T.Text = [this] { return LastSnapResult; };
 		Tuning->Register(MoveTemp(T));
 	}
 }

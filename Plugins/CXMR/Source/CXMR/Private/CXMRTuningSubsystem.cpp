@@ -1,6 +1,7 @@
 // Copyright GMTCK CX.
 
 #include "CXMRTuningSubsystem.h"
+#include "CXMRAdvancedSettings.h"
 
 #include "Dom/JsonObject.h"
 #include "HAL/FileManager.h"
@@ -33,6 +34,7 @@ void UCXMRTuningSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 bool UCXMRTuningSubsystem::Register(FCXMRTunable Tunable)
 {
+	CXMRAdvancedSettings::Describe(Tunable);
 	if (Tunable.Id.IsNone())
 	{
 		return false;

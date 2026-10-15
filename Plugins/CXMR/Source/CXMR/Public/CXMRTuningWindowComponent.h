@@ -25,7 +25,7 @@ class APostProcessVolume;
 UENUM(BlueprintType)
 enum class ECXMRControlPage : uint8
 {
-	Vehicle, View, Calibration, Display, Diagnostics
+	Vehicle, Calibration
 };
 
 /** 정렬 상태 표시등 등급. 표시 전용. */
@@ -40,7 +40,7 @@ public:
 	UCXMRTuningWindowComponent();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Tuning Window") bool bOpenOnBeginPlay = false;
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Tuning Window") FVector2D WindowSize = FVector2D(900.f, 760.f);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Tuning Window") FVector2D WindowSize = FVector2D(480.f, 820.f);
 	/** 통합 창 시작 위치(픽셀). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Tuning Window", meta=(ToolTip="Initial desktop position of the unified control window, in pixels.")) FVector2D WindowPosition = FVector2D(40.f, 60.f);
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "CXMR|Tuning Window") FText WindowTitle;
@@ -51,6 +51,10 @@ public:
 	UFUNCTION(BlueprintPure,     Category = "CXMR|Tuning Window") bool IsWindowOpen() const;
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI") void SelectPage(ECXMRControlPage Page);
 	UFUNCTION(BlueprintPure, Category = "CXMR|UI") ECXMRControlPage GetActivePage() const { return ActivePage; }
+	void OpenAdvancedWindow();
+	void HideAdvancedWindow();
+	bool IsAdvancedWindowOpen() const { return AdvancedWindow.IsValid() && bAdvancedVisible; }
+	int32 AdvancedTab = 0;
 	void StartCalibration();
 	UFUNCTION(BlueprintCallable, Category = "CXMR|UI", meta=(ToolTip="Click twice within five seconds to delete the loaded group alignment. Vehicle-specific saves remain unchanged.")) void ResetSharedAlignment();
 	bool IsSharedAlignmentResetArmed() const;
@@ -105,8 +109,10 @@ private:
 
 	/** Slate 창은 EndPlay에서 직접 닫음. */
 	TSharedPtr<SWindow> Window;
+	TSharedPtr<SWindow> AdvancedWindow;
+	bool bAdvancedVisible = false;
 	FDelegateHandle TunablesChangedHandle;
-	ECXMRControlPage ActivePage = ECXMRControlPage::Vehicle;
+	ECXMRControlPage ActivePage = ECXMRControlPage::Calibration;
 	mutable TWeakObjectPtr<UCXMRPlacementComponent> CachedPlacement;
 	TWeakObjectPtr<UCXMRPlacementComponent> ResetPlacement;
 	FName ResetGroup;
